@@ -1,0 +1,39 @@
+[importlinter]
+root_packages = freeweight
+
+[importlinter:contract:layers]
+name = FreeWeight internal layering
+type = layers
+layers =
+    freeweight.web
+    freeweight.cli
+    freeweight.services
+    freeweight.domain
+containers = freeweight
+
+[importlinter:contract:web-cli-independence]
+name = Web and CLI never import each other
+type = independence
+modules =
+    freeweight.web
+    freeweight.cli
+
+[importlinter:contract:domain-purity]
+name = Domain imports no frameworks
+type = forbidden
+source_modules = freeweight.domain
+forbidden_modules =
+    fastapi
+    starlette
+    sqlalchemy
+    typer
+    httpx
+    jinja2
+
+[importlinter:contract:no-other-applications]
+name = FreeWeight must not import other applications
+type = forbidden
+source_modules = freeweight
+forbidden_modules =
+    loadcoach
+    ideapress
