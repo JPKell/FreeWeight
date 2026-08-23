@@ -45,8 +45,8 @@ for the whole suite, so a benchmark's VRAM reading and a router's admission chec
 
 ## 5. Dependencies
 
-`baseaicore`. No third-party runtime dependency. Optional extra: `pynvml` (alternative GPU reader),
-`psutil` (future non-Linux host readers).
+`baseaicore`. No third-party runtime dependency. Optional extra: `pynvml` (the NVML GPU reader,
+selected automatically when installed — see §7), `psutil` (future non-Linux host readers).
 
 ## 6. Consumers
 
@@ -121,6 +121,12 @@ class GpuReader(Protocol):
 
 create_host_reader(*, platform_name: str | None = None) -> HostReader
 create_gpu_reader(*, prefer: GpuBackend | None = None) -> GpuReader
+# GpuBackend.NVIDIA_SMI  — the bounded command; always available wherever a driver is.
+# GpuBackend.PYNVML      — in-process NVML; needs the optional extra, no subprocess per sample.
+# prefer=None selects PYNVML when the extra is importable and NVIDIA_SMI otherwise. Both produce
+# identical GpuSample and GpuProfile values for the same device, proven by one conformance suite
+# run against both (ADR-0021 §7); an explicit PYNVML request without the extra raises
+# DependencyUnavailableError rather than silently downgrading.
 NullHostReader()     # every field UNSUPPORTED with reason "platform_unsupported"; never zeros
 NullGpuReader()      # available() is False; sample() is empty
 # Both are public, because §13's degradation path tells consumers to construct one when
@@ -192,6 +198,9 @@ roots, preferred GPU backend, optional ring-buffer size.
 | `nvidia-smi` non-zero exit or timeout | `gpus == ()` for that sample, reason recorded; the next sample retries |
 | `nvidia-smi` malformed CSV | Parseable rows kept; unparseable fields `UNSUPPORTED` |
 | Sensor missing (power/fan/clock/temp) | That field `UNSUPPORTED` |
+| NVML sensor unsupported on the device | That field `UNSUPPORTED` with its reason; every other field on the same device is unaffected, because each is its own call |
+| `nvmlInit` fails (no driver, no permission) | `available() == False`; `gpus == ()`; reason recorded; the next call retries initialization |
+| `GpuBackend.PYNVML` requested without the extra | `create_gpu_reader` raises `DependencyUnavailableError` naming the extra; never a silent downgrade |
 | Permission denied | Field `UNSUPPORTED`, reason `permission_denied` |
 | Unsupported platform | `create_host_reader` raises `UnsupportedPlatformError`; consumers construct a `NullHostReader` and degrade |
 | Sampler thread dies | Logged at ERROR by the consumer's handler; `latest()` keeps returning the last snapshot with its (now stale) timestamp so staleness is visible |
@@ -211,6 +220,7 @@ roots, preferred GPU backend, optional ring-buffer size.
 |---|---|---|
 | Snapshot, no GPU | ≤ 3 ms | 10 ms |
 | Snapshot with `nvidia-smi`, 1 GPU | ≤ 40 ms | 120 ms |
+| Snapshot with `pynvml` (NVML), 1 GPU | ≤ 3 ms | 10 ms |
 | Sampler CPU at 1 s interval | ≤ 0.5 % of one core | 1.5 % |
 | Effect on measured benchmark throughput | ≤ 1 % | 2 % |
 | Memory | ≤ 5 MB steady | — |
@@ -243,6 +253,7 @@ regardless of the runner. See [Cross-Platform Standards](../../standards/cross-p
 | Fingerprint | Delegated to BaseAiCore; here: correct assembly from reader output, GPU sorting, `UNSUPPORTED` handling |
 | Sampler | Start/stop, interval accuracy, clean shutdown, exception in callback isolated, context manager, `latest()` staleness, no thread leak |
 | Derived | Energy integration against a known series, peak/mean, throttle heuristic, empty window, all-`UNSUPPORTED` window |
+| GPU backend conformance | One suite of protocol invariants — value types, index ordering, unit ranges, honest throttle reporting — run against every `GpuReader`: recorded `nvidia-smi` output, the NVML backend over a fake binding, `NullGpuReader` and `ScriptedGpuReader`; plus an equivalence test pinning both NVIDIA backends to identical output for one device ([ADR-0021](../../adr/0021-telemetry-collection-strategy.md) §7) |
 | Platform factory | Every branch including the unsupported-platform error; stubs raise, never return zeros; `NullHostReader` degrades every field to `UNSUPPORTED` with a reason and never to `0` |
 | Test doubles | `ScriptedHostReader`/`ScriptedGpuReader` replay a fixed series deterministically; `FaultInjectingReader` fails the named field and only that field |
 | Performance | Snapshot latency, sampler overhead, memory |
@@ -271,7 +282,6 @@ Coverage floor: **95 %**. The default suite must pass on a machine with no GPU.
 ## 21. Future extensions
 
 * AMD via `rocm-smi`; Intel GPUs; Apple Silicon via `powermetrics`.
-* `pynvml` promoted to the default NVIDIA reader where installed.
 * Windows and macOS `HostReader`s (likely on `psutil` as an extra).
 * Per-process GPU memory attribution where the driver exposes it.
 * Network throughput, if a consumer needs it.

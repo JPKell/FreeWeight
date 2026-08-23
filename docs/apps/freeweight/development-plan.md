@@ -151,7 +151,7 @@ descriptor and losing history; treating an alias as an identity.
 **Goal:** the persistent telemetry bar is live on every page, and the machine this instance runs on is
 identified and stored.
 
-**Prerequisites:** P2; `sweatmeter>=0.3,<0.4` (P3 complete).
+**Prerequisites:** P2; `sweatmeter>=0.4,<0.5` (P3 complete; shipped as `0.4.0`).
 
 **Work**
 * Machine profiling at startup: profile → fingerprint → upsert → `last_seen_at`.

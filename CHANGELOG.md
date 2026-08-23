@@ -7,5 +7,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
 
 ## [Unreleased]
 
+### Changed
+- Widened the `sweatmeter` pin to `>=0.4,<0.5`. SweatMeter's first published release is `0.4.0`
+  (`0.3.0` completed its development plan but never reached the index), and it adds the in-process
+  NVML GPU backend, selected automatically wherever the optional `pynvml` extra is installed.
+
 ### Added
 - Repository scaffold generated from the suite's development plan (no functional code yet).
