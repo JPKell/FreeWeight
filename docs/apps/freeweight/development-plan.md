@@ -16,10 +16,10 @@ Every phase ends in something a person can run and look at. No phase is "impleme
 **Prerequisites:** `baseaicore>=0.4,<0.5`.
 
 **Work**
-* Repository skeleton per [Packaging Standards](../../standards/packaging-and-release-standards.md);
+* Repository skeleton per Packaging Standards;
   `src/freeweight/` with `domain/ services/ infrastructure/ web/ cli/ observability/`.
 * Typed settings with the documented precedence and startup validation, including the unsafe-binding
-  refusals ([Configuration Standards](../../standards/configuration-standards.md)).
+  refusals (Configuration Standards).
 * FastAPI app: `/api/v1/health`, `/api/v1/version`, error-envelope handler, request-ID middleware,
   size limits, one HTML page (the shell with a placeholder body).
 * Typer CLI: `serve`, `health`, `version`, `config show|validate|init|path`, with lazy imports so
@@ -66,7 +66,7 @@ by real tables.
 
 **Work**
 * SQLAlchemy models for `machines`, `models`, `model_descriptors`, `runtime_profiles`, `settings`,
-  `api_tokens` ([Data Model](data-model.md)).
+  `api_tokens` (Data Model).
 * Engine/session plumbing written **as if it were a package** (it becomes WeightsDB later): pragmas,
   session scope, transaction helper, portable types.
 * Alembic: migration `0001`, autogenerate parity check in CI, startup revision check with the
@@ -269,10 +269,10 @@ for the run and a complete reproducibility fingerprint — and the same run can 
 **Work**
 * Prompt library: record schema, pack manifest, `StrictUndefined` renderer, canonical hashing,
   `prompt_subset_hash`, startup validation — written as if it were a package, because it becomes one
-  at LoadCoach P4 ([ADR-0028](../../adr/0028-prompt-pack-granularity.md)).
-* `native.performance` and `native.token_economy` per the [Benchmark Catalog](benchmark-catalog.md).
+  at LoadCoach P4 (ADR-0028).
+* `native.performance` and `native.token_economy` per the Benchmark Catalog.
 * Telemetry table split (host rows and per-GPU rows) and `execution.gpu_index` attribution
-  ([ADR-0027](../../adr/0027-multi-gpu-semantics.md)); idle-detection outcome per
+  (ADR-0027); idle-detection outcome per
   [spec §13](spec.md).
 * Served context resolved and recorded with its source.
 * Warm-up/cooldown, idle detection, cold/warm labelling, repetition handling, `perf_counter_ns`
@@ -333,7 +333,7 @@ measured with entirely deterministic scoring.
 
 **Work**
 * Benchmark prompt records and the `prompts list|show|build` CLI
-  ([Prompt Standards](../../standards/prompt-management-standards.md)); the loader, renderer and
+  (Prompt Standards); the loader, renderer and
   hashing already exist from P6.
 * `native.instruction_following`, `native.structured_output`, `native.tool_use`,
   `native.tool_recovery`, `native.agent`.
@@ -509,7 +509,7 @@ tests/accessibility/test_ui_checklist.py  tests/performance/test_dashboard_queri
 * UI checklist: themes, `—` rendering, keyboard, contrast, 1280×720, empty/loading/error states.
 
 **Acceptance criteria**
-1. Every acceptance item in [UI/UX Standards §13](../../standards/ui-ux-standards.md) passes.
+1. Every acceptance item in ui ux standards passes.
 2. No headline number is more than two interactions from its raw source.
 3. Deleting results is previewed, confirmed, transactional and backed up.
 4. Exports stream a 10 000-sample run within budget.
@@ -530,13 +530,13 @@ application can consume with no FreeWeight code and no database access.
 
 **Work**
 * Capability mapping configuration (benchmark metrics → capabilities, with weights), versioned.
-* Aggregation implementing [ADR-0017](../../adr/0017-benchmark-confidence-and-freshness.md):
+* Aggregation implementing ADR-0017:
   sample, consistency, freshness, environment and identity factors; hard separations; policy version
   recorded. Freshness decays from `measured_at` — the latest `completed_at` among the contributing
   runs — never from `computed_at`
-  ([ADR-0022 §2](../../adr/0022-capability-evidence-record-contract.md)).
+  (ADR-0022 §2).
 * The full `capability.evidence` field set from
-  [ADR-0022 §1](../../adr/0022-capability-evidence-record-contract.md), including
+  ADR-0022 §1, including
   `vocabulary_version`, `dataset_hashes` and per-benchmark `prompt_subset_hashes`.
 * `GET /evidence/export?since=` filtering on `computed_at`, and `complete: true|false` on every
   bundle.
@@ -599,7 +599,7 @@ their adoption checklists.
 * Replace local templates, tokens, components and JS with MirrorWall's, keeping FreeWeight's pages and
   navigation.
 * Replace `freeweight.services.prompts` with `setspec.prompts`, keeping FreeWeight's own pack and its
-  `prompts` CLI commands ([ADR-0028](../../adr/0028-prompt-pack-granularity.md)). Prompt hashes must be
+  `prompts` CLI commands (ADR-0028). Prompt hashes must be
   byte-identical before and after — a golden test over the existing pack is the acceptance criterion.
 * Delete the superseded code; keep every existing test passing **unchanged** — that is the proof the
   adoption changed nothing observable.
@@ -690,7 +690,7 @@ acceptance criteria.
 
 **Work**
 * Performance pass against every budget in the [spec](spec.md) §15; fix regressions.
-* Security pass: full checklist in [Security Standards §14](../../standards/security-standards.md),
+* Security pass: full checklist in Security Standards §14,
   including `Host` validation, the CSRF token on form routes, and the refusal to start when a
   non-loopback bind lacks `server.allowed_hosts`.
 * Documentation: README, quickstart, configuration reference (generated), API docs, benchmark guide,
@@ -713,7 +713,7 @@ tests/performance/**  tests/security/**  tests/e2e/test_full_journeys.py
 
 **Acceptance criteria**
 1. All 12 acceptance criteria in the [spec](spec.md) §20 pass.
-2. All FreeWeight gold standards in [Gold Standards §2](../../standards/gold-standards.md) are met.
+2. All FreeWeight gold standards in Gold Standards §2 are met.
 3. Documentation complete; `freeweight doctor` diagnoses every failure mode in the troubleshooting
    guide.
 4. `freeweight 1.0.0` published and installable from PyPI.

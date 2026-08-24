@@ -1,9 +1,8 @@
 # FreeWeight — Specification
 
 **Type:** Application · **Import/distribution name:** `freeweight` · **Default port:** 8765 · **Env prefix:** `FREEWEIGHT_`
-**Status:** Specified, not implemented. Corrected 2026-08-21 by the
-[final architecture audit](../../reviews/final_architecture_audit.md) (ADR-0022, ADR-0024, ADR-0026–0028).
-**Related:** [Benchmark Catalog](benchmark-catalog.md) · [API](api.md) · [Data Model](data-model.md) · [Development Plan](development-plan.md) · [Risks](risks.md)
+**Status:** Specified, not implemented.
+**Related:** [API](api.md) · [Development Plan](development-plan.md)
 
 ---
 
@@ -27,7 +26,7 @@ particular — can consume without touching FreeWeight's internals.
 * Provenance and reproducibility fingerprints.
 * Comparison: models, quantizations, runtime profiles, machines, time.
 * Capability evidence aggregation with confidence and freshness
-  ([ADR-0017](../../adr/0017-benchmark-confidence-and-freshness.md)).
+  (ADR-0017).
 * Export and a read-only evidence API.
 * Web UI and CLI over one service layer.
 
@@ -42,7 +41,7 @@ particular — can consume without touching FreeWeight's internals.
 * No leaderboard publishing, no telemetry upload, no comparison against other people's machines.
 * No single universal "model score" as a default.
 * No execution of model-generated code outside a sandbox
-  ([ADR-0018](../../adr/0018-external-benchmark-isolation.md)).
+  (ADR-0018).
 * No writing to another application's database, and no reading of one.
 
 ## 4. Responsibilities
@@ -140,7 +139,7 @@ exports, and the rendered UI.
 Owns `freeweight.sqlite3` (or its PostgreSQL equivalent) exclusively: machines, models,
 model_descriptors, runtime_profiles, benchmark_suites, benchmark_tests, runs, run_tests, samples,
 metric_values, tool_calls, telemetry_samples, run_events, artifacts, capability_evidence, settings.
-See [Data Model](data-model.md).
+See Data Model.
 
 Owns its artifact directory and its exports directory. Reads nothing belonging to another
 application.
@@ -150,13 +149,13 @@ application.
 1. **Evidence contract.** `capability.evidence` and `benchmark.evidence_bundle` are the supported
    integration surface. LoadCoach consumes them and never queries FreeWeight's tables.
 2. **Provenance contract.** Every exported result carries the full provenance set from
-   [Machine Identity §6](../../architecture/machine-identity-and-reproducibility.md).
+   Machine Identity §6.
 3. **Confidence contract.** FreeWeight computes capability confidence per
-   [ADR-0017](../../adr/0017-benchmark-confidence-and-freshness.md); consumers apply it and do not
+   ADR-0017; consumers apply it and do not
    recompute it.
 4. **Comparability contract.** Exports carry the measurement subject and benchmark version; consumers
    can therefore determine comparability without asking FreeWeight.
-5. **API contract.** `/api/v1` per [API Standards](../../standards/api-and-contract-standards.md);
+5. **API contract.** `/api/v1` per API Standards;
    additive within v1.
 6. **Unsupported contract.** Unavailable measurements are `"unsupported"` everywhere — API, export,
    UI, database.
@@ -164,7 +163,7 @@ application.
 ## 12. Configuration
 
 `~/.config/freeweight/config.toml`, `FREEWEIGHT_*` environment variables, CLI flags, per
-[Configuration Standards](../../standards/configuration-standards.md). Principal sections:
+Configuration Standards. Principal sections:
 
 ```toml
 [server]      host = "127.0.0.1"   port = 8765   allow_lan_exposure = false
@@ -222,15 +221,15 @@ Behavioural rules:
   one GPU" honest rather than merely documented.
 * On a machine where more than one GPU is visible and the provider does not report placement, memory,
   KV and energy tests are **skipped** with `multi_gpu_placement_unknown`; quality, throughput and
-  latency tests run normally ([ADR-0027](../../adr/0027-multi-gpu-semantics.md)).
+  latency tests run normally (ADR-0027).
 * Cancellation is honoured at every phase and leaves consistent data.
-* Full degradation matrix: [Graceful Degradation](../../architecture/graceful-degradation.md).
+* Full degradation matrix: Graceful Degradation.
 
 ## 14. Security considerations
 
 * Loopback by default; non-loopback requires tokens, the exposure acknowledgement and
   `server.allowed_hosts`. The `Host` header is validated on every request before routing
-  ([ADR-0026](../../adr/0026-local-http-hardening.md)).
+  (ADR-0026).
 * **Model-generated code is never executed on the host.** Tiered sandbox, refusal at the bottom tier.
 * Native tool benchmarks expose only mock tools over fixture data — no shell, no unrestricted
   filesystem, no network, no real database.
@@ -266,7 +265,7 @@ Linux tier 1. On Windows/macOS: the application, database, discovery, quality be
 work; host telemetry is `unsupported` (GPU telemetry works where `nvidia-smi` is present); memory,
 KV-cache and energy benchmarks are **skipped with a recorded reason**; code-execution benchmarks
 require a container runtime. See
-[Cross-Platform Standards](../../standards/cross-platform-standards.md).
+Cross-Platform Standards.
 
 ## 17. Observability
 
@@ -300,7 +299,7 @@ The default suite runs with **no GPU, no Ollama, no network**.
   invalidating them.
 * A benchmark's provenance carries the `prompt_subset_hash` of **the prompts that benchmark declares**,
   not the whole pack's hash — so editing an unrelated prompt separates nothing
-  ([ADR-0028](../../adr/0028-prompt-pack-granularity.md)).
+  (ADR-0028).
 * Database migrations are forward-only with tested upgrade paths from every released version.
 * Result data is never silently reinterpreted by an upgrade: if a metric definition changes, the
   metric gets a new key and the old key is retained.
@@ -318,7 +317,7 @@ The default suite runs with **no GPU, no Ollama, no network**.
 6. Unsupported measurements appear as `—` in the UI and `"unsupported"` in exports — never `0`.
 6a. Recomputing capability evidence over unchanged runs does not raise its confidence: freshness comes
    from `measured_at`, the latest completed run that contributed
-   ([ADR-0022](../../adr/0022-capability-evidence-record-contract.md)).
+   (ADR-0022).
 7. Cold and warm measurements are never mixed in one headline number.
 8. An evidence bundle exported by FreeWeight is imported by LoadCoach with no FreeWeight code or
    database access.
@@ -326,7 +325,7 @@ The default suite runs with **no GPU, no Ollama, no network**.
 10. The full test suite passes with no GPU, no Ollama and no network; coverage ≥ 85 % overall and
     ≥ 95 % in `domain/`.
 11. Deleting results never deletes model or machine history, and always previews first.
-12. All gold standards for FreeWeight in [Gold Standards §2](../../standards/gold-standards.md) are met.
+12. All gold standards for FreeWeight in Gold Standards §2 are met.
 
 ## 21. Future extensions
 

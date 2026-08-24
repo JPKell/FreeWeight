@@ -1,6 +1,6 @@
 # FreeWeight — Public API
 
-**Base path:** `/api/v1` · **Conventions:** [API and Contract Standards](../../standards/api-and-contract-standards.md)
+**Base path:** `/api/v1` · **Conventions:** API and Contract Standards
 **Generated documentation:** `/api/v1/openapi.json`, `/api/v1/docs` (loopback only by default).
 
 Everything here is additive within v1. The committed OpenAPI snapshot is diff-checked in CI.
@@ -12,7 +12,7 @@ Everything here is additive within v1. The committed OpenAPI snapshot is diff-ch
 | Endpoint | Purpose |
 |---|---|
 | `GET /health` | Component health (`database`, `provider`, `gpu_telemetry`, `sandbox`, `external_benchmarks`, `prompts`) |
-| `GET /version` | Application version, API versions, SetSpec schema versions. **Never authenticated** ([ADR-0026 §5](../../adr/0026-local-http-hardening.md)) |
+| `GET /version` | Application version, API versions, SetSpec schema versions. **Never authenticated** (ADR-0026 §5) |
 | `GET /system/status` | Active run, queue depth, telemetry snapshot, threadpool saturation, disk headroom |
 | `GET /system/telemetry/stream` | SSE — `telemetry.sampled` events at the configured interval |
 
@@ -30,7 +30,7 @@ Everything here is additive within v1. The committed OpenAPI snapshot is diff-ch
 `model_ref` is the application-local ULID, or an unambiguous prefix of one; an ambiguous prefix
 returns 400 listing the candidates. **The canonical ID is never a path segment** — it contains `/`,
 `:` and `@`, and a percent-encoded `/` does not survive common reverse proxies
-([ADR-0024](../../adr/0024-canonical-id-and-model-references.md)). Request bodies and CLI arguments
+(ADR-0024). Request bodies and CLI arguments
 still accept a canonical ID, a bare name or an unambiguous prefix.
 
 ## 3. Benchmarks
@@ -104,7 +104,7 @@ the field-level fingerprint diff that separates them.
 | `GET /evidence/export` | A complete `benchmark.evidence_bundle` (SetSpec-versioned), optionally filtered; the file form of the same data. A **single** SetSpec envelope, with no collection wrapper |
 
 The two envelopes compose in exactly that order and never the reverse
-([ADR-0025 §2](../../adr/0025-envelope-boundaries.md)). Consumers check `schema_version` and reject
+(ADR-0025 §2). Consumers check `schema_version` and reject
 unsupported majors. These endpoints are **read-only** and require only the `read` scope when
 authentication is enabled.
 
@@ -119,7 +119,7 @@ Every bundle declares `complete: true|false`. `since` produces an incremental bu
 (`complete: false`), which can add and update evidence but can never tell a consumer that something
 was removed. A consumer observes removals only from a complete bundle, and marks locally-held evidence
 absent from one as `superseded` rather than deleting it
-([ADR-0022 §5](../../adr/0022-capability-evidence-record-contract.md)). A consumer that has never
+(ADR-0022 §5). A consumer that has never
 imported from this source pulls complete.
 
 ## 7. Database management
@@ -142,7 +142,7 @@ Models and machines are never removed by a result deletion.
 ## 9. Authentication
 
 Loopback with no configured tokens: open. Otherwise `Authorization: Bearer <token>` with scopes
-`read` / `write` / `admin` ([ADR-0014](../../adr/0014-authentication-strategy.md)). Read-only
+`read` / `write` / `admin` (ADR-0014). Read-only
 endpoints — including `/evidence` — need only `read`.
 
 ## 10. Client guidance for LoadCoach
@@ -158,9 +158,9 @@ endpoints — including `/evidence` — need only `read`.
    versions, dataset hashes or prompt subset hashes.
 4a. Evidence for a model you have not discovered is normal, not an error: retain it, mark it
    unmatched, and bind it when discovery produces a match
-   ([ADR-0022 §4](../../adr/0022-capability-evidence-record-contract.md)).
+   (ADR-0022 §4).
 4b. Take freshness from `measured_at`, never from `computed_at`.
 4c. Use evidence only for an execution whose resolved runtime profile hash matches the evidence's
-   ([ADR-0023](../../adr/0023-runtime-profile-resolution.md)).
+   (ADR-0023).
 5. Treat FreeWeight being unreachable as **degraded**: keep the last import, mark it stale, and say so
    in every routing explanation.

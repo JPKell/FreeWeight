@@ -3,7 +3,7 @@
 All notable changes to `freeweight` are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versioning follows
 [Semantic Versioning](https://semver.org/), pre-1.0 per
-`docs/standards/packaging-and-release-standards.md` §3.
+packaging and release standards §3.
 
 ## [Unreleased]
 
