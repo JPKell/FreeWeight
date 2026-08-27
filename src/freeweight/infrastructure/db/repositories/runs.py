@@ -31,6 +31,7 @@ from freeweight.infrastructure.db.models_runs import (
     RunEvent,
     RunTest,
     Sample,
+    ToolCall,
 )
 
 if TYPE_CHECKING:
@@ -48,6 +49,7 @@ __all__ = [
     "RunTestRepository",
     "RuntimeProfileRepository",
     "SampleRepository",
+    "ToolCallRepository",
 ]
 
 _ORPHAN_STATUSES = ("preparing", "warming", "running", "cancelling")
@@ -693,6 +695,60 @@ class SampleRepository:
             .group_by(Sample.status)
         ).all()
         return {str(row[0]): int(row[1]) for row in rows}
+
+
+class ToolCallRepository:
+    """Reads and writes ``tool_calls`` — one row per invocation a model requested.
+
+    Written whole, per sample: a trajectory is inserted in one transaction after its sample exists,
+    so a partially-written trajectory cannot be read back as a shorter one. There is no update
+    path; a call happened as it happened.
+    """
+
+    def insert_many(self, session: Session, rows: Sequence[dict[str, Any]]) -> int:
+        """Insert one sample's whole trajectory and return how many rows were written.
+
+        Args:
+            session: An open write session.
+            rows: The column values, in call order. Empty is legal and common — most cases make no
+                tool call at all — and writes nothing.
+
+        Returns:
+            The number of rows inserted.
+        """
+        if not rows:
+            return 0
+        session.add_all([ToolCall(**values) for values in rows])
+        session.flush()
+        return len(rows)
+
+    def list_for_sample(self, session: Session, sample_id: str) -> list[ToolCall]:
+        """Return one sample's calls in the order the model made them."""
+        return list(
+            session.scalars(
+                select(ToolCall)
+                .where(ToolCall.sample_id == sample_id)
+                .order_by(ToolCall.turn_index.asc(), ToolCall.call_index.asc())
+            ).all()
+        )
+
+    def count_for_run(self, session: Session, run_id: str) -> int:
+        """Count every tool call made anywhere in one run.
+
+        Joins through ``samples`` and ``run_tests`` rather than denormalizing ``run_id`` onto the
+        row: a tool call belongs to a sample, the drill-down that reads it always has the sample,
+        and a second copy of the run id would be a second thing to keep true.
+        """
+        return int(
+            session.scalar(
+                select(func.count())
+                .select_from(ToolCall)
+                .join(Sample, Sample.id == ToolCall.sample_id)
+                .join(RunTest, RunTest.id == Sample.run_test_id)
+                .where(RunTest.run_id == run_id)
+            )
+            or 0
+        )
 
 
 class MetricValueRepository:

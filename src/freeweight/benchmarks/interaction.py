@@ -28,6 +28,7 @@ import json
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 
+from baseaicore import elapsed_ms, monotonic_ns, sha256_of
 from modelrack.types import Message, ResponseFormat, ResponseFormatKind, Role
 
 from freeweight.domain.scorers.schema import SchemaUnsupported, extract_json, validate
@@ -212,7 +213,9 @@ class ToolSession:
                 # (:class:`~modelrack.types.ToolCall`), and a harness that conflated them would
                 # score a malformed call as a well-formed one against a tool that needs none.
                 parsed = not (requested.raw_arguments is not None and not requested.arguments)
+                started_ns = monotonic_ns()
                 outcome = toolbox.invoke(requested.name, requested.arguments)
+                duration_ms = elapsed_ms(started_ns)
                 calls.append(
                     ToolInvocation(
                         step=step,
@@ -226,6 +229,11 @@ class ToolSession:
                         ok=outcome.ok,
                         error_code=outcome.error_code,
                         result_digest=outcome.digest,
+                        # The harness's answer is hashed, never stored: it is content, and it goes
+                        # straight into the next prompt. Two runs whose tools answered identically
+                        # are comparable without either keeping a byte of it (spec §14).
+                        result_hash=f"sha256:{sha256_of(outcome.content)}",
+                        duration_ms=duration_ms,
                     )
                 )
                 messages.append(

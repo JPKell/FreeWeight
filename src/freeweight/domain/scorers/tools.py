@@ -36,6 +36,7 @@ if TYPE_CHECKING:
 
 __all__ = [
     "EXPECTATION_KEY",
+    "CallVerdict",
     "ExpectedCall",
     "ToolArgumentScorer",
     "ToolExpectation",
@@ -43,6 +44,7 @@ __all__ = [
     "ToolSelectionScorer",
     "ToolTranscript",
     "TrajectoryScorer",
+    "annotate_calls",
     "tool_metrics",
 ]
 
@@ -83,6 +85,12 @@ class ToolInvocation:
         ok: Whether the tool returned a result rather than an error.
         error_code: The mock tool's stable error code, or ``None``.
         result_digest: A short, stable summary of what the tool returned, for the drill-down.
+        result_hash: ``sha256:``-prefixed hash of what the tool returned, or ``None`` for a call
+            the harness refused to run. The hash and not the text: a tool result is content, and
+            content is stored as a hash by default (spec §14).
+        duration_ms: How long the harness took to answer this call. Part of the catalog's
+            *recovery latency*, and the figure that would show a fixture growing expensive enough
+            to distort what the suite is meant to measure.
     """
 
     step: int
@@ -96,6 +104,22 @@ class ToolInvocation:
     ok: bool = True
     error_code: str | None = None
     result_digest: str = ""
+    result_hash: str | None = None
+    duration_ms: float | None = None
+
+    @property
+    def status(self) -> str:
+        """This call's ``tool_calls.status``: ``ok``, ``error``, ``unknown_tool`` or invalid.
+
+        Four states rather than two, because "the tool failed" and "the harness would not run it"
+        are different facts about the model — the first is something to recover from, the second
+        is something the model got wrong before any tool was involved (data model §2).
+        """
+        if not self.known_tool:
+            return "unknown_tool"
+        if not self.executed:
+            return "invalid_arguments"
+        return "ok" if self.ok else "error"
 
     @property
     def signature(self) -> tuple[str, str]:
@@ -117,6 +141,9 @@ class ToolInvocation:
             "ok": self.ok,
             "error_code": self.error_code,
             "result_digest": self.result_digest,
+            "result_hash": self.result_hash,
+            "duration_ms": self.duration_ms,
+            "status": self.status,
         }
 
 
@@ -310,6 +337,74 @@ def tool_metrics(
     if succeeded:
         metrics["calls_per_success"] = float(len(calls))
     return metrics
+
+
+@dataclass(frozen=True, slots=True)
+class CallVerdict:
+    """How one actual call compares with what the case required, for one ``tool_calls`` row.
+
+    Attributes:
+        expected_tool: The required call this one answers, or — when it answers none — the first
+            requirement still outstanding, which is what the model should have called instead.
+            ``None`` when the case requires nothing more.
+        correct_tool: Whether the call named ``expected_tool``. ``None`` when there is no
+            expectation to compare against, which is not the same as ``False`` (ADR-0016).
+        correct_arguments: Whether the call carried the argument values the case named. ``None``
+            when the tool was wrong, or when the case named no argument values for it — again, not
+            the same as ``False``.
+    """
+
+    expected_tool: str | None = None
+    correct_tool: bool | None = None
+    correct_arguments: bool | None = None
+
+
+def annotate_calls(
+    expectation: ToolExpectation, transcript: ToolTranscript
+) -> tuple[CallVerdict, ...]:
+    """Compare each actual call with the case's requirements, one verdict per call.
+
+    The per-*call* view of the same greedy pairing :func:`tool_metrics` aggregates, so a stored
+    ``tool_calls`` row and the rate computed over it can never disagree about which call satisfied
+    which requirement.
+
+    Args:
+        expectation: What the case said a correct trajectory looks like.
+        transcript: What the model actually did.
+
+    Returns:
+        One verdict per call in ``transcript.calls``, in the same order.
+    """
+    satisfied = {
+        id(call): expected
+        for expected, call in _match_required(expectation.required_calls, transcript.calls)
+        if call is not None
+    }
+    outstanding = [
+        expected
+        for expected, call in _match_required(expectation.required_calls, transcript.calls)
+        if call is None
+    ]
+    verdicts: list[CallVerdict] = []
+    for call in transcript.calls:
+        expected = satisfied.get(id(call))
+        if expected is not None:
+            verdicts.append(
+                CallVerdict(
+                    expected_tool=expected.name,
+                    correct_tool=True,
+                    correct_arguments=(
+                        _arguments_agree(expected.arguments, call.arguments)
+                        if expected.arguments
+                        else None
+                    ),
+                )
+            )
+        elif outstanding:
+            verdicts.append(CallVerdict(expected_tool=outstanding[0].name, correct_tool=False))
+        else:
+            verdicts.append(CallVerdict())
+    return tuple(verdicts)
 
 
 def _match_required(

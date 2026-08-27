@@ -43,6 +43,7 @@ rows it produced.
 
 from __future__ import annotations
 
+import dataclasses
 import json
 import logging
 import random
@@ -103,7 +104,12 @@ from freeweight.domain.run_state import (
     require_run_transition,
     require_test_transition,
 )
-from freeweight.domain.scorers.tools import TrajectoryScorer
+from freeweight.domain.scorers.tools import (
+    ToolExpectation,
+    ToolTranscript,
+    TrajectoryScorer,
+    annotate_calls,
+)
 from freeweight.domain.scoring import ScoreResult
 from freeweight.infrastructure.db.errors import DatabaseUnavailable
 from freeweight.infrastructure.db.repositories.model_descriptors import ModelDescriptorRepository
@@ -115,6 +121,7 @@ from freeweight.infrastructure.db.repositories.runs import (
     RunTestRepository,
     RuntimeProfileRepository,
     SampleRepository,
+    ToolCallRepository,
 )
 from freeweight.services.events import RunEventPublisher
 from freeweight.services.machine import profile_machine
@@ -139,6 +146,7 @@ if TYPE_CHECKING:
     from freeweight.services.database import Database
 
 __all__ = [
+    "SKIP_UNSUPPORTED_CAPABILITY",
     "ExecutionConfig",
     "InsufficientResources",
     "MetricSummary",
@@ -551,7 +559,7 @@ def build_registry(library: PromptLibrary | None = None) -> BenchmarkRegistry:
             whose provenance is wrong must not be runnable at all.
     """
     pack = library if library is not None else shipped_prompt_library()
-    return BenchmarkRegistry(
+    registry = BenchmarkRegistry(
         [
             echo_benchmark.build(),
             performance_benchmark.build(pack),
@@ -563,6 +571,49 @@ def build_registry(library: PromptLibrary | None = None) -> BenchmarkRegistry:
             agent_benchmark.build(pack),
         ]
     )
+    _check_declared_capabilities(registry)
+    return registry
+
+
+def _check_declared_capabilities(registry: BenchmarkRegistry) -> None:
+    """Refuse a suite that requires a capability :class:`ProviderCapabilities` does not have.
+
+    An unrecognised name is treated as *unmet* when a test runs (:func:`_unmet_capabilities`),
+    because the honest reading of "I cannot tell whether this provider can do that" is that the
+    test must not run. That is the right runtime behaviour and the wrong startup behaviour: a
+    manifest saying ``tool_calls`` where it meant ``tool_calling`` would skip its suite on every
+    provider, forever, and report a plausible reason for doing so.
+
+    So the names are checked once, here, where "here" is startup — the same place a suite whose
+    ``prompt_subset_hash`` is stale is refused, and for the same reason (ADR-0033 §9).
+
+    Args:
+        registry: The freshly built registry.
+
+    Raises:
+        ValueError: A test requires a name that is not a ``ProviderCapabilities`` field. The
+            message lists the offending names and the suite that declared them.
+    """
+    from modelrack.provider import ProviderCapabilities
+
+    known = {field.name for field in dataclasses.fields(ProviderCapabilities)}
+    offenders: dict[str, list[str]] = {}
+    for benchmark in registry.all():
+        for test in benchmark.tests:
+            unknown = sorted(
+                str(name)
+                for name in test.requires.get("provider_capabilities", ())
+                if str(name) not in known
+            )
+            if unknown:
+                offenders[f"{benchmark.manifest.key}/{test.key}"] = unknown
+    if offenders:
+        raise ValueError(
+            f"Benchmark test(s) require capabilities ModelRack does not define: {offenders}. "
+            f"The declared capability names are {sorted(known)}. Refused at startup: an unknown "
+            "name is treated as unmet when a test runs, so a typo here would skip its suite on "
+            "every provider and report a plausible reason for doing so."
+        )
 
 
 def _json_safe(value: object) -> Any:  # noqa: ANN401 — a JSON value has no narrower type
@@ -2356,8 +2407,60 @@ def _run_interactive_case(  # noqa: PLR0913 — one sample needs its whole conte
     )
     _sum_usage(values, results)
     with database.write() as session:
-        SampleRepository().insert(session, **values)
+        sample = SampleRepository().insert(session, **values)
+        transcript = outcome.transcript if outcome is not None else None
+        if transcript is not None:
+            ToolCallRepository().insert_many(
+                session, _tool_call_rows(sample.id, case, transcript, now=values["created_at"])
+            )
     return values
+
+
+def _tool_call_rows(
+    sample_id: str,
+    case: Any,  # noqa: ANN401 — freeweight.domain.benchmark.BenchmarkCase
+    transcript: ToolTranscript,
+    *,
+    now: datetime,
+) -> list[dict[str, Any]]:
+    """Build this sample's ``tool_calls`` rows (data model §2).
+
+    Written in the **same transaction as the sample**, so a trajectory can never be read back
+    shorter than the sample it belongs to, and cascade-deleted with it.
+
+    The comparison against what the case required is
+    :func:`~freeweight.domain.scorers.tools.annotate_calls`' — the per-call view of the same greedy
+    pairing the metrics aggregate — so a stored row and the rate computed over it cannot disagree
+    about which call satisfied which requirement. It is done here rather than in the scorer because
+    a :class:`~freeweight.domain.scoring.ScoreResult` has nowhere to put a row, and because a suite
+    is entitled to a trajectory on the record even when its scorer refused to produce a number.
+    """
+    declared = case.expectation.get("tools")
+    expectation = ToolExpectation.from_json(declared if isinstance(declared, dict) else {})
+    verdicts = annotate_calls(expectation, transcript)
+    per_turn: dict[int, int] = {}
+    rows: list[dict[str, Any]] = []
+    for call, verdict in zip(transcript.calls, verdicts, strict=True):
+        call_index = per_turn.get(call.step, 0)
+        per_turn[call.step] = call_index + 1
+        rows.append(
+            {
+                "sample_id": sample_id,
+                "turn_index": call.step,
+                "call_index": call_index,
+                "tool_name": call.name,
+                "arguments_json": _json_safe(dict(call.arguments)),
+                "schema_valid": call.arguments_parsed and call.arguments_valid,
+                "expected_tool": verdict.expected_tool,
+                "correct_tool": verdict.correct_tool,
+                "correct_arguments": verdict.correct_arguments,
+                "status": call.status,
+                "latency_ms": call.duration_ms,
+                "result_hash": call.result_hash,
+                "created_at": now,
+            }
+        )
+    return rows
 
 
 def _score_interaction(

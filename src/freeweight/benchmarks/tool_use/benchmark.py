@@ -62,22 +62,22 @@ def toolbox_for(case: BenchmarkCase, sandbox_root: Path | None = None) -> MockTo
 
     Args:
         case: The case, whose ``metadata`` names ``offered_tools`` and any ``injected_failures``.
-        sandbox_root: Where ``write_sandbox_file`` may write, or ``None`` for a directory under
-            the system temporary root. Injected so a run can scope it and a test can inspect it;
-            no case in this suite writes, and the directory is created only on first use.
+        sandbox_root: Where ``write_sandbox_file`` may write. ``None`` — the default, and what
+            every shipped case in this suite uses — produces a toolbox that **cannot write at
+            all**, and offering the writing tool without a root is refused at construction. No
+            default directory is invented here: a run-scoped sandbox is the run engine's to hand
+            out, and until a case needs one, a toolbox with no write capability is the honest
+            shape.
 
     Returns:
         The toolbox.
-    """
-    import tempfile
 
-    root = (
-        sandbox_root
-        if sandbox_root is not None
-        else Path(tempfile.gettempdir()) / "freeweight-tools"
-    )
+    Raises:
+        ValueError: The case offers ``write_sandbox_file`` and no ``sandbox_root`` was supplied.
+        KeyError: The case offers a tool the fixture toolbox does not define.
+    """
     return MockToolbox(
-        sandbox_root=root,
+        sandbox_root=sandbox_root,
         offered=tuple(case.metadata.get("offered_tools", ())),
         injected_failures=dict(case.metadata.get("injected_failures", {})),
     )

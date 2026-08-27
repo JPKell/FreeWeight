@@ -379,16 +379,28 @@ measured with entirely deterministic scoring.
   containment tests to prove it.
 * Scorers: exact, rule, JSON Schema, tool-selection, tool-argument, agent-trajectory.
 * Capability gating: a model or provider without tool calling records `skipped` with
-  `unsupported_capability`, never a zero.
+  `unsupported_capability`, never a zero. A test's whole `requires.provider_capabilities` block is
+  enforced, not only tool calling, and a name that is not a `ProviderCapabilities` field fails
+  registry construction rather than skipping forever
+  (ADR-0033 §9).
+* The **interaction seam** three of these suites need: a benchmark test may declare a bounded
+  multi-turn interaction — a tool loop, or a call plus one corrective retry — and the run engine
+  executes it, owning the provider, the frozen execution parameters, the step budget and the cost
+  accounting (ADR-0033). Trajectories are stored
+  as `tool_calls` rows and scored by a trajectory scorer, never on their final sentence.
 
 **Files/subsystems**
 ```text
 src/freeweight/prompts/**  src/freeweight/services/prompts.py
 src/freeweight/benchmarks/{instruction_following,structured_output,tool_use,tool_recovery,agent}/*
+src/freeweight/benchmarks/{interaction,loading}.py  src/freeweight/benchmarks/fixtures/**
 src/freeweight/domain/scorers/{exact,rule,schema,tools,agent}.py
-src/freeweight/benchmarks/fixtures/**
+src/freeweight/cli/commands/prompts.py  src/freeweight/services/runs.py
+src/freeweight/domain/aggregation.py
+src/freeweight/infrastructure/db/migrations/versions/0004_tool_calls.py
 tests/unit/test_scorers_*.py  tests/integration/test_quality_suites.py
 tests/security/test_mock_tools_contained.py  tests/unit/test_prompt_pack.py
+tests/live/test_real_run.py
 ```
 
 **Tests**
@@ -399,10 +411,17 @@ tests/security/test_mock_tools_contained.py  tests/unit/test_prompt_pack.py
   under adversarial arguments (`../`, absolute paths, symlinks).
 * Prompt pack: parses, variables declared and used, renders, manifest current, no inline prompts in
   Python source.
-* Capability-gated skip records a reason and contributes no score.
+* Capability-gated skip records a reason and contributes no score, and a manifest naming a
+  capability that does not exist fails registry construction.
+* A tool trajectory is stored as `tool_calls` rows and cascade-deletes with its sample; a
+  hallucinated tool is a row, not a missing one.
+* Live (marked): the five suites run end to end on a real Ollama model and produce only
+  manifest-declared metrics, or skip with `unsupported_capability` where the model lacks the
+  capability.
 
 **Acceptance criteria**
 1. Five deterministic suites run end to end against a real model and produce interpretable metrics.
+   Demonstrated by the marked live test above; the same five run against `FakeProvider` in CI.
 2. No LLM is used to score anything in this phase.
 3. A model without tool support yields `skipped (unsupported_capability)`, not a low score.
 4. Adversarial tool arguments cannot escape the fixture directory.
@@ -410,7 +429,9 @@ tests/security/test_mock_tools_contained.py  tests/unit/test_prompt_pack.py
 **Known risks:** fixture design bias. **Likely failure modes:** scoring a refusal as a failure of
 capability; tool fixtures leaking real paths.
 **Gold standards:** deterministic scoring; honest skips; contained tools.
-**Deferred:** judged suites.
+**Deferred:** judged suites. Prompt overrides
+(Prompt Standards §6) stay unwired here and are
+delivered at P8A, which renders user-authored content through the same loader.
 
 ---
 
@@ -474,16 +495,16 @@ the goal machinery on the deterministic half of the ladder before any model judg
 **Prerequisites:** P7 (prompt library, scorer patterns, run engine). Not P8 — nothing here judges.
 
 **Work**
-* Goal pack schema, loader and validator per [Subjective Goals §2](subjective-goals.md); packs load
+* Goal pack schema, loader and validator per Subjective Goals §2; packs load
   once at startup exactly as prompt packs do, and a malformed pack is a startup failure, not a
   mid-run surprise.
 * `goals`, `goal_criteria`, `goal_tasks`, `criterion_scores` tables and migration;
   `benchmark_suites.runner` gains `goal`, plus `goal_id` and `goal_hash`.
 * `goal_hash`: canonical JSON over the measurement-defining subset only
-  ([Subjective Goals §2.2](subjective-goals.md)). Renaming a criterion must not move it; changing what
+  (Subjective Goals §2.2). Renaming a criterion must not move it; changing what
   it checks must.
 * The rule-criterion library — all thirteen types in
-  [Subjective Goals §3.1](subjective-goals.md) — each a pure function with a docstring stating what it
+  Subjective Goals §3.1 — each a pure function with a docstring stating what it
   refuses, under `rule_timeout_ms`, with a linted regex dialect (no backreferences, bounded
   repetition).
 * Rung-3 reference criteria: `entity_recall`, `claim_coverage`, `no_unsupported_claims`,
@@ -494,6 +515,13 @@ the goal machinery on the deterministic half of the ladder before any model judg
   interview writing a pack.
 * The rubric lint: flags a `judge` criterion a rule could check and names the rule; refuses a `judge`
   criterion with no scale descriptors.
+* **Prompt overrides, wired** (Prompt Standards §6),
+  which arrive here because this is the phase where user-authored content first reaches the same
+  loader: `$XDG_CONFIG_HOME/freeweight/prompts/` is loaded at startup and marked
+  `prompt_source = "user_override"` on every record that used it; a benchmark run with an overridden
+  prompt is **refused** unless `--allow-prompt-override` is passed, and the override becomes a
+  fingerprint input when it is. P6 built the loader's `override_root`; P7 deliberately left it
+  unwired rather than have the `prompts` CLI describe a pack no benchmark would render.
 * `GET|POST|PUT|DELETE /api/v1/goals` and `/goals/{slug}/validate|suggest-rules|export`,
   `POST /goals/import`.
 

@@ -22,6 +22,7 @@ from freeweight.benchmarks.fixtures import tools as toolbox_module
 from freeweight.benchmarks.fixtures.tools import (
     DATA_ROOT,
     REPO_ROOT,
+    WRITING_TOOL,
     MockToolbox,
     PathEscape,
     contained_path,
@@ -39,9 +40,15 @@ _ESCAPES = [
 
 
 @pytest.fixture
-def toolbox(tmp_path: Path) -> MockToolbox:
+def sandbox(tmp_path: Path) -> Path:
+    """Where the one writing tool is allowed to write, for the tests that exercise it."""
+    return tmp_path / "sandbox"
+
+
+@pytest.fixture
+def toolbox(sandbox: Path) -> MockToolbox:
     """A toolbox offering everything, writing into a throwaway sandbox."""
-    return MockToolbox(sandbox_root=tmp_path / "sandbox")
+    return MockToolbox(sandbox_root=sandbox)
 
 
 class TestReadContainment:
@@ -115,18 +122,32 @@ class TestWriteContainment:
         assert outcome.error_code == "INVALID_ARGUMENT"
 
     def test_a_permitted_write_lands_in_the_sandbox_with_restrictive_modes(
-        self, toolbox: MockToolbox
+        self, toolbox: MockToolbox, sandbox: Path
     ) -> None:
         assert toolbox.invoke("write_sandbox_file", {"name": "note.txt", "content": "hi"}).ok
-        written = toolbox.sandbox_root / "note.txt"
+        written = sandbox / "note.txt"
         assert written.read_text(encoding="utf-8") == "hi"
         # Security standards §5: new files 0600, new directories 0700.
         assert written.stat().st_mode & 0o777 == 0o600
-        assert toolbox.sandbox_root.stat().st_mode & 0o777 == 0o700
+        assert sandbox.stat().st_mode & 0o777 == 0o700
 
-    def test_nothing_is_written_before_the_name_is_validated(self, toolbox: MockToolbox) -> None:
+    def test_nothing_is_written_before_the_name_is_validated(
+        self, toolbox: MockToolbox, sandbox: Path
+    ) -> None:
         toolbox.invoke("write_sandbox_file", {"name": "../escape.txt", "content": "x"})
-        assert not toolbox.sandbox_root.exists()
+        assert not sandbox.exists()
+
+    def test_a_toolbox_with_no_sandbox_cannot_offer_the_writing_tool(self) -> None:
+        # Refused by construction, not by a runtime check: the only tool here that writes cannot be
+        # reached without somebody having chosen where it writes (security standards §5).
+        with pytest.raises(ValueError, match="sandbox_root"):
+            MockToolbox(offered=("calculator", WRITING_TOOL))
+
+    def test_the_default_toolbox_offers_everything_except_the_writing_tool(self) -> None:
+        offered = set(MockToolbox().offered)
+        assert WRITING_TOOL not in offered
+        assert "read_file" in offered
+        assert WRITING_TOOL in set(MockToolbox(sandbox_root=Path("/nonexistent")).offered)
 
     def test_the_repository_is_never_written_to(self, toolbox: MockToolbox) -> None:
         before = sorted(path.name for path in REPO_ROOT.rglob("*"))

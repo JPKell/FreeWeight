@@ -57,6 +57,7 @@ __all__ = [
     "Sample",
     "TelemetryGpuSample",
     "TelemetrySample",
+    "ToolCall",
 ]
 
 _RUN_STATUSES = (
@@ -72,6 +73,14 @@ _RUN_STATUSES = (
 )
 _TEST_STATUSES = ("pending", "running", "completed", "failed", "skipped", "cancelled")
 _SAMPLE_STATUSES = ("completed", "failed", "timeout", "cancelled", "skipped")
+
+_TOOL_CALL_STATUSES = ("ok", "error", "unknown_tool", "invalid_arguments")
+"""What became of one requested call.
+
+``unknown_tool`` and ``invalid_arguments`` are distinct from ``error`` because the harness did not
+run the tool in either case, and "the tool failed" and "the harness refused to run it" are different
+facts about the model.
+"""
 _RUNNERS = ("native", "external", "goal")
 _ARTIFACT_KINDS = ("raw_response", "generated_code", "external_output", "export", "log")
 
@@ -333,6 +342,52 @@ class Sample(Base):
     result_json: Mapped[object | None] = mapped_column(PortableJSON)
     error_code: Mapped[str | None] = mapped_column(String)
     error_text: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(UtcDateTime, nullable=False, default=utcnow)
+
+
+class ToolCall(Base):
+    """One tool invocation a model requested, and what the harness did with it.
+
+    Data model §2's ``tool_calls``. It exists so a tool metric drills to *the call that went wrong*
+    rather than to a rate: a ``tool_selection_accuracy`` of 0.6 tells a reader nothing until they
+    can see which two of five calls named the wrong tool, and with what arguments.
+
+    **A row is what the model asked for, not what exists.** A call naming a tool that was never
+    offered — the catalog's *hallucinated tool* — is a row with ``status = "unknown_tool"``, never a
+    missing one: the whole point of the metric is to count them.
+
+    ``correct_tool`` and ``correct_arguments`` are ``NULL`` when the case declares no expectation to
+    compare this call against, which is not the same as ``False`` (ADR-0016). ``result_hash`` and
+    never the result text: a tool result is content, and content is stored as a hash by default
+    (spec §14).
+    """
+
+    __tablename__ = "tool_calls"
+    __table_args__ = (
+        CheckConstraint(_in_list("status", _TOOL_CALL_STATUSES), name="status"),
+        Index(
+            "ix_tool_calls_sample_id_turn_index_call_index",
+            "sample_id",
+            "turn_index",
+            "call_index",
+        ),
+    )
+
+    id: Mapped[str] = ulid_primary_key()
+    sample_id: Mapped[str] = mapped_column(
+        String(26), ForeignKey("samples.id", ondelete="CASCADE"), nullable=False
+    )
+    turn_index: Mapped[int] = mapped_column(Integer, nullable=False)
+    call_index: Mapped[int] = mapped_column(Integer, nullable=False)
+    tool_name: Mapped[str] = mapped_column(String, nullable=False)
+    arguments_json: Mapped[object | None] = mapped_column(PortableJSON)
+    schema_valid: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    expected_tool: Mapped[str | None] = mapped_column(String)
+    correct_tool: Mapped[bool | None] = mapped_column(Boolean)
+    correct_arguments: Mapped[bool | None] = mapped_column(Boolean)
+    status: Mapped[str] = mapped_column(String, nullable=False)
+    latency_ms: Mapped[float | None] = mapped_column(Float)
+    result_hash: Mapped[str | None] = mapped_column(String)
     created_at: Mapped[datetime] = mapped_column(UtcDateTime, nullable=False, default=utcnow)
 
 

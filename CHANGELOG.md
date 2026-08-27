@@ -34,6 +34,13 @@ packaging and release standards §3.
   installed.
 - Benchmark prompt records for the five suites, each declared in its suite's manifest so its
   `prompt_subset_hash` covers exactly the prompts that suite renders.
+- The `tool_calls` table (migration `0004`), specified in the data model since the freeze and
+  unreachable until there were suites that call tools. One row per invocation a model requested,
+  written in the same transaction as its sample and cascade-deleted with it, so a tool metric
+  drills to the call that went wrong rather than to a rate. A call naming a tool that was never
+  offered is a row with `status = "unknown_tool"`, not a missing one; `correct_tool` and
+  `correct_arguments` are `NULL` — never `false` — where the case declares nothing to compare
+  against. Tool results are stored as a hash and a short digest, never in full.
 - Phase 6: the first real measurements. `native.performance` measures prompt-evaluation and
   decode throughput at the catalog's prompt sizes and output lengths, time to first token,
   streamed inter-chunk latency and cold model load; `native.token_economy` measures what an
@@ -94,6 +101,13 @@ packaging and release standards §3.
   measured one, so a suite whose scorer measures several things at once reports each under its own
   key. A sample that did not measure a given figure is excluded from it with
   `not_measured_for_this_case` rather than contributing a zero (ADR-0016).
+- Every capability name a benchmark test requires is validated against `ProviderCapabilities` when
+  the registry is built — which is startup. An unknown name is treated as *unmet* at run time, so a
+  manifest typo would otherwise have skipped its suite on every provider and reported a plausible
+  reason for doing so.
+- A `MockToolbox` offering `write_sandbox_file` must be given a `sandbox_root`; the default toolbox
+  offers every tool except that one and cannot write at all. No shipped case writes, and no default
+  directory is invented for one that might.
 - `GET /api/v1/runs/{id}` gained `provenance` (served context and source, GPU attribution,
   telemetry overhead, prompt pack, fingerprint document) and `degradations`; metric objects gained
   `gpu_index`, `stddev` and `coefficient_of_variation`.
@@ -212,6 +226,11 @@ packaging and release standards §3.
 - ``storage.statement_timeout_ms`` (PostgreSQL only; also applied as ``lock_timeout``).
 
 ### Fixed
+- `tests/e2e/test_run_journey.py` raced the event publisher by exactly one event: a run reaches its
+  terminal status in the database *before* its terminal event is published — deliberately, so a
+  client can never see a closed stream without a terminal frame — and the test compared event
+  counts across that window. The test now waits for the stream to go quiet; the ordering it was
+  testing is unchanged.
 - `freeweight db restore` silently restored nothing when the database had uncheckpointed writes in
   its WAL sidecar. The main database file was replaced, the stale `<db>-wal` was not, and the next
   reader replayed it straight back on top — so the writes the restore was called to undo survived,

@@ -44,6 +44,7 @@ if TYPE_CHECKING:
 
 __all__ = [
     "DATA_ROOT",
+    "WRITING_TOOL",
     "ERROR_AMBIGUOUS",
     "ERROR_CONTAINMENT_REFUSED",
     "ERROR_EMPTY_RESULT",
@@ -83,6 +84,9 @@ _SANDBOX_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$")
 """Security standards §4's identifier allowlist, applied before any filesystem call."""
 
 _SYMBOL = re.compile(r"^[A-Za-z_][A-Za-z0-9_]{0,63}$")
+
+WRITING_TOOL: Final[str] = "write_sandbox_file"
+"""The only tool here that writes. Named so the constructor's refusal is not a string literal."""
 
 
 class PathEscape(ValueError):
@@ -213,9 +217,12 @@ class MockToolbox:
     toolbox shared between cases would let one case's injected timeout land in the next one.
 
     Args:
-        sandbox_root: The only directory anything here writes to. Created on first write, and
-            supplied by the caller so it is a run-scoped temporary directory rather than anywhere
-            near the user's data.
+        sandbox_root: The only directory anything here writes to, or ``None`` for a toolbox that
+            cannot write at all. Created on first write, and supplied by the caller so it is a
+            scoped directory rather than anywhere near the user's data. Offering
+            ``write_sandbox_file`` without one is refused at construction rather than defaulted:
+            a default would put a writing tool somewhere nobody chose, and security standards §5
+            asks for temporary files inside the data root, ``0700``, and cleaned up.
         offered: The tool names this case offers. A call to anything else is a *hallucinated*
             tool and is refused with :data:`ERROR_UNKNOWN_TOOL` — the harness never runs a tool
             the case did not put on the model's allowlist (security standards §6).
@@ -225,24 +232,37 @@ class MockToolbox:
             recovery is measurable — a one-line declaration in a case.
     """
 
-    sandbox_root: Path
+    sandbox_root: Path | None = None
     offered: tuple[str, ...] = ()
     injected_failures: Mapping[str, Sequence[str]] = field(default_factory=dict)
     _used: dict[str, int] = field(default_factory=dict, init=False, repr=False)
 
     def __post_init__(self) -> None:
-        """Default the offered set to every tool, and validate the injection schedule.
+        """Default the offered set, validate the injection schedule, and refuse a homeless write.
 
         Raises:
-            KeyError: The failure schedule names a tool that does not exist.
+            KeyError: The failure schedule names a tool this case does not offer.
+            ValueError: ``write_sandbox_file`` is offered with no ``sandbox_root``. Refused by
+                construction, so the only tool here that writes cannot be reached without somebody
+                having chosen where it writes.
         """
         if not self.offered:
-            self.offered = tuple(definition.name for definition in tool_definitions())
+            self.offered = tuple(
+                definition.name
+                for definition in tool_definitions()
+                if self.sandbox_root is not None or definition.name != WRITING_TOOL
+            )
         unknown = sorted(set(self.injected_failures) - set(self.offered))
         if unknown:
             raise KeyError(
                 f"Failure injection names {unknown}, which this case does not offer; it offers "
                 f"{sorted(self.offered)}."
+            )
+        if WRITING_TOOL in self.offered and self.sandbox_root is None:
+            raise ValueError(
+                f"A toolbox offering {WRITING_TOOL!r} must be given a sandbox_root. It is the one "
+                "tool here that writes, and defaulting its destination would put model-directed "
+                "writes somewhere nobody chose (security standards §5)."
             )
 
     def definitions(self) -> tuple[ToolDefinition, ...]:
@@ -458,6 +478,8 @@ class MockToolbox:
         allowlist is what makes the intent explicit, and the containment check is what holds if
         the allowlist is ever loosened.
         """
+        if self.sandbox_root is None:  # pragma: no cover — __post_init__ refuses this combination
+            return ToolOutcome.failure(ERROR_PERMISSION_DENIED, "this toolbox cannot write")
         name = str(arguments["name"])
         if _SANDBOX_NAME.match(name) is None:
             return ToolOutcome.failure(

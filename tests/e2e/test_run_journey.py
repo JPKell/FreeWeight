@@ -82,6 +82,26 @@ def _wait_for_terminal(client: TestClient, run_id: str, *, timeout: float = 30.0
     return dict(body)
 
 
+def _wait_for_quiet(client: TestClient, run_id: str, *, timeout: float = 30.0) -> dict[str, Any]:
+    """Wait until the run is terminal **and** its event stream has stopped growing.
+
+    A run reaches its terminal status in the database *before* its terminal event is published —
+    deliberately, so that a client can never see a closed stream without a terminal frame
+    (:func:`freeweight.services.runs._finish`, API standards §8). A test that stopped at the
+    status and then compared event counts would therefore race the publisher by exactly one
+    event, which is a flake in the test rather than a defect in the ordering.
+    """
+    body = _wait_for_terminal(client, run_id, timeout=timeout)
+    deadline = time.monotonic() + timeout
+    while True:
+        time.sleep(0.05)
+        latest = client.get(f"/api/v1/runs/{run_id}").json()
+        if latest["last_event_sequence"] == body["last_event_sequence"]:
+            return dict(latest)
+        assert time.monotonic() < deadline, "events kept arriving after the run finished"
+        body = latest
+
+
 class TestCriterion1CliRunCompletes:
     def test_run_start_completes_and_stores_raw_samples(self, workspace: Path) -> None:
         _discover(workspace)
@@ -228,7 +248,7 @@ class TestCriterion2RefreshMidRunLosesNothing:
         run_id = client.post(
             "/api/v1/runs", json={"model": "fake-model:8b-q8_0", "suites": ["native.echo"]}
         ).json()["id"]
-        body = _wait_for_terminal(client, run_id)
+        body = _wait_for_quiet(client, run_id)
 
         page = client.get(f"/runs/{run_id}")
         assert page.status_code == 200

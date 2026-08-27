@@ -329,12 +329,20 @@ Behavioural rules:
   (ADR-0026).
 * **Model-generated code is never executed on the host.** Tiered sandbox, refusal at the bottom tier.
 * Native tool benchmarks expose only mock tools over fixture data — no shell, no unrestricted
-  filesystem, no network, no real database.
+  filesystem, no network, no real database. A tool runs only when the case put it on the model's
+  allowlist and its arguments validate against the tool's own schema; every path is proved contained
+  after symlink resolution, and reads and writes have separate roots. A containment refusal names the
+  path that was requested and never the path it resolved to — an error message is input to the next
+  prompt exactly as a result is (ADR-0033 §7).
 * External benchmark adapters run as subprocesses with an argument list, a timeout and captured
   output; their results are parsed as untrusted input.
 * Datasets are verified against pinned hashes before use; archive extraction is hardened.
 * Prompts and responses are stored as hashes by default; full text only when the run explicitly
-  requests it.
+  requests it. **A scorer's own evidence is the one bounded exception**: `samples.result_json` holds
+  what the scorer measured against — the matched phrase, the failing JSON path, the tool call and its
+  arguments, and an excerpt of the answer capped at 200 characters — because a headline metric that
+  drills only to a float is not auditable. The excerpt is a fixed cap, not the response; a tool
+  result is stored as a hash and a short digest, never in full.
 * Artifact paths are containment-checked; artifact files are `0600`.
 * **User-authored goal content is untrusted input to FreeWeight's own renderer.** Goal templates
   render through the same `setspec.prompts` loader with `StrictUndefined` and no filesystem or

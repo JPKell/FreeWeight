@@ -37,6 +37,7 @@ from modelrack.testing import (
     FakeScript,
     FakeToolCall,
 )
+from sqlalchemy import delete
 
 from freeweight.benchmarks.interaction import ToolSession
 from freeweight.benchmarks.tool_use.benchmark import build as build_tool_use
@@ -47,7 +48,8 @@ from freeweight.config import ExecutionSettings
 from freeweight.domain.run_state import RunStatus
 from freeweight.domain.run_state import TestStatus as RunTestStatus
 from freeweight.domain.scoring import ScoreMethod
-from freeweight.infrastructure.db.repositories.runs import RunTestRepository
+from freeweight.infrastructure.db.models_runs import Run
+from freeweight.infrastructure.db.repositories.runs import RunTestRepository, ToolCallRepository
 from freeweight.services.runs import (
     ExecutionConfig,
     build_registry,
@@ -532,3 +534,130 @@ class TestSuiteBuildRefusals:
                 prompt_id=PROMPT_ID,
                 scorer_for=lambda _body: None,
             )
+
+
+class TestTheToolCallRecord:
+    """A trajectory is rows in ``tool_calls``, not only a JSON blob (data model §2).
+
+    The point of the table is the drill-down: a ``tool_selection_accuracy`` of 0.6 says nothing
+    until a reader can see *which* calls named the wrong tool and with what arguments.
+    """
+
+    @pytest.fixture
+    def calling(self, run_environment: Callable[..., Any]) -> Any:
+        return run_environment(
+            script=FakeScript(
+                generations=(
+                    FakeGeneration(
+                        text="",
+                        tool_calls=(FakeToolCall(name="get_inventory", arguments={"sku": "A1"}),),
+                    ),
+                    FakeGeneration(text="12"),
+                ),
+                repeat_final_generation=True,
+            )
+        )
+
+    def _rows(self, environment: Any, sample_id: str) -> list[Any]:
+        with environment.database.read() as session:
+            return ToolCallRepository().list_for_sample(session, sample_id)
+
+    def test_a_trajectory_is_written_as_rows(self, calling: Any) -> None:
+        detail = _run_suite(calling, "native.tool_use")
+        with calling.database.read() as session:
+            total = ToolCallRepository().count_for_run(session, detail.run.id)
+        assert total > 0, "no tool call reached the table"
+
+    def test_a_row_records_what_was_asked_for_and_what_was_expected(self, calling: Any) -> None:
+        detail = _run_suite(calling, "native.tool_use")
+        sample = next(
+            sample for sample in _samples(calling, detail) if sample.case_id == "one-correct-tool"
+        )
+        rows = self._rows(calling, sample.id)
+        assert [row.tool_name for row in rows] == ["get_inventory"]
+        row = rows[0]
+        assert row.turn_index == 1
+        assert row.call_index == 0
+        assert row.arguments_json == {"sku": "A1"}
+        assert row.expected_tool == "get_inventory"
+        assert row.correct_tool is True
+        assert row.correct_arguments is True
+        assert row.status == "ok"
+        assert row.schema_valid is True
+        assert row.result_hash is not None and row.result_hash.startswith("sha256:")
+        assert row.latency_ms is not None and row.latency_ms >= 0.0
+
+    def test_a_hallucinated_tool_is_a_row_not_a_missing_one(
+        self, run_environment: Callable[..., Any]
+    ) -> None:
+        environment = run_environment(
+            script=FakeScript(
+                generations=(
+                    FakeGeneration(
+                        text="", tool_calls=(FakeToolCall(name="query_warehouse", arguments={}),)
+                    ),
+                    FakeGeneration(text="I cannot."),
+                ),
+                repeat_final_generation=True,
+            )
+        )
+        detail = _run_suite(environment, "native.tool_use")
+        sample = next(
+            sample
+            for sample in _samples(environment, detail)
+            if sample.case_id == "one-correct-tool"
+        )
+        rows = self._rows(environment, sample.id)
+        assert [row.tool_name for row in rows] == ["query_warehouse"]
+        assert rows[0].status == "unknown_tool"
+        assert rows[0].correct_tool is False, "the case required a different tool"
+
+    def test_a_case_with_no_expectation_leaves_the_comparison_null(self, calling: Any) -> None:
+        # ``NULL`` is not ``False``: "the case declares nothing to compare this call against" and
+        # "the call was wrong" are different facts (ADR-0016).
+        detail = _run_suite(calling, "native.tool_use")
+        sample = next(
+            sample for sample in _samples(calling, detail) if sample.case_id == "no-tool-required"
+        )
+        for row in self._rows(calling, sample.id):
+            assert row.expected_tool is None
+            assert row.correct_tool is None
+
+    def test_rows_cascade_delete_with_their_run(self, calling: Any) -> None:
+        detail = _run_suite(calling, "native.tool_use")
+        with calling.database.write() as session:
+            assert ToolCallRepository().count_for_run(session, detail.run.id) > 0
+            session.execute(delete(Run).where(Run.id == detail.run.id))
+        with calling.database.read() as session:
+            assert ToolCallRepository().count_for_run(session, detail.run.id) == 0
+
+    def test_a_suite_without_tools_writes_no_rows(self, environment: Any) -> None:
+        detail = _run_suite(environment, "native.instruction_following")
+        with environment.database.read() as session:
+            assert ToolCallRepository().count_for_run(session, detail.run.id) == 0
+
+
+class TestCapabilityNamesAreValidatedAtStartup:
+    """A typo in a manifest fails to launch rather than skipping its suite forever."""
+
+    def test_an_unknown_capability_name_refuses_the_registry(self) -> None:
+        from dataclasses import replace as replace_field
+
+        from freeweight.benchmarks.tool_use.benchmark import build as build_tool_use_suite
+        from freeweight.domain.benchmark import BenchmarkRegistry
+        from freeweight.services.runs import _check_declared_capabilities
+
+        suite = build_tool_use_suite(shipped_prompt_library())
+        broken = replace(
+            suite,
+            tests=tuple(
+                replace_field(test, requires={"provider_capabilities": ["tool_calls"]})
+                for test in suite.tests
+            ),
+        )
+        with pytest.raises(ValueError, match="tool_calls"):
+            _check_declared_capabilities(BenchmarkRegistry([broken]))
+
+    def test_the_shipped_registry_declares_only_real_capabilities(self) -> None:
+        # The positive case is that ``build_registry`` returns at all — it runs the check.
+        assert build_registry().keys()
