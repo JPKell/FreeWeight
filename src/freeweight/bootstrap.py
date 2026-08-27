@@ -19,6 +19,8 @@ from fastapi import FastAPI
 from freeweight.config import LoadedSettings, load_settings
 from freeweight.observability.logging import configure_logging
 from freeweight.services.database import Database, ensure_ready
+from freeweight.services.machine import profile_machine
+from freeweight.services.telemetry import build_collector
 from freeweight.web.app import create_app
 
 __all__ = ["Application", "bootstrap", "create_app_from_environment"]
@@ -33,17 +35,18 @@ class Application:
 
 
 def bootstrap() -> Application:
-    """Load configuration, configure logging, ready the database, and build the ASGI app.
+    """Load configuration, configure logging, ready the database, profile this host, build the app.
 
     Reads configuration through the standard precedence chain (defaults, file, environment) with
     no CLI-argument layer of its own: a caller that needs CLI overrides applies them as
     environment variables before calling this function, which is what
     ``freeweight.cli.commands.system.serve`` does.
 
-    The startup revision check (database standards §5.1) runs here, in the composition root, and
-    deliberately not inside :func:`~freeweight.web.app.create_app` — that function is documented as
-    a pure function of :class:`~freeweight.config.Settings` precisely so tests can build an app
-    without touching the filesystem, and opening or migrating a database is neither pure nor free.
+    The startup revision check (database standards §5.1) and the one-time machine profile (Phase 4)
+    both run here, in the composition root, and deliberately not inside
+    :func:`~freeweight.web.app.create_app` — that function is documented as a pure function of
+    :class:`~freeweight.config.Settings` precisely so tests can build an app without touching the
+    filesystem, and opening a database or reading the host's hardware is neither pure nor free.
 
     Returns:
         The wired :class:`Application`.
@@ -64,11 +67,11 @@ def bootstrap() -> Application:
         # Always true by the time Settings has validated (StorageSettings fills it in), but the
         # type is Optional and a startup path is not the place to trust that silently.
         #
-        # This handle is for the migration check alone and is closed again immediately: the
-        # long-lived one belongs to the running application and is created by the web lifespan,
-        # which has not started yet. Migration also disposes pools of its own (a failed migration
-        # restores a backup, which cannot happen underneath live handles), so it is the wrong
-        # thing to run through the handle the server will serve from.
+        # This handle is for the migration check and the one-time machine profile alone, and is
+        # closed again immediately: the long-lived one belongs to the running application and is
+        # created by the web lifespan, which has not started yet. Migration also disposes pools of
+        # its own (a failed migration restores a backup, which cannot happen underneath live
+        # handles), so it is the wrong thing to run through the handle the server will serve from.
         with Database.from_url(
             database_url, statement_timeout_ms=loaded.settings.storage.statement_timeout_ms
         ) as database:
@@ -77,6 +80,10 @@ def bootstrap() -> Application:
                 auto_migrate=loaded.settings.storage.auto_migrate,
                 backup_retention=loaded.settings.storage.backup_retention,
             )
+            # Profile → fingerprint → upsert → last_seen_at, once per server startup. A second,
+            # short-lived collector: the long-lived one the telemetry bar samples from belongs to
+            # the web lifespan, for the same reason the database handle above does.
+            profile_machine(database, build_collector())
     return Application(loaded_settings=loaded, app=create_app(loaded.settings))
 
 

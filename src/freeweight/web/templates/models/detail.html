@@ -1,0 +1,69 @@
+{% extends "base.html" %}
+{% from "partials/_inventory_states.html" import error_state %}
+{% block title %}{{ detail.canonical_id if detail else model_ref }} · FreeWeight{% endblock %}
+{% block content %}
+<p><a href="/models">&larr; Models</a></p>
+{% if error %}
+<h2>{{ model_ref }}</h2>
+{{ error_state(error) }}
+{% else %}
+<h2><code>{{ detail.canonical_id }}</code></h2>
+{% if detail.resolved_alias %}
+<p class="muted">Resolved from <code>{{ detail.resolved_alias }}</code> through the provider; this alias has been recorded.</p>
+{% endif %}
+<dl>
+  <dt>Provider</dt><dd>{{ detail.provider_kind }}</dd>
+  <dt>Provider name</dt><dd><code>{{ detail.provider_model_name }}</code></dd>
+  <dt>Digest</dt><dd><code>{{ detail.artifact_digest or "—" }}</code></dd>
+  <dt>Identity confidence</dt><dd>{{ detail.identity_confidence }}</dd>
+  <dt>First seen</dt><dd>{{ detail.first_seen_at | timestamp }}</dd>
+  <dt>Last seen</dt><dd>{{ detail.last_seen_at | timestamp }}</dd>
+</dl>
+
+{% if detail.aliases %}
+<h3>Known aliases</h3>
+<table>
+  <thead><tr><th scope="col">Alias</th><th scope="col">Resolved</th></tr></thead>
+  <tbody>
+    {% for entry in detail.aliases %}
+    <tr><td><code>{{ entry.alias }}</code></td><td>{{ entry.resolved_at }}</td></tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% endif %}
+
+{% if detail.latest_descriptor %}
+<h3>Latest descriptor</h3>
+<dl>
+  <dt>Family</dt><dd>{{ detail.latest_descriptor.family or "—" }}</dd>
+  <dt>Architecture</dt><dd>{{ detail.latest_descriptor.architecture or "—" }}</dd>
+  <dt>Parameters</dt><dd class="numeric">{{ detail.latest_descriptor.parameter_count if detail.latest_descriptor.parameter_count is not none else "—" }}</dd>
+  <dt>Quantization</dt><dd>{{ detail.latest_descriptor.quantization or "—" }}</dd>
+  <dt>Weight format</dt><dd>{{ detail.latest_descriptor.weight_format or "—" }}</dd>
+  <dt>Size</dt><dd class="numeric">{{ detail.latest_descriptor.size_bytes | bytes }}</dd>
+  <dt>Max context</dt><dd class="numeric">{{ detail.latest_descriptor.max_context if detail.latest_descriptor.max_context is not none else "—" }}</dd>
+  <dt>Layers</dt><dd class="numeric">{{ detail.latest_descriptor.layers if detail.latest_descriptor.layers is not none else "—" }}</dd>
+  <dt>Attention heads</dt><dd class="numeric">{{ detail.latest_descriptor.attention_heads if detail.latest_descriptor.attention_heads is not none else "—" }}</dd>
+  <dt>KV heads</dt><dd class="numeric">{{ detail.latest_descriptor.kv_heads if detail.latest_descriptor.kv_heads is not none else "—" }}</dd>
+  <dt>Vocabulary</dt><dd class="numeric">{{ detail.latest_descriptor.vocab_size if detail.latest_descriptor.vocab_size is not none else "—" }}</dd>
+  <dt>Declared capabilities</dt><dd>{{ detail.latest_descriptor.declared_capabilities | join(", ") or "—" }}</dd>
+  <dt>Observed</dt><dd>{{ detail.latest_descriptor.observed_at | timestamp }}</dd>
+</dl>
+{% else %}
+<p class="muted">No descriptor has been recorded for this identity yet.</p>
+{% endif %}
+
+{% if detail.descriptor_history | length > 1 %}
+<h3>Descriptor history</h3>
+<table>
+  <caption class="muted">{{ detail.descriptor_history | length }} snapshot(s), most recent first.</caption>
+  <thead><tr><th scope="col">Observed</th><th scope="col">Hash</th></tr></thead>
+  <tbody>
+    {% for row in detail.descriptor_history %}
+    <tr><td>{{ row.observed_at | timestamp }}</td><td><code>{{ row.descriptor_hash[:12] }}</code></td></tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% endif %}
+{% endif %}
+{% endblock %}

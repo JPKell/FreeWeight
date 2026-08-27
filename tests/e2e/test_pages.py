@@ -38,6 +38,9 @@ def client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[TestClie
     """
     database = tmp_path / "freeweight.sqlite3"
     monkeypatch.setenv("FREEWEIGHT_STORAGE__DATABASE_URL", f"sqlite:///{database}")
+    # Phase 3's health check reaches a real provider; pinned to the fake here (testing standards
+    # §1: e2e runs "through HTTP and CLI" against it) so these page tests stay deterministic.
+    monkeypatch.setenv("FREEWEIGHT_PROVIDER__KIND", "fake")
     engine = create_engine_for(f"sqlite:///{database}")
     try:
         MigrationRunner(engine, script_location=MIGRATIONS_LOCATION).upgrade(backup=False)

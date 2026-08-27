@@ -44,6 +44,25 @@
     }
     .error-state { border-style: solid; }
     code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+    /* UI standards §4.1: colour is never the only signal, so a status is always its own word
+       as well as its colour, and the border carries the distinction for monochrome and for
+       forced-colours mode. */
+    .status {
+      border: 1px solid currentColor;
+      border-radius: 0.25rem;
+      padding: 0 0.35rem;
+      font-size: 0.9em;
+      white-space: nowrap;
+    }
+    .status-queued, .status-pending, .status-cancelled, .status-skipped { color: gray; }
+    .status-preparing, .status-warming { color: #2563eb; }
+    .status-running, .status-cancelling { color: #7c3aed; }
+    .status-completed { color: #15803d; }
+    .status-failed, .status-timeout { color: #b91c1c; }
+    .status-interrupted { color: #b45309; }
+    .event-log { font-variant-numeric: tabular-nums; max-height: 24rem; overflow-y: auto; }
+    .event-log li { margin-bottom: 0.15rem; }
+    progress { width: 100%; }
   </style>
 </head>
 <body>
@@ -55,14 +74,16 @@
         <li><a href="/" {% if page == 'home' %}aria-current="page"{% endif %}>Overview</a></li>
         <li><a href="/machines" {% if page == 'machines' %}aria-current="page"{% endif %}>Machines</a></li>
         <li><a href="/models" {% if page == 'models' %}aria-current="page"{% endif %}>Models</a></li>
+        <li><a href="/runs" {% if page == 'runs' %}aria-current="page"{% endif %}>Runs</a></li>
       </ul>
     </nav>
-    {# The telemetry bar (UI standards §3) arrives with SweatMeter at Phase 4. #}
+    {% include "partials/telemetry_bar.html" %}
   </header>
   <main id="content">
     {% block content %}
     <p>The application shell is running.</p>
     {% endblock %}
   </main>
+  <script src="/static/js/telemetry.js" defer></script>
 </body>
 </html>

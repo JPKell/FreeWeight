@@ -82,19 +82,35 @@ def test_version_flag_on_root() -> None:
     assert "freeweight" in result.output
 
 
-def test_health_command_json() -> None:
+def test_health_command_json(monkeypatch: pytest.MonkeyPatch) -> None:
     """A freshly isolated environment has never run ``db upgrade``, so the ``database`` component
-    honestly reports a pending migration rather than silently claiming ``ok``."""
+    honestly reports a pending migration rather than silently claiming ``ok``.
+
+    ``provider.kind`` is pinned to ``fake`` (testing standards §1) so the ``provider`` component
+    Phase 3 adds is deterministic rather than depending on this machine's real Ollama port.
+    """
+    monkeypatch.setenv("FREEWEIGHT_PROVIDER__KIND", "fake")
+
     result = runner.invoke(app, ["health", "--json"])
 
     assert result.exit_code == 0
     payload = json.loads(result.output)
     assert payload["status"] == "degraded"
-    assert [component["name"] for component in payload["components"]] == ["database"]
+    # gpu_telemetry and machine (Phase 4) join database and provider; their own status reflects
+    # this machine's real hardware, but a pending migration alone already makes the required
+    # database component degrade the overall status, regardless of what they report.
+    assert [component["name"] for component in payload["components"]] == [
+        "database",
+        "provider",
+        "gpu_telemetry",
+        "machine",
+    ]
     assert payload["components"][0]["status"] == "degraded"
+    assert payload["components"][1]["status"] == "ok"
 
 
-def test_health_command_reports_ok_after_db_upgrade() -> None:
+def test_health_command_reports_ok_after_db_upgrade(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("FREEWEIGHT_PROVIDER__KIND", "fake")
     upgrade_result = runner.invoke(app, ["db", "upgrade"])
     assert upgrade_result.exit_code == 0, upgrade_result.output
 
@@ -102,17 +118,24 @@ def test_health_command_reports_ok_after_db_upgrade() -> None:
 
     assert result.exit_code == 0
     payload = json.loads(result.output)
-    assert payload["status"] == "ok"
-    assert len(payload["components"]) == 1
-    assert payload["components"][0]["name"] == "database"
-    assert payload["components"][0]["status"] == "ok"
+    components_by_name = {component["name"]: component for component in payload["components"]}
+    assert components_by_name["database"]["status"] == "ok"
+    assert components_by_name["provider"]["status"] == "ok"
+    # gpu_telemetry (Phase 4) reflects this machine's real hardware: "ok" with a GPU, "degraded"
+    # without one — either is correct here, and the overall status follows suit (Graceful
+    # Degradation §3), so neither is hardcoded to keep this test honest on a GPU-less runner.
+    assert set(components_by_name) == {"database", "provider", "gpu_telemetry", "machine"}
+    assert payload["status"] in ("ok", "degraded")
 
 
-def test_doctor_command_runs() -> None:
+def test_doctor_command_runs(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("FREEWEIGHT_PROVIDER__KIND", "fake")
+
     result = runner.invoke(app, ["doctor"])
 
     assert result.exit_code == 0
     assert "status: degraded" in result.output
+    assert "provider" in result.output
     assert "database" in result.output
 
 

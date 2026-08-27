@@ -169,6 +169,39 @@ class TelemetrySettings(BaseModel):
     calibrate_overhead: bool = True
 
 
+class ExecutionSettings(BaseModel):
+    """Default benchmark execution parameters (spec §12, ``[execution]``).
+
+    These are the *application* layer of the second precedence chain spec §12 describes
+    (application → suite → test → saved settings → run overrides). A run resolves them into its
+    own ``effective_config`` and freezes that into the run record, so changing a default here
+    never retroactively changes what an existing run says it did.
+
+    Phase 5 reads ``warmup_repetitions``, ``measured_repetitions``, ``test_timeout_seconds``,
+    ``run_timeout_seconds``, ``randomize_case_order`` and ``seed``. The idle-detection group and
+    ``cooldown_seconds`` are declared here because they belong to this section in the spec and
+    because a configuration key that appears one phase later is a configuration key users write
+    into a file and have silently rejected in the meantime (``extra="forbid"``); they take effect
+    at Phase 6, which is where the idle-detection outcome of spec §13 is implemented.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    warmup_repetitions: int = Field(default=1, ge=0)
+    measured_repetitions: int = Field(default=3, ge=1)
+    cooldown_seconds: float = Field(default=5.0, ge=0)
+    test_timeout_seconds: float = Field(default=600.0, gt=0)
+    run_timeout_seconds: float = Field(default=86400.0, gt=0)
+    randomize_case_order: bool = True
+    seed: int = 0
+    gpu_index: int = Field(default=0, ge=0)
+    idle_gpu_threshold_percent: float = Field(default=10.0, ge=0, le=100)
+    idle_required_samples: int = Field(default=3, ge=1)
+    idle_wait_timeout_seconds: float = Field(default=120.0, ge=0)
+    on_idle_timeout: Literal["warn", "refuse"] = "warn"
+    store_responses: bool = False
+
+
 class AuthSettings(BaseModel):
     """Bearer tokens. Empty is the loopback-default, unauthenticated posture (ADR-0014)."""
 
@@ -204,6 +237,7 @@ class Settings(BaseModel):
     provider: ProviderSettings = Field(default_factory=ProviderSettings)
     providers: ProvidersSettings = Field(default_factory=ProvidersSettings)
     telemetry: TelemetrySettings = Field(default_factory=TelemetrySettings)
+    execution: ExecutionSettings = Field(default_factory=ExecutionSettings)
     auth: AuthSettings = Field(default_factory=AuthSettings)
     logging: LoggingSettings = Field(default_factory=LoggingSettings)
 

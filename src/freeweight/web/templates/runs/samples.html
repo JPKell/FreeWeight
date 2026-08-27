@@ -1,0 +1,64 @@
+{% extends "base.html" %}
+{% block title %}Samples · FreeWeight{% endblock %}
+{% block content %}
+{% if error %}
+<h2>Samples</h2>
+<div class="error-state" role="alert">
+  <p><strong>These samples could not be shown.</strong></p>
+  <p>{{ error }}</p>
+  <p class="muted"><a href="/runs">Back to all runs</a></p>
+</div>
+{% else %}
+<h2>{{ test.test_name }} <span class="muted">{{ test.test_key }}</span></h2>
+<p class="muted">
+  Run <a href="/runs/{{ detail.run.id }}"><code>{{ detail.run.id[:10] }}…</code></a> ·
+  <span class="status status-{{ test.status }}">{{ test.status }}</span> ·
+  {{ test.completed_cases }} / {{ test.total_cases }} cases × {{ test.repetitions }} repetitions
+</p>
+{% if samples %}
+<table>
+  <caption class="muted">
+    {{ samples | length }} sample(s). A sample that could not be scored shows — for its score and
+    keeps its row: it is excluded from the aggregate, not from the count.
+  </caption>
+  <thead>
+    <tr>
+      <th scope="col">Case</th>
+      <th scope="col">Rep</th>
+      <th scope="col">Status</th>
+      <th scope="col">Score</th>
+      <th scope="col">Method</th>
+      <th scope="col">Output chars</th>
+      <th scope="col">Wall (ms)</th>
+      <th scope="col">Finish</th>
+      <th scope="col">Error</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for sample in samples %}
+    <tr>
+      <td><code>{{ sample.case_id }}</code></td>
+      <td class="numeric">{{ sample.repetition }}</td>
+      <td><span class="status status-{{ sample.status }}">{{ sample.status }}</span></td>
+      <td class="numeric">
+        {% if sample.score is none %}
+        <span class="muted" title="{{ sample.error_code or 'not scored' }}">—</span>
+        {% else %}{{ "%.3f" | format(sample.score) }}{% endif %}
+      </td>
+      <td>{{ sample.score_method or "—" }}</td>
+      <td class="numeric">{{ sample.output_chars if sample.output_chars is not none else "—" }}</td>
+      <td class="numeric">{{ "%.1f" | format(sample.client_wall_ms) if sample.client_wall_ms is not none else "—" }}</td>
+      <td>{{ sample.finish_reason or "—" }}</td>
+      <td>{{ sample.error_code or "—" }}</td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% else %}
+<div class="empty-state">
+  <p><strong>No samples yet.</strong></p>
+  <p>This test has not produced a sample. It is real and empty, not missing.</p>
+</div>
+{% endif %}
+{% endif %}
+{% endblock %}

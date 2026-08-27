@@ -3,6 +3,23 @@
 {% block title %}Models · FreeWeight{% endblock %}
 {% block content %}
 <h2>Models</h2>
+<form method="post" action="/models/discover">
+  <button type="submit">Refresh from provider</button>
+</form>
+{% if last_discovery %}
+  {% if last_discovery.ok %}
+  <p class="muted">
+    Last refresh {{ last_discovery.checked_at | timestamp }}: {{ last_discovery.detail }}
+    (added {{ last_discovery.added }}, updated {{ last_discovery.updated }},
+    unchanged {{ last_discovery.unchanged }}).
+  </p>
+  {% else %}
+  <p class="error-state" role="alert">
+    <strong>Data may be stale.</strong> The last refresh attempt, {{ last_discovery.checked_at | timestamp }},
+    failed: {{ last_discovery.detail }}. The models below are what was last discovered successfully.
+  </p>
+  {% endif %}
+{% endif %}
 {% if error %}
   {{ error_state(error) }}
 {% elif models %}
@@ -15,6 +32,9 @@
       <th scope="col">Name</th>
       <th scope="col">Digest</th>
       <th scope="col">Confidence</th>
+      <th scope="col">Quantization</th>
+      <th scope="col">Parameters</th>
+      <th scope="col">Context</th>
       <th scope="col">First seen</th>
       <th scope="col">Last seen</th>
     </tr>
@@ -22,11 +42,14 @@
   <tbody>
     {% for model in models %}
     <tr>
-      <td><code>{{ model.canonical_id }}</code></td>
+      <td><a href="/models/{{ model.id }}"><code>{{ model.canonical_id }}</code></a></td>
       <td>{{ model.provider_kind }}</td>
       <td>{{ model.provider_model_name }}</td>
       <td><code>{{ model.artifact_digest or "—" }}</code></td>
       <td>{{ model.identity_confidence }}</td>
+      <td>{{ model.quantization or "—" }}</td>
+      <td class="numeric">{{ model.parameter_count if model.parameter_count is not none else "—" }}</td>
+      <td class="numeric">{{ model.max_context if model.max_context is not none else "—" }}</td>
       <td>{{ model.first_seen_at | timestamp }}</td>
       <td>{{ model.last_seen_at | timestamp }}</td>
     </tr>
@@ -36,8 +59,8 @@
 {% else %}
   {{ empty_state(
        "models",
-       "Model identities are recorded by discovery through ModelRack, which arrives at Phase 3.
-        Run freeweight models refresh once it does; until then this table is real and empty
-        rather than absent.") }}
+       "Model identities are recorded by discovery through ModelRack. Click \"Refresh from
+        provider\" above, or run freeweight models refresh, to discover what your provider is
+        serving; until then this table is real and empty rather than absent.") }}
 {% endif %}
 {% endblock %}

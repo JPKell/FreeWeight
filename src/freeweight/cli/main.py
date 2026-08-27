@@ -14,6 +14,8 @@ import typer
 
 from freeweight.cli.commands import config as config_commands
 from freeweight.cli.commands import db as db_commands
+from freeweight.cli.commands import models as models_commands
+from freeweight.cli.commands import runs as runs_commands
 from freeweight.cli.commands import system as system_commands
 
 __all__ = ["app"]
@@ -58,3 +60,5 @@ app.command(name="version", help="Print the application, API and schema versions
 app.command(name="doctor", help="Diagnose a broken installation.")(system_commands.doctor)
 app.add_typer(config_commands.app, name="config", help="Configuration inspection and management.")
 app.add_typer(db_commands.app, name="db", help="Database migration and maintenance.")
+app.add_typer(models_commands.app, name="models", help="Model discovery and inspection.")
+app.add_typer(runs_commands.app, name="run", help="Start, inspect and cancel benchmark runs.")

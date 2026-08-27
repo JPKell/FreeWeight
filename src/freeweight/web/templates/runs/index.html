@@ -1,0 +1,80 @@
+{% extends "base.html" %}
+{% from "partials/_inventory_states.html" import empty_state, error_state %}
+{% block title %}Runs · FreeWeight{% endblock %}
+{% block content %}
+<h2>Runs</h2>
+
+<form method="post" action="/runs">
+  <fieldset>
+    <legend>Start a run</legend>
+    <p>
+      <label for="model">Model</label>
+      {% if models %}
+      <select id="model" name="model" required>
+        {% for model in models %}
+        <option value="{{ model.id }}" {% if form_model == model.id %}selected{% endif %}>{{ model.canonical_id }}</option>
+        {% endfor %}
+      </select>
+      {% else %}
+      <span class="muted">No models discovered yet — <a href="/models">refresh from the provider</a> first.</span>
+      {% endif %}
+    </p>
+    <p>
+      <label for="suite">Suite</label>
+      <select id="suite" name="suite" required>
+        {% for key in suites %}
+        <option value="{{ key }}" {% if form_suite == key %}selected{% endif %}>{{ key }}</option>
+        {% endfor %}
+      </select>
+    </p>
+    <p>
+      <label for="label">Label (optional)</label>
+      <input id="label" name="label" type="text" value="{{ form_label or '' }}" maxlength="120">
+    </p>
+    <button type="submit" {% if not models %}disabled{% endif %}>Start run</button>
+  </fieldset>
+</form>
+
+{% if error %}
+<div class="error-state" role="alert">
+  <p><strong>The run could not be started.</strong></p>
+  <p>{{ error }}</p>
+</div>
+{% endif %}
+
+{% if runs %}
+<table>
+  <caption class="muted">{{ runs | length }} run(s), newest first.</caption>
+  <thead>
+    <tr>
+      <th scope="col">Run</th>
+      <th scope="col">Status</th>
+      <th scope="col">Suite</th>
+      <th scope="col">Model</th>
+      <th scope="col">Label</th>
+      <th scope="col">Created</th>
+      <th scope="col">Completed</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for run in runs %}
+    <tr>
+      <td><a href="/runs/{{ run.id }}"><code>{{ run.id[:10] }}…</code></a></td>
+      <td><span class="status status-{{ run.status }}">{{ run.status }}</span></td>
+      <td>{{ run.suite_key }} <span class="muted">{{ run.suite_version }}</span></td>
+      <td><code>{{ run.model_canonical_id }}</code></td>
+      <td>{{ run.label or "—" }}</td>
+      <td>{{ run.created_at | timestamp }}</td>
+      <td>{{ run.completed_at | timestamp }}</td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% elif not error %}
+  {{ empty_state(
+       "runs",
+       "A run measures one model against one benchmark suite. Start one with the form above, or
+        run freeweight run start --suite native.echo, which is the self-test suite that exercises
+        the whole engine without needing a real model.") }}
+{% endif %}
+{% endblock %}

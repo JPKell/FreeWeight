@@ -12,6 +12,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any, cast
 
+from baseaicore.timeutil import to_rfc3339
 from sqlalchemy import select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import aliased
@@ -75,6 +76,78 @@ class ModelRepository:
     def list_all(self, session: Session) -> list[Model]:
         """Return every known model identity, most recently seen first."""
         return list(session.scalars(select(Model).order_by(Model.last_seen_at.desc())).all())
+
+    def get_by_id_prefix(self, session: Session, prefix: str) -> list[Model]:
+        """Return every model whose ULID starts with ``prefix``.
+
+        Application-local ULIDs, not the canonical ID, are what a caller addresses a specific model
+        by (API §2, ADR-0024): "the canonical ID is never a path segment". Zero rows means no match;
+        more than one means ``prefix`` is ambiguous and the caller must refuse rather than pick one
+        (api.md §2: "an ambiguous prefix returns 400 listing the candidates").
+        """
+        return list(session.scalars(select(Model).where(Model.id.startswith(prefix))).all())
+
+    def get_by_provider_model_name(
+        self, session: Session, provider_model_name: str
+    ) -> Model | None:
+        """Return the most recently seen model with exactly this provider-reported name.
+
+        A name can legitimately own more than one row over time — a retag keeps the old digest row
+        and creates a new one (:meth:`upsert_identity`) — so this returns the current one rather
+        than raising on the ambiguity a bare name always carries once a model has been retagged.
+        """
+        return session.scalars(
+            select(Model)
+            .where(Model.provider_model_name == provider_model_name)
+            .order_by(Model.last_seen_at.desc())
+            .limit(1)
+        ).one_or_none()
+
+    def record_alias(self, session: Session, model_id: str, *, alias: str, now: datetime) -> Model:
+        """Append an observed ``alias -> this identity`` resolution, or refresh its timestamp.
+
+        ModelRack's :meth:`~modelrack.provider.Provider.resolve` only logs the alias it followed
+        (its own package owns no persistent state); recording the observation for good is this
+        application's job (canonical model identity §2.3: "it does not resolve aliases silently").
+        Deduplicated by alias text so re-resolving the same shorthand a hundred times leaves one
+        entry with a moving timestamp, not a hundred.
+
+        Args:
+            session: The caller's active session.
+            model_id: The :class:`Model` this alias resolved to.
+            alias: What the caller typed — a bare name, an old tag, or an unambiguous prefix.
+            now: The instant this resolution was observed.
+
+        Returns:
+            The current :class:`Model` row after the write.
+
+        Raises:
+            RuntimeError: ``model_id`` does not name an existing row — a caller error, since the
+                alias belongs to an identity that must already have been resolved by the time this
+                is called.
+        """
+        model = self.get_by_id(session, model_id)
+        if model is None:
+            raise RuntimeError(
+                f"Cannot record alias {alias!r} against model {model_id!r}: no such model exists."
+            )
+        history: list[dict[str, str]] = list(cast("list[dict[str, str]]", model.aliases_json or []))
+        observed_at = to_rfc3339(now)
+        for entry in history:
+            if entry.get("alias") == alias:
+                entry["resolved_at"] = observed_at
+                break
+        else:
+            history.append({"alias": alias, "resolved_at": observed_at})
+        session.execute(update(Model).where(Model.id == model_id).values(aliases_json=history))
+        session.flush()
+        refreshed = self.get_by_id(session, model_id)
+        if refreshed is None:
+            raise RuntimeError(
+                f"Model {model_id!r} was not found immediately after recording an alias in this "
+                "same transaction; this indicates a driver or session bug."
+            )
+        return refreshed
 
     @staticmethod
     def _identity_filters(

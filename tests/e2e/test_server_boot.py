@@ -15,14 +15,19 @@ from freeweight.web.app import create_app
 
 
 @contextmanager
-def _client(tmp_path: Path) -> Iterator[TestClient]:
+def _client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[TestClient]:
     """A client whose application lifespan has started, as a served application's would have.
 
     Entering ``TestClient`` as a context manager is what runs the lifespan, and therefore what
     creates the ``Database`` handle the routes read through and the health check reports on.
     Without it these tests would exercise an app with no handle — a state the running server is
     never in.
+
+    ``provider.kind`` is pinned to ``fake`` (testing standards §1: e2e runs "through HTTP and CLI"
+    against the fake) so the health endpoint's new ``provider`` component (Phase 3) is deterministic
+    rather than depending on whether something answers on this machine's real Ollama port.
     """
+    monkeypatch.setenv("FREEWEIGHT_PROVIDER__KIND", "fake")
     loaded = load_settings(config_path=tmp_path / "missing.toml")
     app = create_app(loaded.settings)
     # httpx's TestClient defaults to a "testserver" Host header, which the Host-validation
@@ -33,9 +38,9 @@ def _client(tmp_path: Path) -> Iterator[TestClient]:
 
 
 @pytest.fixture
-def client(tmp_path: Path) -> Iterator[TestClient]:
+def client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[TestClient]:
     """The lifespan-started client, for the tests that need nothing else from ``tmp_path``."""
-    with _client(tmp_path) as test_client:
+    with _client(tmp_path, monkeypatch) as test_client:
         yield test_client
 
 
@@ -143,7 +148,10 @@ def test_response_headers_include_no_store_and_api_version(client: TestClient) -
     assert response.headers["X-Api-Version"] == "v1"
 
 
-def test_lifespan_events_pass_through_every_middleware(tmp_path: Path) -> None:
+def test_lifespan_events_pass_through_every_middleware(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("FREEWEIGHT_PROVIDER__KIND", "fake")
     loaded = load_settings(config_path=tmp_path / "missing.toml")
     app = create_app(loaded.settings)
 

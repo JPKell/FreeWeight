@@ -116,8 +116,7 @@ def doctor() -> None:
     typer.echo(f"freeweight doctor — status: {report.status}")
     if not report.components:
         typer.echo(
-            "  ✓ no dependent components yet (database, provider, telemetry and sandbox checks "
-            "arrive in later phases)"
+            "  ✓ no dependent components yet (telemetry and sandbox checks arrive in later phases)"
         )
     for component in report.components:
         symbol = "✓" if component.status == "ok" else "!" if component.status == "degraded" else "✗"

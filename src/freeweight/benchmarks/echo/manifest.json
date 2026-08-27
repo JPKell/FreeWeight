@@ -1,0 +1,28 @@
+{
+  "key": "native.echo",
+  "name": "Harness Self-Test (Echo)",
+  "version": "1.0.0",
+  "category": "reliability",
+  "runner": "native",
+  "scorer": "harness_roundtrip",
+  "capabilities": [],
+  "requires": {
+    "provider_capabilities": [],
+    "sandbox": false,
+    "network": false
+  },
+  "dataset_hashes": {},
+  "target_device": "any",
+  "metrics": [
+    {
+      "key": "harness_roundtrip_success",
+      "unit": "ratio",
+      "higher_is_better": true,
+      "aggregation": "mean",
+      "description": "Share of cases for which the harness sent a prompt and stored a non-empty response."
+    }
+  ],
+  "license": "project",
+  "self_test": true,
+  "description": "A trivial, deterministic suite that exercises the whole run engine end to end. It measures FreeWeight, not the model: a passing result says the queue, scheduler, provider call, sample store, event stream and aggregation all work on this machine. It emits no capability evidence and must never be read as a quality score."
+}

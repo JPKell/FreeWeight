@@ -80,7 +80,7 @@ def test_restore_undoes_writes_still_sitting_in_the_wal(
 
     result = restore(sqlite_engine, good, confirm=True)
 
-    assert result.revision == "0001"
+    assert result.revision == _head_revision()
     assert _keys(database) == {"original"}
     assert not Path(f"{database}-wal").exists()
 
@@ -132,9 +132,9 @@ def test_restore_refuses_a_backup_at_an_unknown_revision(
     backup(sqlite_engine, good)
 
     with pytest.raises(DatabaseError) as excinfo:
-        restore(sqlite_engine, good, confirm=True, known_revisions=frozenset({"0002", "0003"}))
+        restore(sqlite_engine, good, confirm=True, known_revisions=frozenset({"9998", "9999"}))
 
-    assert "0001" in str(excinfo.value)
+    assert _head_revision() in str(excinfo.value)
     assert _keys(sqlite_path(sqlite_engine)) == {"original"}
 
 
@@ -172,7 +172,7 @@ def test_backup_file_is_private_before_it_holds_data(sqlite_engine: Engine, tmp_
 def test_backup_revision_reads_the_stamped_revision(sqlite_engine: Engine, tmp_path: Path) -> None:
     result = backup(sqlite_engine, tmp_path / "out.sqlite3")
 
-    assert backup_revision(result.path) == "0001"
+    assert backup_revision(result.path) == _head_revision()
 
 
 def test_backup_revision_is_none_for_an_unmigrated_database(tmp_path: Path) -> None:
@@ -342,3 +342,20 @@ def test_checkpoint_truncates_the_wal(sqlite_engine: Engine) -> None:
     checkpoint(sqlite_engine)
 
     assert wal.stat().st_size == 0
+
+
+def _head_revision() -> str:
+    """The migration history's current head, read from the scripts rather than written down.
+
+    Every assertion below that used to spell ``"0001"`` is really asserting "the revision this
+    build migrates to", and that changes with every phase that adds a migration. Reading it keeps
+    these tests testing backup and restore rather than testing which phase is current.
+    """
+    from alembic.config import Config
+    from alembic.script import ScriptDirectory
+
+    config = Config()
+    config.set_main_option("script_location", MIGRATIONS_LOCATION)
+    head = ScriptDirectory.from_config(config).get_current_head()
+    assert head is not None
+    return str(head)

@@ -11,7 +11,16 @@ from __future__ import annotations
 
 from alembic import context
 
+from freeweight.infrastructure.db import models as _models  # noqa: F401
+from freeweight.infrastructure.db import models_runs as _models_runs  # noqa: F401
 from freeweight.infrastructure.db.base import Base
+
+# Both model modules are imported for their side effect of registering their tables on
+# ``Base.metadata``. Without them, ``target_metadata`` is empty here and autogenerate — including
+# ``MigrationRunner.check_parity`` — compares a live database against nothing and reports every
+# real table as an extra one to drop. The import is in this module rather than left to whichever
+# caller happened to touch a repository first, because Alembic's environment is the one place
+# guaranteed to run for every migration operation.
 
 config = context.config
 target_metadata = Base.metadata

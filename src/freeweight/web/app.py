@@ -18,7 +18,11 @@ from fastapi.staticfiles import StaticFiles
 
 from freeweight.__about__ import __version__
 from freeweight.config import LOOPBACK_HOSTS, Settings
+from freeweight.infrastructure.providers.factory import build_provider
 from freeweight.services.database import Database
+from freeweight.services.runs import build_registry
+from freeweight.services.scheduler import RunScheduler
+from freeweight.services.telemetry import TelemetryService, build_collector
 from freeweight.web.errors import register_exception_handlers
 from freeweight.web.middleware import (
     BodySizeLimitMiddleware,
@@ -28,6 +32,7 @@ from freeweight.web.middleware import (
 from freeweight.web.rendering import render
 from freeweight.web.routes import machines as machines_routes
 from freeweight.web.routes import models as models_routes
+from freeweight.web.routes import runs as runs_routes
 from freeweight.web.routes import system as system_routes
 
 __all__ = ["create_app"]
@@ -61,6 +66,18 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
     The handle is created here rather than in :func:`create_app` so that it is disposed when the
     server stops, and so that building an app object (which tests do freely) opens nothing. It is
     reachable from a route as ``request.app.state.database``.
+
+    The telemetry sampler is started and stopped here for the identical reason: one background
+    thread for as long as the server serves, reachable as ``request.app.state.telemetry``, and
+    guaranteed to stop cleanly (Phase 4's own risk: "sampler lifecycle bugs under reload") no
+    matter how the lifespan exits.
+
+    The run scheduler is started here for a third reason on top of those two: **there must be
+    exactly one**, and one per served application is the only count that keeps "one GPU workload
+    at a time" true. Starting it here also means its startup recovery
+    (:meth:`~freeweight.services.scheduler.RunScheduler.recover`) runs before the first request is
+    served, so a run orphaned by a kill is already ``interrupted`` — and resumable — by the time
+    anyone looks at it.
     """
     settings: Settings = app.state.settings
     database_url = settings.storage.database_url
@@ -71,19 +88,41 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
         database_url, statement_timeout_ms=settings.storage.statement_timeout_ms
     )
     app.state.database = database
+    # Built once for the same reason the database handle is: OllamaProvider owns a pooled
+    # httpx.Client, and rebuilding one per request would throw the pool away every time. Nothing
+    # here opens a connection — construction only validates the configured URL.
+    app.state.provider = build_provider(settings.provider)
+    telemetry = TelemetryService(
+        build_collector(), interval_seconds=settings.telemetry.interval_ms / 1000
+    )
+    app.state.telemetry = telemetry
+    app.state.registry = build_registry()
+    scheduler = RunScheduler(database, app.state.provider, registry=app.state.registry)
+    app.state.scheduler = scheduler
+    # Both background threads are started *inside* the try, so that a failure in the second one
+    # still stops the first. Started before it, a raise between the two would skip the `finally`
+    # entirely — an ``asynccontextmanager``'s cleanup only runs for what happens after the
+    # ``yield`` — and leak the sampler thread for the life of the process.
     try:
+        telemetry.start()
+        scheduler.start()
         yield
     finally:
+        scheduler.stop()
+        telemetry.stop()
         database.close()
         app.state.database = None
+        app.state.provider = None
+        app.state.telemetry = None
+        app.state.scheduler = None
 
 
 def create_app(settings: Settings) -> FastAPI:
     """Build the FastAPI application for the given settings.
 
     Registers, from outermost to innermost: the request-ID middleware, Host-header validation,
-    the request body size limit, the standard error envelope handlers, the ``/api/v1`` system
-    routes, static assets, and the HTML pages (the shell, machines and models).
+    the request body size limit, the standard error envelope handlers, the ``/api/v1`` system and
+    run routes, static assets, and the HTML pages (the shell, machines, models and runs).
 
     Still a pure function of ``Settings`` — it opens nothing. The database handle is created by
     the lifespan, which runs only when the application is actually served (or when a test enters
@@ -98,6 +137,14 @@ def create_app(settings: Settings) -> FastAPI:
     )
     app.state.settings = settings
     app.state.database = None
+    app.state.provider = None
+    app.state.telemetry = None
+    app.state.scheduler = None
+    # The benchmark registry is a pure, cheap value with no I/O, so unlike the handles above it is
+    # built here rather than in the lifespan: a route that renders the list of runnable suites
+    # then works in a test that never entered the lifespan. The lifespan rebuilds it so that the
+    # scheduler and the routes share one instance.
+    app.state.registry = build_registry()
 
     app.add_middleware(RequestIdMiddleware)
     app.add_middleware(HostValidationMiddleware, allowed_hosts=_resolve_allowed_hosts(settings))
@@ -106,8 +153,10 @@ def create_app(settings: Settings) -> FastAPI:
     register_exception_handlers(app)
 
     app.include_router(system_routes.router, prefix="/api/v1")
+    app.include_router(runs_routes.api_router, prefix="/api/v1")
     app.include_router(machines_routes.router)
     app.include_router(models_routes.router)
+    app.include_router(runs_routes.router)
 
     if _STATIC_DIR.is_dir():
         app.mount("/static", StaticFiles(directory=_STATIC_DIR), name="static")

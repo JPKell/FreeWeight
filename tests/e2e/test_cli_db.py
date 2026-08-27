@@ -124,7 +124,7 @@ def test_db_backup_defaults_to_a_revision_named_rotating_path() -> None:
     written = Path(json.loads(result.output)["path"])
     assert written.is_file()
     assert written.parent.name == "backups"
-    assert written.name.startswith("freeweight-0001-")
+    assert written.name.startswith(f"freeweight-{_head_revision()}-")
 
 
 def test_db_backup_rotates_older_default_path_backups() -> None:
@@ -150,4 +150,18 @@ def test_db_restore_reports_the_restored_revision(tmp_path: Path) -> None:
     result = runner.invoke(app, ["db", "restore", str(backup_path), "--yes"])
 
     assert result.exit_code == 0, result.output
-    assert "revision 0001" in result.output
+    assert f"revision {_head_revision()}" in result.output
+
+
+def _head_revision() -> str:
+    """The migration history's current head — see the note in ``test_backup_restore.py``."""
+    from alembic.config import Config
+    from alembic.script import ScriptDirectory
+
+    from freeweight.services.database import MIGRATIONS_LOCATION
+
+    config = Config()
+    config.set_main_option("script_location", MIGRATIONS_LOCATION)
+    head = ScriptDirectory.from_config(config).get_current_head()
+    assert head is not None
+    return str(head)

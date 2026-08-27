@@ -1,0 +1,119 @@
+{% extends "base.html" %}
+{% block title %}Run · FreeWeight{% endblock %}
+{% block content %}
+{% if error %}
+<h2>Run {{ run_ref }}</h2>
+<div class="error-state" role="alert">
+  <p><strong>This run could not be shown.</strong></p>
+  <p>{{ error }}</p>
+  <p class="muted"><a href="/runs">Back to all runs</a></p>
+</div>
+{% else %}
+{% set run = detail.run %}
+<h2>Run <code>{{ run.id }}</code></h2>
+<p>
+  <span class="status status-{{ run.status }}" id="run-status" data-run-id="{{ run.id }}"
+        data-last-sequence="{{ detail.last_event_sequence }}" data-terminal="{{ 'true' if run.is_terminal else 'false' }}">{{ run.status }}</span>
+  · {{ run.suite_key }} <span class="muted">{{ run.suite_version }}</span>
+  · <code>{{ run.model_canonical_id }}</code>
+  {% if run.label %} · {{ run.label }}{% endif %}
+</p>
+{% if run.error_code %}
+<div class="error-state" role="alert">
+  <p><strong>{{ run.error_code }}</strong></p>
+  <p>{{ run.error_text }}</p>
+</div>
+{% endif %}
+
+<p class="muted">
+  Created {{ run.created_at | timestamp }} · started {{ run.started_at | timestamp }} ·
+  completed {{ run.completed_at | timestamp }}<br>
+  Fingerprint <code>{{ run.reproducibility_fingerprint }}</code>
+</p>
+
+{% if not run.is_terminal %}
+<form method="post" action="/runs/{{ run.id }}/cancel">
+  <button type="submit">Cancel run</button>
+</form>
+{% endif %}
+
+<h3>Progress</h3>
+<progress id="run-progress" value="0" max="1" aria-describedby="run-progress-text"></progress>
+<p id="run-progress-text" class="muted">Waiting for events.</p>
+
+<h3>Tests</h3>
+<table>
+  <thead>
+    <tr>
+      <th scope="col">Test</th>
+      <th scope="col">Status</th>
+      <th scope="col">Cases</th>
+      <th scope="col">Repetitions</th>
+      <th scope="col">Skip reason</th>
+      <th scope="col">Error</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for test in detail.tests %}
+    <tr>
+      <td><a href="/runs/{{ run.id }}/tests/{{ test.id }}">{{ test.test_name }}</a>
+          <span class="muted">{{ test.test_key }}</span></td>
+      <td><span class="status status-{{ test.status }}">{{ test.status }}</span></td>
+      <td class="numeric">{{ test.completed_cases }} / {{ test.total_cases }}</td>
+      <td class="numeric">{{ test.repetitions }}</td>
+      <td>{{ test.skip_reason or "—" }}</td>
+      <td>{{ test.error_code or "—" }}</td>
+    </tr>
+    {% else %}
+    <tr><td colspan="6" class="muted">No tests enumerated yet.</td></tr>
+    {% endfor %}
+  </tbody>
+</table>
+
+<h3>Metrics</h3>
+<table>
+  <thead>
+    <tr>
+      <th scope="col">Metric</th>
+      <th scope="col">Scope</th>
+      <th scope="col">Value</th>
+      <th scope="col">Unit</th>
+      <th scope="col">Aggregation</th>
+      <th scope="col">Samples</th>
+      <th scope="col">Excluded</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for metric in detail.metrics %}
+    <tr>
+      <td>{{ metric.metric_key }}</td>
+      <td>{{ "run" if metric.run_test_id is none else "test" }}</td>
+      <td class="numeric">
+        {% if metric.unavailable_reason %}
+        <span class="muted" title="{{ metric.unavailable_reason }}">—</span>
+        {% else %}
+        {{ "%.4f" | format(metric.numeric_value) }}
+        {% endif %}
+      </td>
+      <td>{{ metric.unit }}</td>
+      <td>{{ metric.aggregation }}</td>
+      <td class="numeric">{{ metric.sample_count if metric.sample_count is not none else "—" }}</td>
+      <td class="numeric">{{ metric.excluded_count if metric.excluded_count is not none else "—" }}</td>
+    </tr>
+    {% else %}
+    <tr><td colspan="7" class="muted">No aggregates yet — they are written once every sample is durable.</td></tr>
+    {% endfor %}
+  </tbody>
+</table>
+
+<h3>Events</h3>
+<ol id="run-events" class="event-log" aria-live="polite"></ol>
+<noscript>
+  <p class="muted">
+    Live events need JavaScript. Everything above is rendered by the server and is complete as of
+    this page load; reload to see the run's current state.
+  </p>
+</noscript>
+<script src="/static/js/runs.js" defer></script>
+{% endif %}
+{% endblock %}

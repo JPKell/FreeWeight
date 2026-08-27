@@ -8,6 +8,74 @@ packaging and release standards §3.
 ## [Unreleased]
 
 ### Added
+- Phase 5: the run engine, end to end against `FakeProvider`. `freeweight run start --suite
+  native.echo` queues a run, executes it (claim → prepare → warm → execute → aggregate →
+  complete), stores every raw sample, and streams progress to the browser and the terminal;
+  `freeweight run list|show|cancel|wait` and the run list, detail and sample pages read the same
+  data through the same service functions as `POST /api/v1/runs`, `GET /api/v1/runs`,
+  `GET /api/v1/runs/{id}`, `POST /api/v1/runs/{id}/cancel`, `GET /api/v1/runs/{id}/tests`,
+  `GET /api/v1/runs/{id}/tests/{test_id}/samples` and `GET /api/v1/runs/{id}/events`.
+- Eight new tables and migration `0002`: `benchmark_suites`, `benchmark_tests`, `runs`,
+  `run_tests`, `samples`, `metric_values`, `run_events` and `artifacts`. Results cascade downward
+  and never delete identity upward (`ON DELETE RESTRICT` on every model, machine, descriptor and
+  suite reference), and `ck_samples_score_null_unless_completed` states in DDL that a sample which
+  is not `completed` cannot carry a score at all.
+- The run and test state machines as explicit, enumerable transition tables
+  (`freeweight.domain.run_state`), with every legal transition, every illegal one and the
+  immutability of every terminal state asserted over all 81 (and 36) ordered pairs.
+- Persisted run events with gap-free per-run sequences from 1, and `GET /api/v1/runs/{id}/events`
+  (SSE) with `Last-Event-ID` replay. Events are committed before they are published, so replay,
+  a reload mid-run and a restart all resume with no gap and no duplicate; the run detail page
+  renders the sequence it got to, and the browser reconnects from exactly there.
+- `native.echo`, a trivial deterministic self-test suite that exercises the whole engine on any
+  provider. It measures FreeWeight, not the model: it declares no capabilities and emits no
+  capability evidence.
+- A single-threaded run scheduler with startup recovery. One GPU workload at a time is a property
+  of the claim (`UPDATE … WHERE status = 'queued'`, refused while any run is in flight), so a
+  `freeweight run start` typed while a server is serving queues the run and exits `7` rather than
+  running it concurrently. A run left mid-flight by a killed process is recovered as `interrupted`
+  — never `failed` — keeps its completed tests, and resumes from the exact (case, repetition) it
+  had reached.
+- Cancellation honoured at every phase boundary: `queued`, `preparing` and `warming` cancel
+  outright, `running` enters `cancelling` and stops at the executor's next check. `Ctrl-C` during
+  `freeweight run start` or `run wait` cancels cleanly, preserves committed samples and exits `6`.
+- `[execution]` configuration section (`warmup_repetitions`, `measured_repetitions`,
+  `cooldown_seconds`, `test_timeout_seconds`, `run_timeout_seconds`, `randomize_case_order`,
+  `seed`, `gpu_index`, the idle-detection group, `on_idle_timeout`, `store_responses`), resolved
+  once per run and frozen into the run record.
+
+- Phase 4: telemetry and machine profile. The current host is profiled through SweatMeter once at
+  server startup and upserted by fingerprint (`last_seen_at` refreshed on every later startup),
+  populating the machines page for the first time. A single telemetry sampler, owned by the web
+  application for as long as it serves, backs the telemetry bar shown on every page (CPU, RAM, GPU
+  utilization and temperature, VRAM, power — `—` with a reason for anything unsupported, e.g. no
+  GPU), `GET /api/v1/system/telemetry/stream` (SSE, `telemetry.sampled` events, 15 s heartbeat) and
+  `GET /api/v1/system/status`. Two new health components, `gpu_telemetry` and `machine`, join
+  `database` and `provider` on `GET /api/v1/health`, `freeweight health` and `freeweight doctor`; a
+  machine with no GPU degrades the application without making it unavailable.
+- Phase 3: model discovery through ModelRack exclusively. `freeweight models refresh` (and the
+  models page's "Refresh from provider" action) lists every model the configured provider serves,
+  upserts its canonical identity, and stores an immutable descriptor snapshot only when its content
+  actually changed — a second refresh with nothing changed leaves the descriptor history exactly as
+  long as it was. A digest present yields `identity_confidence = digest`; absent yields `name_only`;
+  a name later gaining a digest upgrades that row in place rather than duplicating it; a *changed*
+  digest creates a new identity and leaves the old one's history untouched. `freeweight models
+  list|show` and the models list/detail pages, with `show`/`GET /models/{model_ref}` falling back to
+  a live provider resolution when a reference (a bare name, an old tag, an unambiguous prefix) is not
+  yet stored, recording the alias it resolved through rather than hiding it. The provider is
+  constructed exactly once, in the composition root
+  (`freeweight.infrastructure.providers.factory`) — the only module in this application that reaches
+  provider HTTP code, asserted by a boundary test scanning the rest of the source tree.
+- The `provider` health component (version and model count on success; `unavailable`/`degraded` with
+  a reason otherwise), reported by `GET /api/v1/health`, `freeweight health` and `freeweight doctor`.
+  An unreachable provider degrades the application; per Graceful Degradation §3, an optional
+  component never makes it `unavailable` on its own — only the required `database` component can.
+  With the provider down, the models page and `models list` still work: they read the last
+  discovery attempt's recorded outcome rather than probing the provider on every view, so they say
+  the data may be stale instead of pretending it is current.
+- `provider.kind = "fake"`, constructing `modelrack.testing.FakeProvider` — alongside the production
+  `"ollama"` adapter — so the running application, not just its unit tests, can be exercised with no
+  GPU, no Ollama and no network (testing standards §1).
 - Phase 1: `freeweight serve` starts a web server answering `GET /api/v1/health` and
   `GET /api/v1/version`, and rendering the application shell; `freeweight health --json` and
   `freeweight version --json` return the same data through the same service layer. Typer CLI with
@@ -96,6 +164,9 @@ packaging and release standards §3.
 - `MigrationOutcome.restored`, which could never be `True`, is replaced by
   `restore_on_failure_available`, which states the dialect difference database standards §7
   requires to be stated rather than papered over. `MigrationOutcome` also carries `pruned_backups`.
+- `GET /api/v1/system/status` now reports the real `active_run` and `queue_depth`. Both are `null`
+  when the queue cannot be read — a database behind head, say — rather than a reassuring `0`.
 - Widened the `sweatmeter` pin to `>=0.4,<0.5`. SweatMeter's first published release is `0.4.0`
   (`0.3.0` completed its development plan but never reached the index), and it adds the in-process
   NVML GPU backend, selected automatically wherever the optional `pynvml` extra is installed.
+
