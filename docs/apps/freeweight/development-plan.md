@@ -2,9 +2,47 @@
 
 **Sequence position:** first application. Begins after BaseAiCore P4, SetSpec P1–P3, ModelRack P2
 (FakeProvider) and SweatMeter P1–P2 are available.
-**Milestones:** M2 (beta) at P10 · **M3 (FreeWeight 1.0-rc, contract freeze) at P11** · **M6 (FreeWeight 1.0) at P14**.
+**Milestones:** M2 (beta) at P10–P10A · **M3 (FreeWeight 1.0-rc, contract freeze) at P11** · **M6 (FreeWeight 1.0) at P14**.
 
 Every phase ends in something a person can run and look at. No phase is "implement the backend".
+
+**Amended 2026-08-26** by ADR-0031 and
+ADR-0032, which add user-defined
+goal benchmarks: **Phases 8A, 8B and 10A** below, an amendment to Phase 11, and one upstream
+prerequisite (§0).
+
+> **Scheduling constraint, and it is hard.** ADR-0032 adds fields to `capability.evidence`, a sixth
+> factor to the ADR-0017 confidence formula, and one root to the SetSpec capability vocabulary. **M3
+> at Phase 11 is the contract freeze.** Every one of those changes must therefore land *at or before*
+> P11. Deferring goal work to "after 1.0" is not a scheduling choice, it is a decision to make a
+> breaking change to a frozen cross-application contract later. Model assignment for every step is in
+> §Appendix A.
+
+---
+
+## Phase 0 (upstream) — SetSpec capability vocabulary 1.1
+
+Not a FreeWeight phase; a prerequisite in another repository, listed here because P11 cannot pass
+without it and it is trivially easy to forget.
+
+**Work (in `py/SetSpec`)**
+* Add the reserved root `user` to `setspec.vocabulary.CAPABILITIES`; bump
+  `CAPABILITY_VOCABULARY_VERSION` to `"1.1"` (an addition, therefore minor — spec §11.8 rule 8).
+* Extend `capability.evidence` with the goal-sourced field group from
+  ADR-0032 §5, all optional, absent
+  on non-goal records.
+* Add `benchmark.goal_pack` and `benchmark.calibration_report` schemas with goldens.
+* `CHANGELOG.md` under `## [Unreleased]`.
+
+**Tests**
+* `user.anything_at_all` validates; `user` alone as a bare capability is refused; a *newer-minor*
+  payload carrying `user.*` is accepted by a build that predates 1.1 (ADR-0009 forward compatibility)
+  — this is the test that proves an older LoadCoach degrades by ignoring goal evidence rather than
+  failing on it.
+* Golden payloads for both new schemas; round-trip equality; unknown-field preservation.
+
+**Acceptance:** a `setspec`-only script validates a `user.house_voice` evidence payload and rejects
+`user` bare. **Must be released before FreeWeight P11 begins.**
 
 ---
 
@@ -421,7 +459,186 @@ tests/unit/{test_audit_metrics,test_critique_metrics,test_judge_bias,test_effect
 randomization and by preferring deterministic suites everywhere else.
 **Likely failure modes:** treating judge output as ground truth; averaging biased comparisons.
 **Gold standards:** deterministic first; judge trustworthiness always visible.
-**Deferred:** external judge benchmarks (Phase 13).
+**Deferred:** external judge benchmarks (Phase 13); *using* a judge to score against a user's rubric
+(Phases 8A–8B) — this phase builds the judge infrastructure and measures judges; it does not yet
+point one at a user-authored goal.
+
+---
+
+## Phase 8A — Goal packs and deterministic goal criteria
+
+**Goal:** a user can hand-write a goal pack whose criteria are entirely rules, run it against a
+model, and get a scored, drillable result — **with no judge involved anywhere**. This phase proves
+the goal machinery on the deterministic half of the ladder before any model judgement enters it.
+
+**Prerequisites:** P7 (prompt library, scorer patterns, run engine). Not P8 — nothing here judges.
+
+**Work**
+* Goal pack schema, loader and validator per [Subjective Goals §2](subjective-goals.md); packs load
+  once at startup exactly as prompt packs do, and a malformed pack is a startup failure, not a
+  mid-run surprise.
+* `goals`, `goal_criteria`, `goal_tasks`, `criterion_scores` tables and migration;
+  `benchmark_suites.runner` gains `goal`, plus `goal_id` and `goal_hash`.
+* `goal_hash`: canonical JSON over the measurement-defining subset only
+  ([Subjective Goals §2.2](subjective-goals.md)). Renaming a criterion must not move it; changing what
+  it checks must.
+* The rule-criterion library — all thirteen types in
+  [Subjective Goals §3.1](subjective-goals.md) — each a pure function with a docstring stating what it
+  refuses, under `rule_timeout_ms`, with a linted regex dialect (no backreferences, bounded
+  repetition).
+* Rung-3 reference criteria: `entity_recall`, `claim_coverage`, `no_unsupported_claims`,
+  `reference_similarity`.
+* Goal runner: composite scoring, weights, hard gates, `score_method_mix`, skipped-criterion handling
+  (`raw_score = NULL`, never `0`).
+* `freeweight goals list|show|validate|suggest-rules|export|import`, and `goals init` as a terminal
+  interview writing a pack.
+* The rubric lint: flags a `judge` criterion a rule could check and names the rule; refuses a `judge`
+  criterion with no scale descriptors.
+* `GET|POST|PUT|DELETE /api/v1/goals` and `/goals/{slug}/validate|suggest-rules|export`,
+  `POST /goals/import`.
+
+**Files/subsystems**
+```text
+src/freeweight/domain/goals/{pack,criteria,hashing,lint,composite}.py
+src/freeweight/domain/scorers/rules/{phrases,length,readability,pov_tense,vocabulary,
+                                     punctuation,structure,regex,repetition,reference}.py
+src/freeweight/benchmarks/goal/runner.py
+src/freeweight/services/goals.py     src/freeweight/repositories/goals.py
+src/freeweight/web/routes/goals.py   src/freeweight/cli/commands/goals.py
+migrations/versions/xxxx_goal_tables.py
+tests/unit/test_rules_*.py  tests/unit/{test_goal_hash,test_goal_lint,test_composite}.py
+tests/integration/test_goal_run_rules_only.py  tests/security/test_goal_pack_import.py
+```
+
+**Tests**
+* Every rule type: known-pass, known-fail, boundary, empty input, unicode, and a text that trips it
+  in an obvious way. Each is a metric formula and gets the full Testing Standards §5 treatment.
+* `goal_hash` **changes** when a criterion's rule parameters, weight, rung or scale descriptors
+  change; **does not change** when a display name, `intent` or `contributes_to` changes. Both
+  directions asserted — a hash that never changes and a hash that always changes are equally useless.
+* Hard gate zeroes the composite and records which gate fired; a skipped criterion is excluded and
+  the applied weight reflects it.
+* Catastrophic-backtracking regex fails the criterion within `rule_timeout_ms` and does not stall the
+  run; the goal completes with that criterion in `error`.
+* Import: oversize pack, path traversal in the pack, colliding slug, bad hash, malformed JSON — each
+  refused before any file is written, each with its own error code.
+* Goal templates cannot reach the filesystem or network through the Jinja2 environment.
+* Lint fires on a judged criterion that a `forbidden_phrases` rule would cover, and on a judged
+  criterion with no descriptors.
+
+**Acceptance criteria**
+1. A hand-written goal pack with only rule criteria runs end to end against a real model and produces
+   a composite score, per-criterion scores and `score_method_mix = {rule: 1.0}`.
+2. That run works with **no judge configured at all**, and its `judge_validity_factor` is 1.0.
+3. Every headline goal number drills to the criterion and the sample that produced it in ≤ 2
+   interactions, showing which phrases matched and which distributions were measured.
+4. Renaming a criterion leaves `goal_hash` unchanged; changing its phrase list changes it, and the
+   UI states how many existing runs the change would separate **before** it is applied.
+5. `freeweight goals validate` on a deliberately bad pack names every problem with a severity.
+
+**Known risks:** the rule library is thirteen small formulas and it is tempting to write them quickly;
+each is a measurement and a wrong one is invisible. **Likely failure modes:** a rule that silently
+scores 0 for input it cannot parse instead of returning `unsupported`; `goal_hash` over-covering
+(display names) and fragmenting history.
+**Gold standards:** deterministic scoring; unsupported is not zero; every formula unit-tested.
+**Deferred:** all judging, all calibration, the wizard.
+
+---
+
+## Phase 8B — Calibration, the jury, and the gate
+
+**Goal:** a judged criterion becomes a *measurement*: the user grades, the jury is scored against
+grades it never saw, the agreement is reported with every number, and a rubric that cannot be
+measured is refused entry to the evidence contract while still producing a fully inspectable run.
+
+**Prerequisites:** P8 (judge infrastructure, blinding, order randomization, bias metrics), P8A.
+
+**Work**
+* Jury service on P8's judge infrastructure: assembly from installed models, blinding of candidate
+  identity, case and criterion order randomization, repetitions, **self-judging refusal**, and
+  `jury_reduced` degradation with a recorded reason.
+* Judged-criterion scorer: ordinal absolute mode and pairwise mode; juror combination by **median**;
+  Krippendorff's alpha for inter-juror agreement.
+* Calibration tables and service: sample collection (generate over a model spread, paste, promote
+  prior run samples), the seeded stratified anchor/holdout partition, grade capture with resumable
+  progress.
+* Anchor injection: the judge prompt record renders the anchors as few-shot exemplars with the user's
+  grades and notes. It is a prompt record (ADR-0012) —
+  no exception, no f-strings.
+* Agreement mathematics: quadratic-weighted Cohen's kappa, Spearman rho, MAE, signed bias, all with
+  `n_holdout` inseparable from the coefficient in every representation.
+* The gate: weighted `kappa_w` against `calibration.min_agreement`; `judge_validity_factor` with the
+  `sqrt(n_holdout / n_holdout_target)` shrinkage
+  (ADR-0032 §2).
+* Disagreement diagnostics: the worst-diverging holdout samples, both rationales, sorted by
+  contribution to the disagreement, with the lint's read on the likely cause.
+* The grade-distribution check that refuses to compute agreement on a set with no variance.
+* Remote-juror opt-in requiring both `providers.allow_remote` and the goal's `judge.allow_remote`,
+  recorded in the fingerprint, separating results.
+* `freeweight goals calibrate|grade|calibration show|report`, `freeweight judges list|validate`, and
+  the calibration API endpoints.
+
+**Files/subsystems**
+```text
+src/freeweight/domain/{jury,agreement,calibration}.py
+src/freeweight/domain/scorers/judged.py
+src/freeweight/services/{calibration,jury}.py
+src/freeweight/repositories/calibration.py
+src/freeweight/prompts/goals/judge.rubric.v1.json
+src/freeweight/web/routes/calibration.py  src/freeweight/cli/commands/{goals,judges}.py
+migrations/versions/xxxx_calibration_tables.py
+tests/unit/{test_agreement,test_kappa_weighted,test_krippendorff,test_partition,
+            test_validity_factor,test_gate}.py
+tests/integration/{test_calibration_flow,test_jury_assembly}.py
+```
+
+**Tests**
+* `kappa_w` against hand-computed confusion matrices and published worked examples; a **perfectly
+  agreeing** synthetic grader yields 1.0; a **uniformly random** grader yields ≈ 0; a grader that is
+  consistently one point generous yields high `rho`, high `kappa_w` and non-zero `bias` — the three
+  statistics must be able to disagree with each other, or only one of them is real.
+* Krippendorff's alpha against a published worked example; total juror agreement ⇒ 1.0.
+* Partition: deterministic under a fixed seed, stratified across the grade range, and **the holdout
+  is provably never rendered into a judge prompt** — asserted by scanning the rendered prompt for
+  holdout content hashes, not by reading the code.
+* `judge_validity_factor`: 1.0 when every criterion is rungs 1–4; shrunk at small `n_holdout`
+  (6 samples at `kappa_w` 0.71 ⇒ 0.55, hand-computed); clamped at both ends.
+* The gate: below threshold ⇒ run completes, result badged `uncalibrated`, **`capability_evidence`
+  has no row** — the absence is asserted directly, because "we emitted it quietly at the floor" is
+  precisely the failure the gate exists to prevent.
+* `CALIBRATION_INSUFFICIENT` (too few grades) is distinguished from a failed gate (enough grades,
+  poor agreement) in code, in the API and in the UI copy.
+* Self-judging is refused and recorded, not silently discounted; a jury reduced below `jury_size`
+  records `jury_reduced` and still scores.
+* Zero eligible jurors ⇒ judged criteria `skipped (judge_unavailable)`, rule criteria still score,
+  the partial result says so.
+* Grade-distribution check fires on an all-4-and-5 calibration set.
+* Everything above runs against `FakeProvider` with **no GPU, no Ollama, no network** — including a
+  deterministic fake jury whose bias is configurable, which is how a "generous juror" and a
+  "position-biased juror" become test cases rather than field reports.
+
+**Acceptance criteria**
+1. A goal with judged criteria, calibrated on 12 graded samples, reports `kappa_w`, `rho`, `mae`,
+   `bias` and `n_holdout` per criterion, and a weighted gate verdict.
+2. A deliberately unmeasurable rubric ("make it good") completes its run, is badged `uncalibrated`,
+   emits **no** evidence, and names the criteria and the specific samples where the jury diverged
+   from the user.
+3. Moving one criterion from `judge` to `rule` measurably raises `judge_validity_factor`, and both
+   values are shown.
+4. A juror is never asked to judge its own output, and the refusal appears in the run record.
+5. Two calibration runs of the same goal, jury and grades produce identical partitions and identical
+   agreement figures.
+
+**Known risks:** the agreement statistics are the intellectual core of the feature and a subtly wrong
+`kappa_w` would be invisible for months — it would simply produce plausible numbers. Mitigated by
+hand-computed fixtures, published worked examples, and the synthetic graders whose true agreement is
+known by construction.
+**Likely failure modes:** holdout leaking into the judge prompt; averaging jurors instead of taking
+the median and losing the dispersion that *is* the error bar; conflating "not enough grades" with
+"poor agreement"; presenting `kappa_w` without `n_holdout`.
+**Gold standards:** deterministic first; judge trustworthiness always visible; unsupported is not
+zero; the default suite needs no GPU, no Ollama, no network.
+**Deferred:** the wizard, starter packs, evidence export.
 
 ---
 
@@ -509,7 +726,7 @@ tests/accessibility/test_ui_checklist.py  tests/performance/test_dashboard_queri
 * UI checklist: themes, `—` rendering, keyboard, contrast, 1280×720, empty/loading/error states.
 
 **Acceptance criteria**
-1. Every acceptance item in ui ux standards passes.
+1. Every acceptance item in UI/UX Standards §13 passes.
 2. No headline number is more than two interactions from its raw source.
 3. Deleting results is previewed, confirmed, transactional and backed up.
 4. Exports stream a 10 000-sample run within budget.
@@ -521,23 +738,110 @@ tests/accessibility/test_ui_checklist.py  tests/performance/test_dashboard_queri
 
 ---
 
+## Phase 10A — The goal authoring wizard and starter packs · **completes M2 beta**
+
+**Goal:** a user who has never read the documentation can define a subjective goal, be taught what
+makes it measurable, grade a calibration set, and see how well the instrument agrees with them —
+entirely from the UI, and walk away owning an editable file.
+
+**Prerequisites:** P8B, P10 (dashboard, drill-down and the results experience the wizard reuses).
+
+**Work**
+* The seven-step wizard of [Subjective Goals §7](subjective-goals.md): intent → criteria → proposed
+  rules → tasks → generate and grade → agreement → save. Server-rendered with progressive
+  enhancement (ADR-0020); no SPA.
+* **Step 2 is the part that earns the feature**: for each criterion the wizard asks whether two people
+  reading the description would grade the same text the same way, and whether it is one quality or
+  two fused together. Splitting "not LinkedIn" into a vocabulary criterion and a register criterion is
+  what makes both measurable, and the wizard has to make that move visible rather than performing it.
+* Rule proposal UI: each proposed rule shown with pre-filled parameters, accept/edit/skip, and the
+  running statement of how much weight has moved off the judge and onto rules.
+* Blinded inline grading: shuffled, model identity hidden, notes per grade, continuous save,
+  resumable across sessions and browser refreshes. Grading twelve samples across five criteria is a
+  real sitting.
+* The calibration report screen: the band language from
+  [Subjective Goals §5.5](subjective-goals.md), never a bare coefficient; the disagreement samples
+  side by side with the user's own note and the jury's rationale.
+* The four starter packs, complete with tasks, criteria, proposed rules and worked graded calibration
+  sets; `unforked` badging wherever a starter's results appear.
+* Goal results in the dashboard, comparison and export paths: `score_method_mix` beside every score,
+  `goal_hash` separation in comparison, `benchmark.goal_pack` and `benchmark.calibration_report`
+  exports.
+* Wizard copy that states the grading cost **before** the user invests in it, and that frames a failed
+  gate as a useful answer rather than a rejection.
+
+**Files/subsystems**
+```text
+src/freeweight/web/routes/wizard.py
+src/freeweight/web/templates/goals/{wizard_*.html,grade.html,report.html,starters.html}
+src/freeweight/web/templates/results/goal_detail.html
+src/freeweight/goals/starters/{creative_voice,brand_voice,summary_faithfulness,
+                               technical_explanation}/**
+src/freeweight/services/wizard.py
+tests/e2e/{test_goal_wizard_journey,test_grading_resumable}.py
+tests/integration/test_starter_packs.py
+```
+
+**Tests**
+* Full E2E journey through HTTP **and** CLI: define → propose rules → tasks → grade → calibrate →
+  run → compare → export, with no file editing at any point.
+* Grading survives a browser refresh, a server restart mid-session, and an out-of-order submission;
+  no grade is lost and none is double-counted.
+* Every starter pack parses, validates, lints clean, and its worked calibration set reproduces its
+  documented agreement figures under a fixed seed and the fake jury.
+* A starter forked but unedited is badged `unforked` in the UI, in results and in exports.
+* The wizard never writes a goal the CLI cannot then load, and a goal written by hand is editable in
+  the wizard without loss — asserted by a byte-level round-trip through both surfaces.
+* Accessibility: the grading UI is fully keyboard-operable and screen-reader labelled; it is the one
+  screen a user spends twenty unbroken minutes in.
+* The rule proposer never applies a rule automatically, asserted on the persisted pack.
+
+**Acceptance criteria**
+1. Spec §20 criterion 13 is met in full: a user with no prior setup completes the whole flow from the
+   UI, reads no documentation, edits no file — and the artifact they end up owning is a JSON pack
+   they can open in an editor and diff in git.
+2. Spec §20 criteria 14–16 are demonstrable on a live machine, not merely covered by tests.
+3. Each of the four starter packs runs end to end on a fresh install and shows its deterministic
+   weight fraction; read in the documented order they demonstrate rising deterministic weight.
+4. The calibration report is legible to someone who does not know what a kappa is — the band and the
+   consequence are stated in words, with the coefficient and `n_holdout` beside them.
+
+**Known risks:** this is where the feature succeeds or fails as a *product*. The mathematics can be
+perfect and the feature still dead if the grading step feels like unpaid work with an unclear payoff.
+**Likely failure modes:** a wizard that produces a pack the user cannot understand when they open it;
+grading progress lost to a refresh; the report screen showing a coefficient and no meaning; starter
+packs quietly becoming defaults because forking is more effort than not forking.
+**Gold standards:** zero-configuration start; every headline metric drills to its samples; honest
+skips; server-rendered with progressive enhancement.
+**Deferred:** goal evidence export (Phase 11).
+
+---
+
 ## Phase 11 — Capability evidence and the LoadCoach contract · **M3 (1.0-rc)**
 
 **Goal:** FreeWeight produces versioned capability evidence with confidence and freshness that another
 application can consume with no FreeWeight code and no database access.
 
-**Prerequisites:** P10; SetSpec P4 (frozen schemas).
+**Prerequisites:** P10, **P10A**; SetSpec P4 (frozen schemas) **and §0 above (vocabulary 1.1)**.
 
 **Work**
 * Capability mapping configuration (benchmark metrics → capabilities, with weights), versioned.
 * Aggregation implementing ADR-0017:
-  sample, consistency, freshness, environment and identity factors; hard separations; policy version
-  recorded. Freshness decays from `measured_at` — the latest `completed_at` among the contributing
+  sample, consistency, freshness, environment, identity **and `judge_validity_factor`** — six factors,
+  the sixth being 1.0 for every rung 1–4 measurement so no previously specified result changes value
+  (ADR-0032 §2); hard separations
+  **including `goal_hash` and judge set identity**; policy version recorded. Freshness decays from `measured_at` — the latest `completed_at` among the contributing
   runs — never from `computed_at`
   (ADR-0022 §2).
 * The full `capability.evidence` field set from
   ADR-0022 §1, including
   `vocabulary_version`, `dataset_hashes` and per-benchmark `prompt_subset_hashes`.
+* Goal evidence: emitted under `user.<slug>`; the goal-sourced field group from
+  ADR-0032 §5; the optional
+  secondary emission into a declared `contributes_to` capability as one weighted source among
+  others — **never as that capability alone**.
+* The gate wired into aggregation: a goal below `calibration.min_agreement` produces **no evidence
+  row**, and the aggregation service says so in its report rather than skipping silently.
 * `GET /evidence/export?since=` filtering on `computed_at`, and `complete: true|false` on every
   bundle.
 * `capability_evidence` table, recomputation service, staleness detection and badging.
@@ -554,7 +858,13 @@ tests/contract/{test_evidence_schema,test_evidence_export}.py
 ```
 
 **Tests**
-* Confidence factors individually and combined, against hand-computed values.
+* Confidence factors individually and combined, against hand-computed values — six of them now.
+* `judge_validity_factor` is exactly 1.0 for every native and external suite: a regression test over
+  the whole catalogue, so this ADR provably changed no existing number.
+* A goal below the gate contributes **no** evidence row for `user.<slug>` **and none** for its
+  `contributes_to` capability — the second half is the one that will be forgotten.
+* A goal declaring `contributes_to` appears in both places, with the `user.*` record retaining the
+  goal's identity that the blended record loses.
 * Hard separations enforced: differing benchmark version, dataset hash, prompt version, digest or
   runtime profile never merge.
 * A capability with no evidence is **absent**, never scored zero.
@@ -565,7 +875,10 @@ tests/contract/{test_evidence_schema,test_evidence_export}.py
   rejected by the schema with the field named.
 * Export validates against the SetSpec schema and matches the goldens.
 * A consumer harness — importing only `setspec` — reads the exported bundle and reconstructs the
-  evidence.
+  evidence, **including a `user.*` record with its calibration block intact**.
+* A `setspec` build predating vocabulary 1.1 accepts a 1.1 bundle and ignores its `user.*` records
+  rather than failing — the forward-compatibility degradation ADR-0009 promises, asserted end to end
+  rather than assumed.
 * Staleness badging appears when freshness drops below the threshold or drift is detected.
 
 **Acceptance criteria**
@@ -574,11 +887,17 @@ tests/contract/{test_evidence_schema,test_evidence_export}.py
    and no database access.
 3. Evidence records name their contributing benchmarks, weights and sample counts, and the UI can
    explain any score.
-4. FreeWeight 1.0-rc is tagged; **LoadCoach development may begin.**
+4. A calibrated goal exports as `user.<slug>` evidence whose confidence visibly carries the validity
+   factor, and an uncalibrated one exports nothing at all.
+5. FreeWeight 1.0-rc is tagged; **LoadCoach development may begin.** The evidence contract is frozen
+   *with* the goal field group in it — the whole reason Phases 8A–10A precede this one.
 
 **Known risks:** confidence parameters are judgement calls. Mitigated by making them configuration,
 recording the policy version, and revisiting with real data.
-**Likely failure modes:** absence of evidence rendered as zero capability; merging across versions.
+**Likely failure modes:** absence of evidence rendered as zero capability; merging across versions;
+emitting uncalibrated goal evidence at the confidence floor because "degrade, never discard" was
+applied without reading ADR-0032 §3,
+which deliberately departs from it here.
 **Gold standards:** versioned contracts; no cross-application coupling; explainable scores.
 **Deferred:** WeightsDB/MirrorWall adoption; external adapters.
 
@@ -712,7 +1031,7 @@ tests/performance/**  tests/security/**  tests/e2e/test_full_journeys.py
 * Upgrade from each released version with real data preserved.
 
 **Acceptance criteria**
-1. All 12 acceptance criteria in the [spec](spec.md) §20 pass.
+1. All 18 acceptance criteria in the [spec](spec.md) §20 pass.
 2. All FreeWeight gold standards in Gold Standards §2 are met.
 3. Documentation complete; `freeweight doctor` diagnoses every failure mode in the troubleshooting
    guide.
@@ -725,3 +1044,126 @@ final for 1.0.
 **Deferred to post-1.0:** additional external adapters, llama.cpp/vLLM integrations, scheduled
 campaigns with regression alerting, multi-machine federation, shareable report bundles, annotation
 and tagging, A/B prompt studies.
+
+
+---
+
+# Appendix A — Model assignment
+
+Two different questions get asked with the same words, so both are answered, separately:
+which model **builds** FreeWeight (A.1, A.2), and which model FreeWeight **uses as a juror** at run
+time (A.3).
+
+**Relationship to the suite-wide guide.** `roadmap/model-assignment.md`
+answers the same build-time question at one row per phase for all nine repositories, and its own
+§2.7 covers FreeWeight. This appendix is the deeper, FreeWeight-specific cut — per-step rather than
+per-phase, plus the runtime-juror question the suite-wide guide does not address. Where the two
+disagree on a phase's difficulty, this appendix is authoritative for FreeWeight; the suite-wide
+guide should be updated to match rather than treated as a second, silently diverging opinion.
+
+## A.1 Development models — one line per phase
+
+Reasoning level is the effort setting, not a second model choice: `medium` for well-trodden
+patterns, `high` where a wrong answer is expensive, `xhigh` where a wrong answer is expensive *and*
+hard to detect, `max` where a wrong answer is invisible.
+
+**The governing rule:** escalate for work where being subtly wrong produces a *plausible* result.
+A broken migration announces itself; a `kappa_w` that is wrong by a factor stays quiet for months.
+
+| # | Phase | Model | Level | Reasoning |
+|---|---|---|---|---|
+| 0 | SetSpec vocabulary 1.1 (upstream) | Sonnet 5 | medium | One frozenset entry, one version string, two schemas. Fully specified by ADR-0032 §1 and §5; nothing to decide |
+| 1 | It runs, it answers, it has a CLI | Sonnet 5 | medium | Scaffolding against established standards. **Escalate to high** for the config precedence chain and the unsafe-binding refusals — a refusal that does not fire is a security defect that ships silently |
+| 2 | Storage foundation | Sonnet 5 | medium | Standard SQLAlchemy/Alembic work. **Escalate to Opus 5 / high** for the first migration and the dialect abstraction: the baseline migration is permanent, and a SQLite-only assumption baked in here surfaces in Phase 12 |
+| 3 | Model discovery through ModelRack | Sonnet 5 | high | Identity reconciliation is the subtle part — retags, digest vs `name_only`, never overwriting a descriptor snapshot (ADR-0008, ADR-0024). Wrong identity handling corrupts every downstream comparison |
+| 4 | Telemetry and machine profile | Sonnet 5 | high | Sampler lifecycle under reload, and `UNSUPPORTED` propagation. A sensor that returns 0 instead of unsupported is exactly the failure ADR-0016 exists to prevent, and it looks like data |
+| 5 | Run engine on the fake provider | **Opus 5** | high | The plan's own note: the scheduler and the replay/live SSE handoff are the two subtlest components in the application. State machine, cancellation consistency at every phase, gap-free event sequences |
+| 6 | First real measurements + provenance | **Opus 5** | high | Where "confident wrong numbers" are born: backend vs client timing kept separate, cold/warm never mixed, the reproducibility fingerprint's input set. The fingerprint's contents are a judgement call with years of comparability riding on them |
+| 7 | Deterministic quality suites | Sonnet 5 | high | Scorers are many small formulas against clear contracts. **Escalate to Opus 5 / high** for mock-tool containment (a security boundary) and for capability gating — scoring a refusal as a capability failure is the classic error here |
+| 8 | Judgement-dependent suites | **Opus 5** | xhigh | Judge bias mathematics, audit precision with the clean-code false-positive rate, correction uplift vs regression rate, effective context. A "flags everything" model must score badly, and getting that wrong produces a leaderboard that rewards noise |
+| 8A | Goal packs and deterministic goal criteria | Sonnet 5 | medium | Thirteen small pure rule functions, tables, CRUD, CLI — volume, not subtlety. **Escalate to Opus 5 / high** for the `goal_hash` boundary, the rubric lint heuristics, and the regex/import hardening |
+| 8B | **Calibration, the jury, and the gate** | **Opus 5** | **max** | The intellectual core of the subjective-goal feature. `kappa_w`, Krippendorff's alpha, the shrinkage term, the anchor/holdout partition and its leak guarantee. A subtly wrong agreement statistic produces entirely plausible numbers and stays invisible for months — this is the definition of `max` |
+| 9 | Memory, energy, reliability, comparison | **Opus 5** | high | KV theory from architecture fields, VRAM slope fitting, energy integrated over irregular timestamps, and the comparability rules that decide what may never be averaged. Each is a formula whose wrong answer looks reasonable |
+| 10 | Dashboard, results, data management, exports | Sonnet 5 | medium | Server-rendered UI against established patterns. **Escalate to Opus 5 / high** for the anti-lie test — every dashboard figure recomputed from raw samples — which is the one thing standing between the UI and quiet divergence |
+| 10A | Goal authoring wizard and starter packs | **Opus 5** | high | The teaching *is* the product. Step 2's two questions, the calibration report copy, and the four starter packs' deliberate deterministic-weight progression. **Sonnet 5 / medium** for the templates, forms and grading UI once the flow is decided |
+| 11 | Capability evidence and the LoadCoach contract | **Opus 5** | xhigh | **M3 contract freeze.** Six-factor confidence, hard separations, and the gate's "no row at all" rule — which a careful implementer gets wrong precisely *by* being careful and emitting at the floor. Everything decided here is expensive to change afterwards |
+| 12 | Adopt WeightsDB and MirrorWall | Sonnet 5 | high | A refactor whose success criterion is *no behaviour change*. Bounded, but session and pragma handling differ subtly between the inline code and the extracted package |
+| 13 | External benchmark adapters | Sonnet 5 | high | Adapter-per-benchmark is repetitive work. **Escalate to Opus 5 / high** for the subprocess isolation boundary and for parsing external output as untrusted input (ADR-0018) |
+| 14 | Hardening and 1.0 | Sonnet 5 | high | Performance budgets, security checklist, docs, upgrade paths — enumerable. **Escalate to Opus 5 / xhigh** for the final audit of all 18 spec §20 acceptance criteria and the gold standards, where the job is to find what everyone stopped seeing |
+
+Three phases carry the risk for the whole application: **5** (the engine everything runs on),
+**8B** (the instrument the subjective feature depends on) and **11** (the contract that cannot be
+changed later). If effort is rationed anywhere, ration it elsewhere.
+
+## A.2 Development models — which model writes which step
+
+A.1 assigns a phase; this assigns the steps *within* the goal phases, where the mix inside one
+phase varies more than the phase-level line can express.
+
+The house rule first, because it overrides the table: **the docstring-first step is always Opus.**
+This project defines behaviour, then writes the Google-style docstring including what the function
+*refuses*, then tests, then implements. Deciding what a function refuses is a design act. Where the
+table below assigns implementation to Sonnet, it means "implement against a contract Opus already
+wrote", not "hand Sonnet the module name".
+
+| Phase | Step | Model | Why |
+|---|---|---|---|
+| §0 | SetSpec vocabulary root, schema additions, forward-compat tests | **Sonnet 5** | Small, mechanical, tightly specified by ADR-0032 §1 and §5 |
+| 8A | Goal pack schema, `goal_hash` boundary (what it covers and excludes) | **Opus 5** | The exclusion list is a judgement call with a year of comparability riding on it |
+| 8A | The thirteen rule scorers | **Sonnet 5** | Each is a small pure function against a written contract; volume, not subtlety |
+| 8A | Rule scorer *contracts* — what each refuses, what returns `unsupported` vs `0` | **Opus 5** | This is where "unsupported is not zero" is either honoured or quietly lost |
+| 8A | Tables, migrations, repositories, CRUD routes, CLI commands | **Sonnet 5** | Well-trodden patterns already established in P2–P7 |
+| 8A | The rubric lint heuristics | **Opus 5** | Deciding when a rule *could* cover a judged criterion is genuinely hard and wrong answers train users to ignore the lint |
+| 8A | Regex dialect linting, import hardening, traversal defences | **Opus 5** | Security boundary on user-supplied input |
+| 8B | `kappa_w`, Krippendorff's alpha, Spearman, shrinkage, the validity factor | **Opus 5** | The intellectual core. A subtly wrong agreement statistic produces *plausible* numbers and stays invisible for months |
+| 8B | Partition semantics and the holdout-leak guarantee | **Opus 5** | The single assumption the whole feature's honesty rests on |
+| 8B | Hand-computed test fixtures and synthetic graders | **Opus 5** | The fixtures are the specification of correctness here; generating them carelessly defeats the tests that depend on them |
+| 8B | Jury assembly, blinding, order randomization, self-judging refusal | **Sonnet 5** | Mechanical once the rules are stated, and P8 already built the infrastructure |
+| 8B | The judge prompt record (anchors as few-shot) | **Opus 5** | Prompt design determines the agreement figure; it is the instrument's calibration curve |
+| 8B | Gate wiring, error-code separation, degradation paths | **Sonnet 5** | Specified precisely in ADR-0032 §3 and spec §13 |
+| 10A | Wizard flow, and especially Step 2's two questions | **Opus 5** | The teaching is the product; generic wizard copy would waste the entire feature |
+| 10A | Calibration report copy — bands, consequences, framing a failed gate | **Opus 5** | A user who reads "kappa 0.31" and nothing else concludes the feature is broken |
+| 10A | Wizard templates, forms, grading UI, progressive enhancement | **Sonnet 5** | Standard server-rendered UI work against MirrorWall components |
+| 10A | Starter pack content — tasks, criteria, worked graded sets | **Opus 5** drafts, **Sonnet 5** expands | The four packs teach by example and their deterministic-weight progression is deliberate; the bulk JSON around each decision is not |
+| 10A | E2E journey tests, accessibility tests | **Sonnet 5** | Enumerable against acceptance criteria |
+| 11 | Six-factor confidence, gate-in-aggregation, dual emission | **Opus 5** | Frozen contract; the "no row at all" rule is the one a careful implementer will get wrong by being careful |
+| 11 | Export plumbing, consumer harness, OpenAPI snapshot | **Sonnet 5** | Contract already frozen by then |
+| any | Test parametrization tables, fixture expansion, docstring scaffolding from these specs, CHANGELOG entries | **Haiku 4.5** | Bulk transformation of an existing decision into an existing shape |
+
+Rule of thumb, stated once: **Opus for anything where being subtly wrong produces a plausible
+number.** That is most of 8B and the wizard copy, and almost nothing in 8A's rule library.
+
+## A.3 Runtime models — which models FreeWeight should use as jurors
+
+Distinct from A.1–A.2: this is what the *application* picks at run time, and what the wizard should
+default to.
+
+**Selection criteria, in order.** Jury quality on subjective criteria depends far less on parameter
+count than on three things: reliable structured output (a juror that returns prose where a grade was
+asked for is noise), instruction-following (the rubric is a long instruction), and **error
+decorrelation** between jurors.
+
+* **Three distinct model families, not three sizes of one family.** Two checkpoints from the same
+  lineage share their biases, so their agreement is inflated and the jury's dispersion understates
+  the real error. Family diversity is the reason the jury exists.
+* **Rank candidates by their own `native.judge` results** — position bias, verbosity bias,
+  self-preference, transitivity violations — which Phase 8 already measures for every installed
+  model. `GET /judges` surfaces exactly this, and the wizard's default jury is the top three
+  distinct families by those metrics. **This is the correct mechanism and it should be preferred over
+  any hard-coded recommendation**, including one written into this plan: it uses measurements from
+  the user's own machine rather than someone else's opinion, and it stays correct as models change.
+* `temperature = 0.0`, `repetitions = 3`. Repetitions at temperature zero still vary — batching and
+  kernel non-determinism see to that — and that residual variance is worth measuring rather than
+  assuming away.
+* A juror must be excluded when it is the candidate. Enforced, not advisory.
+
+**For the remote opt-in**, a frontier model is a materially better instrument on style and tone, and
+the current Claude models (`claude-opus-5`, `claude-sonnet-5`) are the natural choice where the user
+has enabled it. It is off by default, requires two separate opt-ins, is recorded in the fingerprint,
+and separates results — see ADR-0031 §4. The
+default install measures offline, and should.
+
+**For the calibration sample spread** (§5.1 of [Subjective Goals](subjective-goals.md)), deliberately
+include a model expected to do *badly* at the goal. A calibration set with no weak examples has no
+variance for the agreement statistic to work with, and the wizard's grade-distribution check will
+refuse to compute on it.

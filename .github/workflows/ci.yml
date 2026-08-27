@@ -54,6 +54,40 @@ jobs:
       - run: pip install -e ".[dev]"
       - run: pytest -m "not live and not performance" --cov --cov-report=xml
 
+  postgresql-tests:
+    # Database standards §5.2: the migration suite runs on both supported dialects in CI, not
+    # just SQLite. FREEWEIGHT_REQUIRE_POSTGRES turns tests/integration/conftest.py's ordinary
+    # "skip if unreachable" behaviour into a failure here, so a broken service container fails
+    # the job instead of silently testing one dialect and calling it both.
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: freeweight
+          POSTGRES_PASSWORD: freeweight
+          POSTGRES_DB: freeweight_test
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      # Deliberately not the FREEWEIGHT_ prefix: tests/conftest.py strips those so no test reads
+      # the developer's environment, which would delete these before the fixture could read them.
+      FWTEST_REQUIRE_POSTGRES: "1"
+      FWTEST_POSTGRES_URL: postgresql+psycopg://freeweight:freeweight@localhost:5432/freeweight_test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12" }
+      # pg_dump is what `freeweight db backup` shells out to on this dialect; without the client
+      # tools that branch skips itself and the job reports green having never run it.
+      - run: sudo apt-get update && sudo apt-get install -y postgresql-client
+      - run: pip install -e ".[dev]"
+      - run: pytest -m "not live and not performance" tests/integration
+
   tests-314-early-warning:
     runs-on: ubuntu-latest
     continue-on-error: true

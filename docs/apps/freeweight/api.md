@@ -40,6 +40,44 @@ still accept a canonical ID, a bare name or an unambiguous prefix.
 | `GET /benchmarks` | Installed suites with version, category, runner, requirements, dataset status |
 | `GET /benchmarks/{key}` | Manifest, tests, metric definitions, prompt references, dataset hashes |
 
+## 3a. Goals (user-authored suites)
+
+Full contract: [Subjective Goals](subjective-goals.md).
+Decisions: ADR-0031,
+ADR-0032.
+
+| Endpoint | Notes |
+|---|---|
+| `GET /goals` | Goals with `goal_hash`, `score_method_mix`, calibration state (`uncalibrated` \| `insufficient` \| `calibrated`), `kappa_w`, `n_holdout`, calibration age, `unforked` |
+| `POST /goals` | Create from a goal-pack body. Validates and lints before writing; a lint finding never blocks creation, it is returned |
+| `GET /goals/{slug}` | The full pack as loaded, plus lint findings and the current calibration report |
+| `PUT /goals/{slug}` | Replace. Returns the **old and new `goal_hash`** and, when they differ, the count of existing runs the change separates — before the change is committed |
+| `DELETE /goals/{slug}` | Previewed like every destructive operation; the preview states how many runs it orphans and how many of the user's grades it destroys |
+| `POST /goals/{slug}/validate` | Schema, weights, scale descriptors, rule dialect, template rendering. Returns findings with severity |
+| `POST /goals/{slug}/suggest-rules` | Given criteria (and calibration samples where present), proposes rung-2 rules with pre-filled parameters. **Proposals only** — never applied automatically |
+| `GET /goals/{slug}/tasks` | The task set, flagged `is_starter` |
+| `GET /goals/{slug}/calibration` | Samples with partition, grade progress, and what remains to be graded |
+| `POST /goals/{slug}/calibration/samples` | Add samples: generate over a model spread, paste text, or promote prior run samples |
+| `POST /goals/{slug}/calibration/grades` | Submit grades. Idempotent per `(sample, criterion)`; partial submission is normal and progress survives interruption |
+| `POST /goals/{slug}/calibration/run` | Score the **holdout** with the configured jury and compute agreement. Returns a run id; progress streams over the run event SSE like any other run |
+| `GET /goals/{slug}/calibration/report` | `kappa_w`, `rho`, `mae`, `bias`, `n_anchor`, `n_holdout`, inter-juror alpha, per criterion and weighted; gate verdict; `judge_validity_factor`; the worst-diverging holdout samples with both rationales |
+| `GET /goals/{slug}/export` | `benchmark.goal_pack` — a single SetSpec envelope, hash-pinned |
+| `POST /goals/import` | Import a pack. Size-capped, containment-checked, schema-validated, hash-verified before any write; **never overwrites in place** — a colliding slug is rejected with the existing `goal_hash` named |
+| `GET /goals/starters` | The four shipped starter packs with their approximate deterministic weight |
+| `POST /goals/starters/{key}/fork` | Copy a starter to a new slug. The copy is `unforked` until its criteria or tasks are edited |
+| `GET /judges` | Models eligible to serve as jurors, each with its own `native.judge` bias results and eligibility reasons |
+| `POST /judges/validate` | Dry-run a jury configuration: assembly, self-judging conflicts, remote permission, structured-output capability |
+
+Two behaviours worth stating at the API level, because a client will otherwise get them wrong:
+
+* **A goal below the gate is a `200`, not an error.** The run completes, results are returned in
+  full, `calibration_state` is `"uncalibrated"`, and `GET /evidence` simply contains nothing for that
+  capability. `CALIBRATION_INSUFFICIENT` is a `409` and means something different: fewer than
+  `min_samples` grades exist, so agreement has never been measured at all.
+* **`PUT /goals/{slug}` is a separating change when `goal_hash` moves.** The response says so with a
+  count, and a client that applies the change without surfacing it will silently fragment a user's
+  measurement history.
+
 ## 4. Runs
 
 ### `POST /runs`
@@ -100,7 +138,7 @@ the field-level fingerprint diff that separates them.
 
 | Endpoint | Notes |
 |---|---|
-| `GET /evidence` | Current `capability.evidence` records; filter by capability, model, machine, runtime profile, minimum confidence. A **collection** envelope (`items`/`page`) whose items are SetSpec envelopes |
+| `GET /evidence` | Current `capability.evidence` records; filter by capability, model, machine, runtime profile, minimum confidence. A **collection** envelope (`items`/`page`) whose items are SetSpec envelopes. `user.*` records carry `goal_hash`, `score_method_mix`, `judge_set`, `calibration` and `judge_validity_factor` (ADR-0032 §5) |
 | `GET /evidence/export` | A complete `benchmark.evidence_bundle` (SetSpec-versioned), optionally filtered; the file form of the same data. A **single** SetSpec envelope, with no collection wrapper |
 
 The two envelopes compose in exactly that order and never the reverse
@@ -162,5 +200,14 @@ endpoints — including `/evidence` — need only `read`.
 4b. Take freshness from `measured_at`, never from `computed_at`.
 4c. Use evidence only for an execution whose resolved runtime profile hash matches the evidence's
    (ADR-0023).
+4d. Never merge across differing `goal_hash` or judge set identity — both are hard separations
+   (ADR-0032 §4).
+4e. **`user.*` capabilities are opt-in.** Do not weight one unless a task profile names it
+   explicitly. A capability that one person's taste defines must not acquire routing influence
+   merely by existing.
+4f. When a routing decision used a `user.*` capability, the explanation names the goal, its
+   agreement (`kappa_w`) and `n_holdout` — in words, not just a confidence number. "Chose qwen3:14b
+   partly on `user.house_voice` 0.74, judge agreement 0.71 over 6 samples you graded on 2026-08-14"
+   is auditable; "confidence 0.31" is not.
 5. Treat FreeWeight being unreachable as **degraded**: keep the last import, mark it stale, and say so
    in every routing explanation.

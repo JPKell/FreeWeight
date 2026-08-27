@@ -1,0 +1,43 @@
+{% extends "base.html" %}
+{% from "partials/_inventory_states.html" import empty_state, error_state %}
+{% block title %}Models · FreeWeight{% endblock %}
+{% block content %}
+<h2>Models</h2>
+{% if error %}
+  {{ error_state(error) }}
+{% elif models %}
+<table>
+  <caption class="muted">{{ models | length }} model identity(ies) recorded.</caption>
+  <thead>
+    <tr>
+      <th scope="col">Canonical ID</th>
+      <th scope="col">Provider</th>
+      <th scope="col">Name</th>
+      <th scope="col">Digest</th>
+      <th scope="col">Confidence</th>
+      <th scope="col">First seen</th>
+      <th scope="col">Last seen</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for model in models %}
+    <tr>
+      <td><code>{{ model.canonical_id }}</code></td>
+      <td>{{ model.provider_kind }}</td>
+      <td>{{ model.provider_model_name }}</td>
+      <td><code>{{ model.artifact_digest or "—" }}</code></td>
+      <td>{{ model.identity_confidence }}</td>
+      <td>{{ model.first_seen_at | timestamp }}</td>
+      <td>{{ model.last_seen_at | timestamp }}</td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% else %}
+  {{ empty_state(
+       "models",
+       "Model identities are recorded by discovery through ModelRack, which arrives at Phase 3.
+        Run freeweight models refresh once it does; until then this table is real and empty
+        rather than absent.") }}
+{% endif %}
+{% endblock %}

@@ -1,14 +1,15 @@
 [importlinter]
-root_packages = freeweight
+root_package = freeweight
+include_external_packages = True
 
 [importlinter:contract:layers]
 name = FreeWeight internal layering
 type = layers
 layers =
-    freeweight.web
-    freeweight.cli
-    freeweight.services
-    freeweight.domain
+    web
+    cli
+    services
+    domain
 containers = freeweight
 
 [importlinter:contract:web-cli-independence]

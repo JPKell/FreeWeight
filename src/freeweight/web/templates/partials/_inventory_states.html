@@ -1,0 +1,22 @@
+{#
+  The empty and error states UI standards §6 requires every view to design before it ships.
+  Shared by the machines and models pages, which are both "a real table that is legitimately
+  empty until a later phase fills it".
+#}
+{% macro empty_state(what, explanation) %}
+<div class="empty-state">
+  <p><strong>No {{ what }} yet.</strong></p>
+  <p>{{ explanation }}</p>
+</div>
+{% endmacro %}
+
+{% macro error_state(detail) %}
+<div class="error-state" role="alert">
+  <p><strong>The database could not be read.</strong></p>
+  <p>{{ detail }}</p>
+  <p class="muted">
+    Run <code>freeweight db status</code> to see the current revision and integrity check, and
+    <code>freeweight db upgrade</code> if the schema is behind.
+  </p>
+</div>
+{% endmacro %}

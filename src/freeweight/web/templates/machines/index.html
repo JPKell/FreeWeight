@@ -1,0 +1,45 @@
+{% extends "base.html" %}
+{% from "partials/_inventory_states.html" import empty_state, error_state %}
+{% block title %}Machines · FreeWeight{% endblock %}
+{% block content %}
+<h2>Machines</h2>
+{% if error %}
+  {{ error_state(error) }}
+{% elif machines %}
+<table>
+  <caption class="muted">{{ machines | length }} machine(s) recorded.</caption>
+  <thead>
+    <tr>
+      <th scope="col">Fingerprint</th>
+      <th scope="col">Hostname</th>
+      <th scope="col">OS</th>
+      <th scope="col">CPU</th>
+      <th scope="col">Cores</th>
+      <th scope="col">RAM</th>
+      <th scope="col">First seen</th>
+      <th scope="col">Last seen</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for machine in machines %}
+    <tr>
+      <td><code>{{ machine.machine_fingerprint }}</code></td>
+      <td>{{ machine.hostname or "—" }}</td>
+      <td>{{ machine.os_name or "—" }} {{ machine.os_version or "" }}</td>
+      <td>{{ machine.cpu_model or "—" }}</td>
+      <td class="numeric">{{ machine.logical_cores if machine.logical_cores is not none else "—" }}</td>
+      <td class="numeric">{{ machine.ram_bytes | bytes }}</td>
+      <td>{{ machine.first_seen_at | timestamp }}</td>
+      <td>{{ machine.last_seen_at | timestamp }}</td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% else %}
+  {{ empty_state(
+       "machines",
+       "FreeWeight records the machine a measurement was produced on the first time it profiles
+        this host. That happens at Phase 4, when SweatMeter is wired in; until then this table is
+        real and empty rather than absent.") }}
+{% endif %}
+{% endblock %}

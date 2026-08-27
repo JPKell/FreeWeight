@@ -1,1 +1,68 @@
-<!-- TODO: implement per docs/apps/freeweight/development-plan.md -->
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}FreeWeight{% endblock %}</title>
+  <style>
+    :root { color-scheme: light dark; }
+    body {
+      font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+      margin: 0 auto;
+      max-width: 72rem;
+      padding: 0 1.5rem 3rem;
+      line-height: 1.5;
+    }
+    .skip-link {
+      position: absolute;
+      left: -9999px;
+    }
+    .skip-link:focus {
+      left: 1rem;
+      top: 1rem;
+      padding: 0.5rem 0.75rem;
+      background: Canvas;
+      outline: 2px solid currentColor;
+    }
+    header { border-bottom: 1px solid rgba(128, 128, 128, 0.4); }
+    nav ul { display: flex; gap: 1.25rem; list-style: none; padding: 0; }
+    nav a[aria-current="page"] { font-weight: 700; text-decoration: none; }
+    .version { color: gray; font-variant-numeric: tabular-nums; }
+    table { border-collapse: collapse; width: 100%; }
+    th, td {
+      border-bottom: 1px solid rgba(128, 128, 128, 0.3);
+      padding: 0.4rem 0.75rem;
+      text-align: left;
+      vertical-align: top;
+    }
+    td.numeric { font-variant-numeric: tabular-nums; text-align: right; }
+    .muted { color: gray; }
+    .empty-state, .error-state {
+      border: 1px dashed rgba(128, 128, 128, 0.6);
+      padding: 1.25rem;
+      margin-top: 1rem;
+    }
+    .error-state { border-style: solid; }
+    code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+  </style>
+</head>
+<body>
+  <a class="skip-link" href="#content">Skip to content</a>
+  <header>
+    <h1>FreeWeight <span class="version">v{{ app_version }}</span></h1>
+    <nav aria-label="Primary">
+      <ul>
+        <li><a href="/" {% if page == 'home' %}aria-current="page"{% endif %}>Overview</a></li>
+        <li><a href="/machines" {% if page == 'machines' %}aria-current="page"{% endif %}>Machines</a></li>
+        <li><a href="/models" {% if page == 'models' %}aria-current="page"{% endif %}>Models</a></li>
+      </ul>
+    </nav>
+    {# The telemetry bar (UI standards §3) arrives with SweatMeter at Phase 4. #}
+  </header>
+  <main id="content">
+    {% block content %}
+    <p>The application shell is running.</p>
+    {% endblock %}
+  </main>
+</body>
+</html>
