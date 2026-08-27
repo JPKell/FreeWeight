@@ -1,0 +1,35 @@
+{
+  "key": "native.tool_recovery",
+  "name": "Tool Recovery",
+  "version": "1.0.0",
+  "category": "tool_use",
+  "runner": "native",
+  "scorer": "agent_trajectory",
+  "capabilities": ["tool_use"],
+  "requires": {
+    "provider_capabilities": ["tool_calling"],
+    "sandbox": false,
+    "network": false
+  },
+  "dataset_hashes": {},
+  "prompt_ids": [
+    {
+      "prompt_id": "benchmarks.tool_recovery.task",
+      "version": "1.0.0",
+      "sha256": "sha256:7fffba0cfe02e66c40782cbebf11760ab0c087717cd83eb5c9f6dc7ca27fb108"
+    }
+  ],
+  "prompt_subset_hash": "sha256:eb1c20da5c09a8613464dd6c13207eb20a02330308275b1f21707175d0c070ca",
+  "target_device": "any",
+  "metrics": [
+    {"key": "recovery_rate", "unit": "ratio", "higher_is_better": true, "aggregation": "mean", "description": "Of the tool calls that failed, the share followed by a later call that succeeded. Absent for a trajectory with no failure."},
+    {"key": "task_success", "unit": "ratio", "higher_is_better": true, "aggregation": "mean", "description": "Share of cases whose final answer was correct despite the injected failure."},
+    {"key": "retry_count", "unit": "count", "higher_is_better": false, "aggregation": "mean", "description": "Immediate repeats of the previous call, tool and arguments identical."},
+    {"key": "repeated_error_count", "unit": "count", "higher_is_better": false, "aggregation": "mean", "description": "Failed calls that repeat an earlier failed call exactly."},
+    {"key": "tool_calls", "unit": "count", "higher_is_better": false, "aggregation": "mean", "description": "Calls made in the whole trajectory."},
+    {"key": "wrong_turns", "unit": "count", "higher_is_better": false, "aggregation": "mean", "description": "Calls to a tool the case does not require, or calls that failed."},
+    {"key": "hit_step_limit", "unit": "ratio", "higher_is_better": false, "aggregation": "mean", "description": "Share of cases still calling tools when the step budget ran out."}
+  ],
+  "license": "project",
+  "description": "Deliberate tool failures — file not found, invalid argument, empty search, permission denied, tool timeout and ambiguous result — injected into tools that otherwise work, so what is measured is recovery rather than first-try success."
+}

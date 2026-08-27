@@ -1,0 +1,92 @@
+{
+  "tests": [
+    {
+      "key": "structured_output.flat",
+      "name": "Flat object",
+      "metric_keys": ["valid_json", "schema_conformance", "required_field_presence", "type_correctness", "first_attempt_conformed", "recovered_after_retry"],
+      "cases": [
+        {
+          "case_id": "flat-record",
+          "scenario": "required_fields_and_types",
+          "required_context_tokens": 2048,
+          "variables": {"task": "Describe the fictional product Bracket A1: its stock-keeping unit, its name and how many units are in stock."},
+          "expectation": {
+            "schema": {
+              "type": "object",
+              "properties": {
+                "sku": {"type": "string"},
+                "name": {"type": "string"},
+                "units": {"type": "integer", "minimum": 0}
+              },
+              "required": ["sku", "name", "units"],
+              "additionalProperties": false
+            }
+          }
+        }
+      ]
+    },
+    {
+      "key": "structured_output.enums",
+      "name": "Enumerated values",
+      "metric_keys": ["valid_json", "schema_conformance", "enum_adherence", "first_attempt_conformed", "recovered_after_retry"],
+      "cases": [
+        {
+          "case_id": "enum-status",
+          "scenario": "enum_adherence",
+          "required_context_tokens": 2048,
+          "variables": {"task": "Report the status of customer CUST-1003, which has placed no orders for two years."},
+          "expectation": {
+            "schema": {
+              "type": "object",
+              "properties": {
+                "record_id": {"type": "string"},
+                "status": {"type": "string", "enum": ["active", "dormant", "closed"]}
+              },
+              "required": ["record_id", "status"],
+              "additionalProperties": false
+            }
+          }
+        }
+      ]
+    },
+    {
+      "key": "structured_output.nested",
+      "name": "Nested structure",
+      "metric_keys": ["valid_json", "schema_conformance", "nesting_correctness", "type_correctness", "first_attempt_conformed", "recovered_after_retry"],
+      "cases": [
+        {
+          "case_id": "nested-order",
+          "scenario": "nesting_correctness",
+          "required_context_tokens": 4096,
+          "variables": {"task": "Describe an order ORD-1 for customer CUST-1001 containing two lines: three of sku A1 and four of sku B2."},
+          "expectation": {
+            "schema": {
+              "type": "object",
+              "properties": {
+                "order_id": {"type": "string"},
+                "customer": {
+                  "type": "object",
+                  "properties": {"record_id": {"type": "string"}},
+                  "required": ["record_id"],
+                  "additionalProperties": false
+                },
+                "lines": {
+                  "type": "array",
+                  "minItems": 2,
+                  "items": {
+                    "type": "object",
+                    "properties": {"sku": {"type": "string"}, "units": {"type": "integer"}},
+                    "required": ["sku", "units"],
+                    "additionalProperties": false
+                  }
+                }
+              },
+              "required": ["order_id", "customer", "lines"],
+              "additionalProperties": false
+            }
+          }
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,42 @@
+{
+  "prompt_id": "benchmarks.structured_output.repair",
+  "version": "1.0.0",
+  "schema_version": "1.0",
+  "purpose": "Give one corrective retry after a structured-output answer failed validation, naming the failures without naming the fix, so the recovery rate measures the model rather than the prompt.",
+  "task": "benchmark.structured_output",
+  "capability": "structured_output",
+  "system": null,
+  "template": "Your previous answer did not conform to the schema.\n\nFAILURES\n{{ error_summary }}\n\nSCHEMA\n{{ schema_json }}\n\nAnswer again with one JSON document and nothing else.",
+  "variables": {
+    "error_summary": {
+      "type": "string",
+      "required": true,
+      "description": "The validator's own failure list, one per line. Failures are stated, never corrected: a repair prompt that supplies the answer measures the prompt."
+    },
+    "schema_json": {
+      "type": "string",
+      "required": true,
+      "description": "Canonical JSON of the same schema the first attempt was given, repeated because the corrective turn must not depend on the model remembering it."
+    }
+  },
+  "response": {
+    "format": "json_schema",
+    "json_schema_ref": "case",
+    "expectations": [
+      "One JSON document conforming to the supplied schema, with no surrounding text."
+    ]
+  },
+  "model_requirements": {
+    "min_context_tokens": 2048,
+    "requires_capabilities": [],
+    "recommended_temperature": 0.0
+  },
+  "metadata": {
+    "author": "suite",
+    "created_at": "2026-08-27T00:00:00Z",
+    "changed_at": "2026-08-27T00:00:00Z",
+    "change_reason": "First version: benchmark catalog §3.5 measures recovery rate after one corrective retry, and that retry is a prompt like any other rather than a string literal in the runner.",
+    "supersedes": null,
+    "tags": ["benchmark", "structured_output"]
+  }
+}

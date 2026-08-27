@@ -214,3 +214,76 @@ def test_the_same_run_repeated_agrees_within_tolerance(live_environment: Any) ->
     assert before is not None
     assert after is not None
     assert after == pytest.approx(before, rel=0.5)
+
+
+def test_the_five_quality_suites_run_end_to_end_on_a_real_model(live_environment: Any) -> None:
+    """Phase 7 acceptance criterion 1, on real weights.
+
+    Runs each deterministic quality suite once and asserts only that it *completed and produced
+    interpretable metrics* — every metric row under a key its manifest declares, with a unit and a
+    direction. It deliberately asserts nothing about the values: whether a particular local model
+    follows instructions or picks the right tool is what this suite exists to *measure*, and a test
+    that demanded a score would fail on a weaker model and pass on a stronger one regardless of
+    whether the measurement was correct.
+
+    A suite the model lacks the capability for is a legitimate outcome and is asserted as such: the
+    tests are ``skipped`` with ``unsupported_capability`` and the run still completes (criterion 3
+    on real hardware, where the capability declaration comes from a real adapter rather than a
+    fake).
+    """
+    from freeweight.config import ExecutionSettings
+    from freeweight.services.runs import ExecutionConfig, create_run, get_run
+    from freeweight.services.scheduler import RunScheduler
+
+    execution = ExecutionConfig.resolve(
+        ExecutionSettings(
+            warmup_repetitions=1,
+            cooldown_seconds=0,
+            randomize_case_order=False,
+            idle_gpu_threshold_percent=0,
+        ),
+        measured_repetitions=1,
+    )
+    for suite in (
+        "native.instruction_following",
+        "native.structured_output",
+        "native.tool_use",
+        "native.tool_recovery",
+        "native.agent",
+    ):
+        summary = create_run(
+            live_environment["database"],
+            live_environment["provider"],
+            live_environment["collector"],
+            live_environment["registry"],
+            model_ref=live_environment["model_ref"],
+            suite_key=suite,
+            execution=execution,
+        )
+        RunScheduler(
+            live_environment["database"],
+            live_environment["provider"],
+            registry=live_environment["registry"],
+        ).run_once()
+
+        detail = get_run(live_environment["database"], summary.id)
+        assert detail.run.status == "completed", f"{suite}: {detail.run.error_text}"
+        assert detail.tests, f"{suite} declared no tests"
+        for row in detail.tests:
+            assert row.status in {"completed", "skipped"}, (
+                f"{suite}/{row.test_key}: {row.error_text}"
+            )
+            if row.status == "skipped":
+                assert row.skip_reason == "unsupported_capability"
+
+        if all(row.status == "skipped" for row in detail.tests):
+            continue
+        declared = {
+            entry["key"]
+            for entry in live_environment["registry"].get(suite).manifest.body["metrics"]
+        }
+        produced = {metric.metric_key for metric in detail.metrics}
+        assert produced, f"{suite} produced no metrics"
+        assert produced <= declared, f"{suite} produced {produced - declared} outside its manifest"
+        # Rung 5 is not reachable in this phase, and a live run is where a mistake would show.
+        assert all(metric.metric_key != "judge_agreement" for metric in detail.metrics)

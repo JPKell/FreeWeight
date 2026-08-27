@@ -1,0 +1,42 @@
+{
+  "prompt_id": "benchmarks.instruction_following.constrained",
+  "version": "1.0.0",
+  "schema_version": "1.0",
+  "purpose": "Ask for one short piece of writing under a list of constraints that a rule-based scorer can check exactly, so instruction following is measured without any judgement.",
+  "task": "benchmark.instruction_following",
+  "capability": "instruction_following",
+  "system": "Follow every constraint exactly. Output only what is asked for, with no preamble, no explanation and no commentary about the constraints themselves.",
+  "template": "TASK\n{{ task }}\n\nCONSTRAINTS\n{{ constraints }}",
+  "variables": {
+    "task": {
+      "type": "string",
+      "required": true,
+      "description": "The single piece of writing being asked for, stated in one sentence."
+    },
+    "constraints": {
+      "type": "string",
+      "required": true,
+      "description": "The constraints as a newline-separated list, rendered from the case's own machine-checkable constraint declarations so the text a model reads and the rules the scorer applies cannot drift apart."
+    }
+  },
+  "response": {
+    "format": "text",
+    "json_schema_ref": null,
+    "expectations": [
+      "Plain text obeying every listed constraint, and nothing else."
+    ]
+  },
+  "model_requirements": {
+    "min_context_tokens": 2048,
+    "requires_capabilities": [],
+    "recommended_temperature": 0.0
+  },
+  "metadata": {
+    "author": "suite",
+    "created_at": "2026-08-27T00:00:00Z",
+    "changed_at": "2026-08-27T00:00:00Z",
+    "change_reason": "First version: native.instruction_following needs one prompt whose constraint text is rendered from the same declaration the rule scorer checks.",
+    "supersedes": null,
+    "tags": ["benchmark", "instruction_following"]
+  }
+}

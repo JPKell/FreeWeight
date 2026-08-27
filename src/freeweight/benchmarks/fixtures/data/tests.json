@@ -1,0 +1,15 @@
+{
+  "tests/test_pricing.py": {
+    "passed": 0,
+    "failed": 1,
+    "failures": [
+      {
+        "test": "test_restock_cost",
+        "message": "AssertionError: assert 30 == 15",
+        "file": "pkg/pricing.py",
+        "line": 12
+      }
+    ]
+  },
+  "tests/test_inventory.py": {"passed": 2, "failed": 0, "failures": []}
+}

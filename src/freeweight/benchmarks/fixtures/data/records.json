@@ -1,0 +1,5 @@
+{
+  "CUST-1001": {"record_id": "CUST-1001", "name": "Northwind Supply", "region": "north", "status": "active"},
+  "CUST-1002": {"record_id": "CUST-1002", "name": "Southgate Metals", "region": "south", "status": "active"},
+  "CUST-1003": {"record_id": "CUST-1003", "name": "Eastway Freight", "region": "east", "status": "dormant"}
+}

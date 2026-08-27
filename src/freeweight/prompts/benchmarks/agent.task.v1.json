@@ -1,0 +1,42 @@
+{
+  "prompt_id": "benchmarks.agent.goal",
+  "version": "1.0.0",
+  "schema_version": "1.0",
+  "purpose": "State one multi-step goal over the mock tools, so trajectory quality — steps, wrong turns, redundant work and final correctness — can be scored against a declared required sequence.",
+  "task": "benchmark.agent",
+  "capability": "agent_behaviour",
+  "system": "Work towards the goal one tool call at a time. Each call should follow from what the previous one returned. When you can answer the goal, state the answer plainly and stop calling tools.",
+  "template": "GOAL\n{{ goal }}\n\nFINISH BY\n{{ finish_by }}",
+  "variables": {
+    "goal": {
+      "type": "string",
+      "required": true,
+      "description": "The multi-step goal, stated so that the declared required tool sequence is the shortest path to it."
+    },
+    "finish_by": {
+      "type": "string",
+      "required": true,
+      "description": "What the final answer must contain, phrased so that an exact-match scorer can check it without judgement."
+    }
+  },
+  "response": {
+    "format": "text",
+    "json_schema_ref": null,
+    "expectations": [
+      "A sequence of tool calls ending in a plain answer that satisfies the stated finishing condition."
+    ]
+  },
+  "model_requirements": {
+    "min_context_tokens": 8192,
+    "requires_capabilities": ["tool_use"],
+    "recommended_temperature": 0.0
+  },
+  "metadata": {
+    "author": "suite",
+    "created_at": "2026-08-27T00:00:00Z",
+    "changed_at": "2026-08-27T00:00:00Z",
+    "change_reason": "First version: native.agent needs one goal prompt whose finishing condition is stated to the model in the same words the scorer checks.",
+    "supersedes": null,
+    "tags": ["benchmark", "agent"]
+  }
+}

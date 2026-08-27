@@ -8,6 +8,32 @@ packaging and release standards §3.
 ## [Unreleased]
 
 ### Added
+- Phase 7: five deterministic quality suites. `native.instruction_following` checks
+  machine-checkable constraints across format, length, keyword, structure and language classes and
+  reports strict, loose and instruction-level accuracy separately; `native.structured_output`
+  measures JSON validity and JSON-Schema conformance with one corrective retry, reporting the
+  first-attempt rate and the recovery rate as distinct figures; `native.tool_use` covers the
+  catalog's eleven tool scenarios; `native.tool_recovery` injects six deliberate tool failures;
+  and `native.agent` scores four multi-step goals on their trajectory as well as their answer.
+  **No model scores anything in any of them.**
+- A mock tool harness over shipped fixture data (`freeweight.benchmarks.fixtures`): ten tools —
+  calculator, `read_file`, `list_directory`, `search_text`, `search_symbol`, `lookup_record`,
+  `database_query`, `get_inventory`, `write_sandbox_file`, `run_mock_test` — with no shell, no
+  unrestricted filesystem, no network and no real database (spec §14). Reads are contained to the
+  fixture repository and writes to a run-scoped sandbox by `contained_path`, which resolves
+  symlinks before deciding; arguments are validated against each tool's own schema before it runs;
+  and the calculator parses arithmetic with its own recursive-descent parser rather than any form
+  of `eval`.
+- Six scorers, all on rung 2 of the scoring ladder: exact match with declared normalization,
+  constraint checking, a bounded JSON-Schema validator that **refuses** a keyword it does not
+  decide rather than reporting conformance it never checked, tool selection, tool arguments, and
+  agent trajectory.
+- `freeweight prompts list|show|build` (prompt standards §3). `build` regenerates the pack
+  manifest; `build --check` reports drift and exits 5 without writing, so a prompt record edited
+  without a regenerated manifest fails CI instead of shipping hashes that describe prompts nobody
+  installed.
+- Benchmark prompt records for the five suites, each declared in its suite's manifest so its
+  `prompt_subset_hash` covers exactly the prompts that suite renders.
 - Phase 6: the first real measurements. `native.performance` measures prompt-evaluation and
   decode throughput at the catalog's prompt sizes and output lengths, time to first token,
   streamed inter-chunk latency and cold model load; `native.token_economy` measures what an
@@ -54,6 +80,20 @@ packaging and release standards §3.
   idle settings are frozen into every run's effective configuration.
 
 ### Changed
+- A benchmark test's `requires.provider_capabilities` is now **enforced**. A provider that has not
+  declared a capability a test needs makes that test `skipped` with
+  `run_tests.skip_reason = "unsupported_capability"` and `CAPABILITY_UNSUPPORTED` on the row; the
+  test produces no samples and contributes no score, and the run completes normally. A model
+  without tool calling therefore yields a recorded skip, never a low score (spec §13, graceful
+  degradation).
+- The run engine can execute a benchmark test through a declared *interaction* — a bounded tool
+  loop, or a call plus one corrective retry — instead of a single provider call. Token counts are
+  summed across an interaction's turns, the whole trajectory is stored on the sample, and a
+  trajectory is scored by a trajectory scorer rather than on its final sentence.
+- Aggregation now reads a per-sample metric value from the scorer's own detail where the scorer
+  measured one, so a suite whose scorer measures several things at once reports each under its own
+  key. A sample that did not measure a given figure is excluded from it with
+  `not_measured_for_this_case` rather than contributing a zero (ADR-0016).
 - `GET /api/v1/runs/{id}` gained `provenance` (served context and source, GPU attribution,
   telemetry overhead, prompt pack, fingerprint document) and `degradations`; metric objects gained
   `gpu_index`, `stddev` and `coefficient_of_variation`.

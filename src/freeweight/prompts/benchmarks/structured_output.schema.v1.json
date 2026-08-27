@@ -1,0 +1,42 @@
+{
+  "prompt_id": "benchmarks.structured_output.schema",
+  "version": "1.0.0",
+  "schema_version": "1.0",
+  "purpose": "Ask for one JSON document conforming to a supplied JSON Schema, so validity, conformance, type correctness, enum adherence and nesting can be checked mechanically.",
+  "task": "benchmark.structured_output",
+  "capability": "structured_output",
+  "system": "Answer with one JSON document and nothing else. No prose, no explanation, no code fence.",
+  "template": "TASK\n{{ task }}\n\nSCHEMA\n{{ schema_json }}",
+  "variables": {
+    "task": {
+      "type": "string",
+      "required": true,
+      "description": "What the JSON document should describe, in one sentence."
+    },
+    "schema_json": {
+      "type": "string",
+      "required": true,
+      "description": "Canonical JSON of the JSON Schema the answer must conform to — the same document the scorer validates against, so the model is never asked for a shape different from the one being checked."
+    }
+  },
+  "response": {
+    "format": "json_schema",
+    "json_schema_ref": "case",
+    "expectations": [
+      "One JSON document conforming to the supplied schema, with no surrounding text."
+    ]
+  },
+  "model_requirements": {
+    "min_context_tokens": 2048,
+    "requires_capabilities": ["structured_output"],
+    "recommended_temperature": 0.0
+  },
+  "metadata": {
+    "author": "suite",
+    "created_at": "2026-08-27T00:00:00Z",
+    "changed_at": "2026-08-27T00:00:00Z",
+    "change_reason": "First version: native.structured_output needs the schema in the prompt as well as in the scorer, so a provider without schema enforcement is still asked for the right shape.",
+    "supersedes": null,
+    "tags": ["benchmark", "structured_output"]
+  }
+}

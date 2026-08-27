@@ -1,0 +1,91 @@
+{
+  "tests": [
+    {
+      "key": "agent.multi_step",
+      "name": "Multi-step goals",
+      "metric_keys": ["task_success", "steps_to_completion", "tool_calls", "wrong_turns", "retry_count", "recovery_rate", "unnecessary_actions", "ordering_accuracy", "hit_step_limit"],
+      "cases": [
+        {
+          "case_id": "agent-find-then-read",
+          "scenario": "find_symbol_then_read",
+          "required_context_tokens": 8192,
+          "variables": {
+            "goal": "Find where the function restock_cost is defined, read that file, and report the name of the only function it imports.",
+            "finish_by": "stating the imported function's name."
+          },
+          "metadata": {"offered_tools": ["search_symbol", "read_file", "list_directory", "search_text"]},
+          "expectation": {
+            "tools": {
+              "ordered": true,
+              "required_calls": [
+                {"name": "search_symbol", "arguments": {"symbol": "restock_cost"}},
+                {"name": "read_file", "arguments": {"path": "pkg/pricing.py"}}
+              ]
+            },
+            "exact": {"any_of": ["total_units"], "contains": true}
+          }
+        },
+        {
+          "case_id": "agent-diagnose-test",
+          "scenario": "diagnose_failing_test",
+          "required_context_tokens": 8192,
+          "variables": {
+            "goal": "Find out which test file is failing under tests/test_pricing.py, then read the source file its failure points at, and report the name of the function that failure is in.",
+            "finish_by": "stating the failing function's name."
+          },
+          "metadata": {"offered_tools": ["run_mock_test", "read_file", "search_symbol", "list_directory"]},
+          "expectation": {
+            "tools": {
+              "ordered": true,
+              "required_calls": [
+                {"name": "run_mock_test", "arguments": {"target": "tests/test_pricing.py"}},
+                {"name": "read_file", "arguments": {"path": "pkg/pricing.py"}}
+              ]
+            },
+            "exact": {"any_of": ["restock_cost"], "contains": true}
+          }
+        },
+        {
+          "case_id": "agent-locate-misconfiguration",
+          "scenario": "locate_misconfiguration",
+          "required_context_tokens": 8192,
+          "variables": {
+            "goal": "One SKU in the inventory has no stock at all. List the repository directory, find which SKU it is, and report its shelf location.",
+            "finish_by": "stating the shelf location."
+          },
+          "metadata": {"offered_tools": ["list_directory", "get_inventory", "database_query"]},
+          "expectation": {
+            "tools": {
+              "ordered": false,
+              "required_calls": [
+                {"name": "database_query", "arguments": {"table": "catalogue"}},
+                {"name": "get_inventory", "arguments": {"sku": "B2"}}
+              ]
+            },
+            "exact": {"any_of": ["shelf-9"], "contains": true}
+          }
+        },
+        {
+          "case_id": "agent-combine-tables",
+          "scenario": "combine_mock_tables",
+          "required_context_tokens": 8192,
+          "variables": {
+            "goal": "Find the orders for customer CUST-1001, then report that customer's name and how many orders they have, separated by a comma.",
+            "finish_by": "stating the customer name and the order count."
+          },
+          "metadata": {"offered_tools": ["database_query", "lookup_record", "get_inventory"]},
+          "expectation": {
+            "tools": {
+              "ordered": false,
+              "required_calls": [
+                {"name": "database_query", "arguments": {"table": "orders", "field": "record_id", "value": "CUST-1001"}},
+                {"name": "lookup_record", "arguments": {"record_id": "CUST-1001"}}
+              ]
+            },
+            "exact": {"any_of": ["Northwind Supply, 2", "Northwind Supply,2"], "contains": true}
+          }
+        }
+      ]
+    }
+  ]
+}

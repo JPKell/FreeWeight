@@ -1,0 +1,127 @@
+{
+  "tools": [
+    {
+      "name": "calculator",
+      "description": "Evaluate one arithmetic expression over + - * / and parentheses. No variables, no functions.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "expression": {"type": "string", "description": "The expression, e.g. (3 + 4) * 2."}
+        },
+        "required": ["expression"],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "read_file",
+      "description": "Return the text of one file in the fixture repository.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "path": {"type": "string", "description": "Repository-relative path, e.g. pkg/pricing.py."}
+        },
+        "required": ["path"],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "list_directory",
+      "description": "List the entries of one directory in the fixture repository.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "path": {"type": "string", "description": "Repository-relative directory, or '.' for the root."}
+        },
+        "required": ["path"],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "search_text",
+      "description": "Find literal text in the fixture repository and return the matching lines.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "query": {"type": "string", "description": "The literal text to find. Not a pattern."}
+        },
+        "required": ["query"],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "search_symbol",
+      "description": "Find where a function or class is defined in the fixture repository.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "symbol": {"type": "string", "description": "The function or class name, e.g. restock_cost."}
+        },
+        "required": ["symbol"],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "lookup_record",
+      "description": "Return one customer record by its identifier.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "record_id": {"type": "string", "description": "The record identifier, e.g. CUST-1001."}
+        },
+        "required": ["record_id"],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "database_query",
+      "description": "Return rows from one fixture table, optionally filtered by one field's exact value.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "table": {"type": "string", "description": "The table name: orders or catalogue."},
+          "field": {"type": "string", "description": "The field to filter on."},
+          "value": {"type": "string", "description": "The value that field must equal."}
+        },
+        "required": ["table"],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "get_inventory",
+      "description": "Return the stock level and location of one SKU.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "sku": {"type": "string", "description": "The stock-keeping unit, e.g. A1."}
+        },
+        "required": ["sku"],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "write_sandbox_file",
+      "description": "Write one text file into the scratch directory. It is not part of the repository.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "name": {"type": "string", "description": "A plain file name: letters, digits, dot, dash, underscore."},
+          "content": {"type": "string", "description": "The text to write."}
+        },
+        "required": ["name", "content"],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "run_mock_test",
+      "description": "Return the recorded result of one test file in the fixture repository.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "target": {"type": "string", "description": "The test file, e.g. tests/test_pricing.py."}
+        },
+        "required": ["target"],
+        "additionalProperties": false
+      }
+    }
+  ]
+}

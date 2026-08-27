@@ -75,9 +75,14 @@ from modelrack.errors import ProviderError
 from modelrack.streaming import StreamCompleted, StreamFailed, ThinkingDelta, TokenDelta
 
 from freeweight.__about__ import __version__
+from freeweight.benchmarks.agent import benchmark as agent_benchmark
 from freeweight.benchmarks.echo import benchmark as echo_benchmark
+from freeweight.benchmarks.instruction_following import benchmark as instruction_following_benchmark
 from freeweight.benchmarks.performance import benchmark as performance_benchmark
+from freeweight.benchmarks.structured_output import benchmark as structured_output_benchmark
 from freeweight.benchmarks.token_economy import benchmark as token_economy_benchmark
+from freeweight.benchmarks.tool_recovery import benchmark as tool_recovery_benchmark
+from freeweight.benchmarks.tool_use import benchmark as tool_use_benchmark
 from freeweight.domain.aggregation import SampleGroup, aggregate_run
 from freeweight.domain.benchmark import Benchmark, BenchmarkRegistry, BenchmarkTest
 from freeweight.domain.metrics import MeasurementClass, SampleFacts
@@ -98,6 +103,7 @@ from freeweight.domain.run_state import (
     require_run_transition,
     require_test_transition,
 )
+from freeweight.domain.scorers.tools import TrajectoryScorer
 from freeweight.domain.scoring import ScoreResult
 from freeweight.infrastructure.db.errors import DatabaseUnavailable
 from freeweight.infrastructure.db.repositories.model_descriptors import ModelDescriptorRepository
@@ -528,7 +534,8 @@ def build_registry(library: PromptLibrary | None = None) -> BenchmarkRegistry:
 
     The one list. A suite that is not named here cannot be run, which is the point: benchmark
     availability is a deliberate, reviewable fact rather than a consequence of which modules
-    happened to be imported. Phase 7 adds the quality suites here.
+    happened to be imported. The five Phase 7 quality suites are on this list, which is the whole
+    of what "adding a suite" means.
 
     Args:
         library: The prompt pack the suites render from, or ``None`` for this build's own. Every
@@ -549,6 +556,11 @@ def build_registry(library: PromptLibrary | None = None) -> BenchmarkRegistry:
             echo_benchmark.build(),
             performance_benchmark.build(pack),
             token_economy_benchmark.build(pack),
+            instruction_following_benchmark.build(pack),
+            structured_output_benchmark.build(pack),
+            tool_use_benchmark.build(pack),
+            tool_recovery_benchmark.build(pack),
+            agent_benchmark.build(pack),
         ]
     )
 
@@ -1735,6 +1747,44 @@ def _build_request(
     )
 
 
+SKIP_UNSUPPORTED_CAPABILITY = "unsupported_capability"
+"""``run_tests.skip_reason`` for a test the provider cannot be asked to perform (data model §2).
+
+Spec §13's first-named skip reason, and the one Phase 7 makes reachable: a model or provider
+without tool calling or structured output records this and **no score at all**. A zero here would
+say the model tried and failed; the truth is that it was never asked
+([graceful degradation](../../../../docs/architecture/graceful-degradation.md), "Model lacks a
+required capability").
+"""
+
+
+def _unmet_capabilities(provider: Provider, test: BenchmarkTest) -> set[str]:
+    """Return the capabilities ``test`` requires that ``provider`` does not declare.
+
+    The names in a test's ``requires["provider_capabilities"]`` are
+    :class:`~modelrack.provider.ProviderCapabilities` field names, matched exactly. A requirement
+    naming a flag this build's ModelRack does not have is treated as **unmet**, not as satisfied:
+    the honest reading of "I cannot tell whether this provider can do that" is that the test must
+    not run, and the alternative would silently run a suite against a provider nobody checked.
+
+    A provider that cannot be asked about its capabilities at all (:class:`ProviderError` from
+    :meth:`capabilities`) leaves the requirement unmet for the same reason.
+
+    Args:
+        provider: The provider this run uses.
+        test: The test about to run.
+
+    Returns:
+        The missing capability names, empty when everything the test needs is declared.
+    """
+    required = test.requires.get("provider_capabilities", ())
+    wanted = [str(name) for name in required]
+    if not wanted:
+        return set()
+    capabilities = _provider_capabilities(provider)
+    return {name for name in wanted if not getattr(capabilities, name, False)}
+
+
 def _skips_for_context(case: Any, served_context: int | None) -> str | None:  # noqa: ANN401
     """Return a skip reason when this case needs more context than the run is served, else ``None``.
 
@@ -1867,7 +1917,27 @@ def _execute_test(  # noqa: PLR0913 — one test's execution needs all of its co
             TestStatus.CANCELLED,
         }:
             return completed_samples + row.total_cases * row.repetitions
-        if current is TestStatus.PENDING:
+        planned = row.total_cases * row.repetitions
+        unmet = _unmet_capabilities(provider, test)
+        if unmet and current is TestStatus.PENDING:
+            require_test_transition(current, TestStatus.SKIPPED)
+            RunTestRepository().set_status(
+                session,
+                run_test_id,
+                status=TestStatus.SKIPPED.value,
+                skip_reason=SKIP_UNSUPPORTED_CAPABILITY,
+                completed_at=clock(),
+                error_code="CAPABILITY_UNSUPPORTED",
+                error_text=(
+                    f"This provider does not declare {sorted(unmet)}, which {test.key} requires. "
+                    "The test was not run, and contributes no score."
+                ),
+                measurement_class=test.measurement_class,
+            )
+            skipped = True
+        else:
+            skipped = False
+        if current is TestStatus.PENDING and not skipped:
             require_test_transition(current, TestStatus.RUNNING)
             RunTestRepository().set_status(
                 session,
@@ -1877,6 +1947,22 @@ def _execute_test(  # noqa: PLR0913 — one test's execution needs all of its co
                 measurement_class=test.measurement_class,
             )
         already = SampleRepository().existing_keys(session, run_test_id)
+
+    if skipped:
+        publisher.publish(
+            run_id,
+            "test.completed",
+            message=(f"Test {test.key} skipped: the provider does not declare {sorted(unmet)}."),
+            progress=(completed_samples + planned, total_samples),
+            data={
+                "test": test.key,
+                "run_test_id": run_test_id,
+                "status": TestStatus.SKIPPED.value,
+                "skip_reason": SKIP_UNSUPPORTED_CAPABILITY,
+                "missing_capabilities": sorted(unmet),
+            },
+        )
+        return completed_samples + planned
 
     publisher.publish(
         run_id,
@@ -2055,9 +2141,28 @@ def _run_one_case(  # noqa: PLR0913 — one sample needs its whole context
     treated identically: the sample is stored ``failed`` with ``SCORER_ERROR``, because a defect
     in one scorer must not discard a run's other measurements.
 
+    A test declaring an ``interaction`` — a tool loop, or a call plus one corrective retry — is
+    executed through :func:`_run_interactive_case` instead. The difference is declared by the
+    benchmark rather than inferred from its scorer, so a suite that needs several turns cannot be
+    quietly run as one call and scored on the wrong text.
+
     Returns:
         The stored column values, for the caller's event payload.
     """
+    interaction = getattr(test, "interaction", None)
+    if interaction is not None:
+        return _run_interactive_case(
+            database,
+            provider,
+            run_test_id=run_test_id,
+            identity=identity,
+            test=test,
+            case=case,
+            repetition=repetition,
+            config=config,
+            clock=clock,
+            interaction=interaction,
+        )
     request = _build_request(identity, case, config)
     started_ns = monotonic_ns()
     result: Any = None
@@ -2145,6 +2250,159 @@ def _run_one_case(  # noqa: PLR0913 — one sample needs its whole context
     return values
 
 
+def _run_interactive_case(  # noqa: PLR0913 — one sample needs its whole context
+    database: Database,
+    provider: Provider,
+    *,
+    run_test_id: str,
+    identity: ModelIdentity,
+    test: BenchmarkTest,
+    case: Any,  # noqa: ANN401 — freeweight.domain.benchmark.BenchmarkCase
+    repetition: int,
+    config: ExecutionConfig,
+    clock: Clock,
+    interaction: Any,  # noqa: ANN401 — freeweight.benchmarks.interaction.Interaction
+) -> dict[str, Any]:
+    """Execute one case that needs more than one provider call, and store the sample.
+
+    The engine keeps everything that is not the benchmark's business: it builds each request from
+    the run's *frozen* execution config — same sampling, same seed, same timeout on every turn, so
+    a five-turn trajectory is as reproducible as a one-turn answer — counts what every turn cost,
+    and stores one sample for the whole interaction. The benchmark decides only what to say next.
+
+    **Token counts are summed across the turns.** A tool trajectory's ``output_tokens`` is what
+    the whole trajectory generated, not what its last turn did; ``token_economy`` figures over a
+    tool suite would otherwise report a fraction of the real cost. The provider's own per-call
+    timings are left on the last turn alone, because summing a backend duration across calls
+    would invent a figure no provider reported.
+
+    **A trajectory is scored by a trajectory scorer.** Where the interaction produced one and the
+    test's scorer accepts one, ``score_trajectory`` is used; otherwise the final text is scored
+    the ordinary way. A scorer that raises is contained exactly as in :func:`_run_one_case` — one
+    failed sample, never a failed run.
+
+    Returns:
+        The stored column values, for the caller's event payload.
+    """
+    results: list[Any] = []
+
+    def caller(
+        messages: Sequence[Message],
+        *,
+        tools: Sequence[Any] = (),
+        response_format: Any = None,  # noqa: ANN401 — modelrack.ResponseFormat
+    ) -> Any:  # noqa: ANN401 — modelrack.GenerationResult
+        """Produce the next assistant turn under this run's frozen execution parameters."""
+        result = provider.generate(
+            GenerationRequest(
+                identity=identity,
+                messages=tuple(messages),
+                sampling=SamplingParameters(
+                    temperature=config.temperature,
+                    top_p=config.top_p,
+                    seed=config.seed,
+                    max_output_tokens=config.max_output_tokens,
+                ),
+                tools=tuple(tools),
+                response_format=response_format,
+                timeout_seconds=config.test_timeout_seconds,
+            )
+        )
+        results.append(result)
+        return result
+
+    started_ns = monotonic_ns()
+    error_code: str | None = None
+    error_text: str | None = None
+    try:
+        outcome = interaction.run(caller, case)
+    except Exception as exc:  # noqa: BLE001 — a broken interaction fails one sample (spec §13)
+        logger.warning("sample.interaction_error", extra={"test": test.key}, exc_info=exc)
+        outcome = None
+        error_code, error_text = "INTERNAL_ERROR", str(exc)
+    wall_ms = elapsed_ms(started_ns)
+
+    last = results[-1] if results else None
+    detail: dict[str, Any] = {}
+    verdict: ScoreResult | None = None
+    if outcome is not None:
+        detail.update(outcome.detail)
+        if outcome.error_code is not None:
+            error_code, error_text = outcome.error_code, outcome.error_text
+        if last is not None:
+            try:
+                verdict = _score_interaction(test, case, outcome)
+            except Exception as exc:  # noqa: BLE001 — a scorer defect fails one sample
+                logger.warning("sample.scorer_error", extra={"test": test.key}, exc_info=exc)
+                error_code, error_text = "SCORER_ERROR", str(exc)
+
+    status = "completed" if (verdict is not None and verdict.score is not None) else "failed"
+    if last is None:
+        status = "timeout" if error_code == "PROVIDER_TIMEOUT" else "failed"
+    values = _sample_values(
+        run_test_id=run_test_id,
+        case=case,
+        repetition=repetition,
+        status=status,
+        result=last,
+        score=verdict,
+        wall_ms=wall_ms,
+        config=config,
+        error_code=error_code if verdict is None else verdict.error_code or error_code,
+        error_text=error_text if verdict is None else verdict.error_text or error_text,
+        now=clock(),
+        extra_detail=detail,
+        text=outcome.text if outcome is not None else "",
+    )
+    _sum_usage(values, results)
+    with database.write() as session:
+        SampleRepository().insert(session, **values)
+    return values
+
+
+def _score_interaction(
+    test: BenchmarkTest,
+    case: Any,  # noqa: ANN401 — freeweight.domain.benchmark.BenchmarkCase
+    outcome: Any,  # noqa: ANN401 — freeweight.benchmarks.interaction.InteractionOutcome
+) -> ScoreResult:
+    """Score one interaction with whichever instrument its test's scorer is.
+
+    A transcript is scored by a :class:`~freeweight.domain.scorers.tools.TrajectoryScorer`; there
+    is no fallback that would score a trajectory on its final sentence, because a suite measuring
+    tool selection would then silently report an exact-match figure instead.
+    """
+    scorer = test.scorer
+    if outcome.transcript is not None and isinstance(scorer, TrajectoryScorer):
+        return scorer.score_trajectory(case, outcome.transcript)
+    return scorer.score(case, outcome.text)
+
+
+def _sum_usage(values: dict[str, Any], results: Sequence[Any]) -> None:
+    """Replace the last turn's token counts with the whole interaction's.
+
+    Summed only over the turns that reported a count: a provider that counted three turns of four
+    has told the truth about three, and treating the fourth as zero is the fabrication ADR-0016
+    forbids. When no turn reported one at all the column stays ``None`` — "not reported", which is
+    what it was.
+    """
+    if len(results) < 2:
+        return
+    for column, path in (
+        ("input_tokens", ("usage", "tokens", "input_tokens")),
+        ("output_tokens", ("usage", "tokens", "output_tokens")),
+        ("thinking_tokens", ("usage", "thinking_tokens")),
+        ("tool_tokens", ("usage", "tool_tokens")),
+    ):
+        reported: list[float] = []
+        for result in results:
+            value: Any = result
+            for attribute in path:
+                value = getattr(value, attribute)
+            if is_supported(value):
+                reported.append(float(value))
+        values[column] = sum(reported) if reported else None
+
+
 def _token_level_chunks(provider: Provider) -> bool:
     """Whether this provider declares one streamed delta to be one token.
 
@@ -2185,6 +2443,7 @@ def _sample_values(  # noqa: PLR0913 — this *is* the column set
     error_text: str | None,
     now: datetime,
     extra_detail: Mapping[str, Any] | None = None,
+    text: str | None = None,
 ) -> dict[str, Any]:
     """Assemble one ``samples`` row.
 
@@ -2198,7 +2457,11 @@ def _sample_values(  # noqa: PLR0913 — this *is* the column set
     merged into ``result_json`` beneath the scorer's own evidence — that is where a streamed
     sample's inter-chunk series and its ``token_level_chunks`` claim live.
     """
-    text = result.text if result is not None else ""
+    # ``text`` is supplied by a multi-turn interaction, whose answer is not necessarily its last
+    # turn's text — a trajectory that ran out of steps ended on a tool request, and hashing that
+    # as the response would attribute the model an answer it never gave.
+    if text is None:
+        text = result.text if result is not None else ""
     detail: dict[str, Any] = dict(extra_detail or {})
     if score is not None:
         detail.update(score.detail)

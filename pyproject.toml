@@ -73,6 +73,11 @@ packages = ["src/freeweight"]
 line-length = 100
 target-version = "py312"
 src = ["src", "tests"]
+# The mock-tool fixture repository is *data the tools read*, not source this application imports,
+# runs or formats. It is a real directory on disk because the containment tests have to defeat
+# real symlinks and real `..` traversal, and a lint pass over it would rewrite the very bytes a
+# benchmark's fixture hash depends on.
+extend-exclude = ["src/freeweight/benchmarks/fixtures/data"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B", "S", "T20", "DTZ", "PTH", "D1", "BLE"]
@@ -93,6 +98,7 @@ strict = true
 warn_unused_configs = true
 mypy_path = "src"
 explicit_package_bases = true
+exclude = ['^src/freeweight/benchmarks/fixtures/data/']
 
 [tool.pytest.ini_options]
 addopts = "-m 'not live and not performance'"

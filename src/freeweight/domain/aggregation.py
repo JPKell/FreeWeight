@@ -69,6 +69,14 @@ REASON_MIXED_CLASSES = "cold_and_warm_not_comparable"
 REASON_NOT_SCORED = "not_scored"
 """A completed sample carries no score, so a score-derived metric has nothing to take from it."""
 
+REASON_NOT_MEASURED = "not_measured_for_this_case"
+"""This sample's scorer measured the metric for other cases in the test but not for this one.
+
+Phase 7's rates are deliberately *absent* where their denominator is empty — ordering accuracy for
+a case that requires one tool call, calls-per-success for a case that failed. The sample is
+excluded from that metric and counted in ``excluded_count`` rather than contributing a zero, which
+would be a claim about something the run never observed (ADR-0016)."""
+
 REASON_RAW = "raw_metric_not_aggregated"
 """The metric declares ``aggregation = "raw"``: it lives per sample and has no run-level value."""
 
@@ -199,15 +207,32 @@ def _values_for(
 ) -> tuple[list[float], int]:
     """Extract this metric's contributing values from ``samples``.
 
-    A metric key registered in :data:`~freeweight.domain.metrics.SAMPLE_METRICS` is derived from
-    each sample's facts; any other key is score-derived, which is what keeps a suite whose metrics
-    are all scores (``native.echo``) working through the same path as one whose metrics are all
-    timings.
+    Three sources, in a fixed order of preference.
+
+    1. A metric key registered in :data:`~freeweight.domain.metrics.SAMPLE_METRICS` is derived
+       from each sample's own facts — the counts and timings the provider reported.
+    2. Otherwise, if **any** completed sample in the group carries a number under that key in its
+       scorer detail, the metric is *detail-derived*: each sample contributes the number its
+       scorer measured, and a sample that carries none is excluded with
+       :data:`REASON_NOT_MEASURED`. This is how a suite whose scorer measures several things at
+       once — Phase 7's tool and instruction-following suites — reports each of them as its own
+       metric instead of reporting the headline score under a dozen different names.
+    3. Otherwise the metric is score-derived, which is what keeps a suite whose one metric *is*
+       the score (``native.echo``) working through the same path.
+
+    The group decides whether a key is detail-derived, not the individual sample: a sample missing
+    the key would otherwise silently fall through to the headline score, which is a different
+    number wearing this metric's name.
 
     Returns:
         ``(values, excluded)`` — what contributed, and how many samples did not.
     """
     derive = SAMPLE_METRICS.get(metric.key)
+    from_detail = derive is None and any(
+        _detail_number(facts, metric.key) is not None
+        for facts in samples
+        if facts.status == "completed"
+    )
     values: list[float] = []
     excluded = 0
     for facts in samples:
@@ -216,6 +241,13 @@ def _values_for(
             continue
         if derive is not None:
             result = derive(facts)
+        elif from_detail:
+            measured = _detail_number(facts, metric.key)
+            result = (
+                MetricResult(measured)
+                if measured is not None
+                else MetricResult(UNSUPPORTED, REASON_NOT_MEASURED)
+            )
         elif is_supported(facts.score):
             result = MetricResult(facts.score)
         else:
@@ -226,6 +258,18 @@ def _values_for(
         else:
             values.append(numeric)
     return values, excluded
+
+
+def _detail_number(facts: SampleFacts, key: str) -> float | None:
+    """Return the number one sample's scorer recorded under ``key``, or ``None``.
+
+    ``bool`` is refused explicitly: Python makes ``True`` a ``float``-compatible ``int``, and a
+    scorer that recorded a flag would otherwise be averaged as though it were a rate.
+    """
+    value = facts.detail.get(key)
+    if isinstance(value, bool) or not isinstance(value, int | float):
+        return None
+    return float(value)
 
 
 def _aggregate_only(

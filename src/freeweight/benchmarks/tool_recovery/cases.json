@@ -1,0 +1,95 @@
+{
+  "tests": [
+    {
+      "key": "tool_recovery.injected",
+      "name": "Recovering from an injected failure",
+      "metric_keys": ["recovery_rate", "task_success", "retry_count", "repeated_error_count", "tool_calls", "wrong_turns", "hit_step_limit"],
+      "cases": [
+        {
+          "case_id": "recovery-not-found",
+          "scenario": "file_not_found",
+          "required_context_tokens": 8192,
+          "variables": {"task": "Read pkg/pricing.py and answer with the name of the only function it imports."},
+          "metadata": {
+            "offered_tools": ["read_file", "list_directory", "search_symbol", "search_text"],
+            "injected_failures": {"read_file": ["NOT_FOUND"]}
+          },
+          "expectation": {
+            "tools": {"required_calls": [{"name": "read_file", "arguments": {"path": "pkg/pricing.py"}}]},
+            "exact": {"any_of": ["total_units"], "contains": true}
+          }
+        },
+        {
+          "case_id": "recovery-invalid-argument",
+          "scenario": "invalid_argument",
+          "required_context_tokens": 8192,
+          "variables": {"task": "Report how many units of SKU B2 are in stock. Answer with the number alone."},
+          "metadata": {
+            "offered_tools": ["get_inventory", "database_query"],
+            "injected_failures": {"get_inventory": ["INVALID_ARGUMENT"]}
+          },
+          "expectation": {
+            "tools": {"required_calls": [{"name": "get_inventory", "arguments": {"sku": "B2"}}]},
+            "exact": {"any_of": ["0"], "contains": true}
+          }
+        },
+        {
+          "case_id": "recovery-empty-search",
+          "scenario": "empty_search",
+          "required_context_tokens": 8192,
+          "variables": {"task": "Find where the function total_units is defined and answer with the file path alone."},
+          "metadata": {
+            "offered_tools": ["search_text", "search_symbol", "list_directory"],
+            "injected_failures": {"search_text": ["EMPTY_RESULT"]}
+          },
+          "expectation": {
+            "tools": {"required_calls": [{"name": "search_symbol", "arguments": {"symbol": "total_units"}}]},
+            "exact": {"any_of": ["pkg/inventory.py"], "contains": true}
+          }
+        },
+        {
+          "case_id": "recovery-permission-denied",
+          "scenario": "permission_denied",
+          "required_context_tokens": 8192,
+          "variables": {"task": "List the entries of the pkg directory and answer with their names, separated by commas."},
+          "metadata": {
+            "offered_tools": ["list_directory", "search_text", "read_file"],
+            "injected_failures": {"list_directory": ["PERMISSION_DENIED"]}
+          },
+          "expectation": {
+            "tools": {"required_calls": [{"name": "list_directory", "arguments": {"path": "pkg"}}]},
+            "exact": {"any_of": ["inventory.py"], "contains": true}
+          }
+        },
+        {
+          "case_id": "recovery-timeout",
+          "scenario": "tool_timeout",
+          "required_context_tokens": 8192,
+          "variables": {"task": "Compute 12 * 4 and answer with the number alone."},
+          "metadata": {
+            "offered_tools": ["calculator"],
+            "injected_failures": {"calculator": ["TIMEOUT"]}
+          },
+          "expectation": {
+            "tools": {"required_calls": [{"name": "calculator"}]},
+            "exact": {"any_of": ["48"], "contains": true}
+          }
+        },
+        {
+          "case_id": "recovery-ambiguous",
+          "scenario": "ambiguous_result",
+          "required_context_tokens": 8192,
+          "variables": {"task": "Which single order is for SKU A1? Answer with the order identifier alone."},
+          "metadata": {
+            "offered_tools": ["database_query", "lookup_record"],
+            "injected_failures": {"database_query": ["AMBIGUOUS"]}
+          },
+          "expectation": {
+            "tools": {"required_calls": [{"name": "database_query", "arguments": {"table": "orders"}}]},
+            "exact": {"any_of": ["ORD-1"], "contains": true}
+          }
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,37 @@
+{
+  "key": "native.agent",
+  "name": "Agent Behaviour",
+  "version": "1.0.0",
+  "category": "agent_behaviour",
+  "runner": "native",
+  "scorer": "agent_trajectory",
+  "capabilities": ["agent_behaviour"],
+  "requires": {
+    "provider_capabilities": ["tool_calling"],
+    "sandbox": false,
+    "network": false
+  },
+  "dataset_hashes": {},
+  "prompt_ids": [
+    {
+      "prompt_id": "benchmarks.agent.goal",
+      "version": "1.0.0",
+      "sha256": "sha256:150e3096d6401bdf229d21cc175134102ebffcdddaf266d3f1d006f51589afee"
+    }
+  ],
+  "prompt_subset_hash": "sha256:b0b3c1cce5ff9344eab907fb498c996cda0c19d55705f1105ef62326dd2bb3be",
+  "target_device": "any",
+  "metrics": [
+    {"key": "task_success", "unit": "ratio", "higher_is_better": true, "aggregation": "mean", "description": "Share of goals whose final answer met the stated finishing condition."},
+    {"key": "steps_to_completion", "unit": "count", "higher_is_better": false, "aggregation": "mean", "description": "Assistant turns taken to reach a correct answer. Absent for a failed goal, which reached no completion."},
+    {"key": "tool_calls", "unit": "count", "higher_is_better": false, "aggregation": "mean", "description": "Calls made in the whole trajectory."},
+    {"key": "wrong_turns", "unit": "count", "higher_is_better": false, "aggregation": "mean", "description": "Calls to a tool the goal does not require, or calls that failed."},
+    {"key": "retry_count", "unit": "count", "higher_is_better": false, "aggregation": "mean", "description": "Immediate repeats of the previous call, tool and arguments identical."},
+    {"key": "recovery_rate", "unit": "ratio", "higher_is_better": true, "aggregation": "mean", "description": "Of the calls that failed, the share followed by a later call that succeeded."},
+    {"key": "unnecessary_actions", "unit": "count", "higher_is_better": false, "aggregation": "mean", "description": "Calls beyond the number the goal requires."},
+    {"key": "ordering_accuracy", "unit": "ratio", "higher_is_better": true, "aggregation": "mean", "description": "Share of goals whose required calls appeared in the required order."},
+    {"key": "hit_step_limit", "unit": "ratio", "higher_is_better": false, "aggregation": "mean", "description": "Share of goals still calling tools when the step budget ran out."}
+  ],
+  "license": "project",
+  "description": "Multi-step goals over the same deterministic tools: find a symbol then read its definition, diagnose a failing test from its recorded output and the source, locate a misconfiguration, and combine results from several mock tables. Scored on the trajectory as well as the answer, and never by a model."
+}

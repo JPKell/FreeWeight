@@ -1,0 +1,41 @@
+{
+  "key": "native.tool_use",
+  "name": "Tool Use",
+  "version": "1.0.0",
+  "category": "tool_use",
+  "runner": "native",
+  "scorer": "tool_selection",
+  "capabilities": ["tool_use"],
+  "requires": {
+    "provider_capabilities": ["tool_calling"],
+    "sandbox": false,
+    "network": false
+  },
+  "dataset_hashes": {},
+  "prompt_ids": [
+    {
+      "prompt_id": "benchmarks.tool_use.task",
+      "version": "1.0.0",
+      "sha256": "sha256:dd3c4723e0506d7de8dbfc0639be5499eb027dfda106a4575513efb9acd050c0"
+    }
+  ],
+  "prompt_subset_hash": "sha256:5cb4ac14ad2e41b47c31cf8d7b3db8a099bafb6b1b64d6cdaba9d95c420c1a97",
+  "target_device": "any",
+  "metrics": [
+    {"key": "tool_selection_accuracy", "unit": "ratio", "higher_is_better": true, "aggregation": "mean", "description": "Share of the calls a case requires that the model actually made."},
+    {"key": "argument_schema_validity", "unit": "ratio", "higher_is_better": true, "aggregation": "mean", "description": "Share of calls whose arguments parsed and satisfied the tool's own schema."},
+    {"key": "argument_semantic_correctness", "unit": "ratio", "higher_is_better": true, "aggregation": "mean", "description": "Share of required calls made with the argument values the case names."},
+    {"key": "unnecessary_call_rate", "unit": "ratio", "higher_is_better": false, "aggregation": "mean", "description": "Share of calls to tools the case did not require."},
+    {"key": "missed_tool_rate", "unit": "ratio", "higher_is_better": false, "aggregation": "mean", "description": "Share of required calls the model never made."},
+    {"key": "hallucinated_tool_rate", "unit": "ratio", "higher_is_better": false, "aggregation": "mean", "description": "Share of calls naming a tool that was never offered."},
+    {"key": "multi_tool_sequence_accuracy", "unit": "ratio", "higher_is_better": true, "aggregation": "mean", "description": "Share of cases where every required call was made."},
+    {"key": "ordering_accuracy", "unit": "ratio", "higher_is_better": true, "aggregation": "mean", "description": "Share of ordered multi-call cases whose required calls appeared in order. Absent, not zero, where order carries no meaning."},
+    {"key": "calls_per_success", "unit": "count", "higher_is_better": false, "aggregation": "mean", "description": "Calls made per successful case. Absent for a failed case, which has no success to divide by."},
+    {"key": "redundant_call_rate", "unit": "ratio", "higher_is_better": false, "aggregation": "mean", "description": "Share of calls beyond the number the case requires."},
+    {"key": "repeated_identical_call_rate", "unit": "ratio", "higher_is_better": false, "aggregation": "mean", "description": "Share of calls that repeat an earlier call's tool and arguments exactly."},
+    {"key": "forbidden_call_rate", "unit": "ratio", "higher_is_better": false, "aggregation": "mean", "description": "Share of calls to a tool the case forbids."},
+    {"key": "task_success", "unit": "ratio", "higher_is_better": true, "aggregation": "mean", "description": "Share of cases whose final answer matched the expected one."}
+  ],
+  "license": "project",
+  "description": "Mock tools over deterministic fixtures — no shell, no real filesystem, no network, no real database. Eleven scenarios covering correct selection, similar tools, no tool required, sequential and parallel tools, invalid arguments, tool failure, empty and ambiguous results, and an unavailable tool."
+}

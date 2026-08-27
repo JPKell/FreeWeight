@@ -48,6 +48,7 @@ if TYPE_CHECKING:
 __all__ = [
     "PACK_ROOT",
     "PROMPT_RECORD_SCHEMA_VERSION",
+    "ManifestDrift",
     "PromptLibrary",
     "PromptNotFound",
     "PromptPackInvalid",
@@ -57,10 +58,12 @@ __all__ = [
     "PromptVariableError",
     "RenderedPrompt",
     "VariableSpec",
+    "build_manifest",
     "load_pack",
     "pack_hash",
     "prompt_record_hash",
     "prompt_subset_hash",
+    "write_manifest",
 ]
 
 PROMPT_RECORD_SCHEMA_VERSION = "1.0"
@@ -708,3 +711,137 @@ def _check_manifest(
             f"{actual!r}.",
             details={"file": str(path), "recorded": recorded, "actual": actual},
         )
+
+
+@dataclass(frozen=True, slots=True)
+class ManifestDrift:
+    """The difference between the manifest on disk and the records installed beside it.
+
+    Returned rather than raised, because ``freeweight prompts build`` has two jobs — write the
+    correct manifest, and *report* whether the committed one was already correct — and CI needs
+    the second without the first (prompt standards §3, "validated in CI").
+
+    Attributes:
+        pack_root: The pack this describes.
+        added: ``(prompt_id, version)`` pairs on disk that the manifest does not declare.
+        removed: Pairs the manifest declares that are no longer on disk.
+        changed: Pairs whose record hash differs from the one the manifest records.
+        pack_sha256_changed: Whether the pack hash itself moved.
+    """
+
+    pack_root: Path
+    added: tuple[tuple[str, str], ...]
+    removed: tuple[tuple[str, str], ...]
+    changed: tuple[tuple[str, str], ...]
+    pack_sha256_changed: bool
+
+    @property
+    def is_current(self) -> bool:
+        """Whether the committed manifest already describes the installed records exactly."""
+        return not (self.added or self.removed or self.changed or self.pack_sha256_changed)
+
+
+def build_manifest(
+    root: Path = PACK_ROOT, *, generated_at: str | None = None
+) -> tuple[dict[str, Any], ManifestDrift]:
+    """Recompute a pack's manifest from the records on disk, and say what moved.
+
+    The counterpart to :func:`_check_manifest`: that function refuses a stale manifest at startup,
+    this one produces the manifest that would satisfy it. One arithmetic, written once — a builder
+    that hashed differently from the validator would produce a pack that fails to load the moment
+    it is built (prompt standards §3).
+
+    ``pack_id``, ``pack_version`` and ``schema_version`` are carried over from the existing
+    manifest where there is one: they are the pack's identity and its owner's decision, and a
+    rebuild is not the moment to invent them. ``generated_at`` is taken from the caller so the
+    output is deterministic under test; ``None`` keeps whatever the existing manifest recorded, or
+    the epoch for a pack that has none — a rebuild never reaches for the clock on its own, because
+    a timestamp that changes on every invocation makes ``prompts build --check`` unable to compare
+    two manifests at all.
+
+    Args:
+        root: The pack directory holding ``manifest.json`` and the record files.
+        generated_at: The RFC 3339 instant to stamp, or ``None`` to keep the existing one.
+
+    Returns:
+        ``(manifest, drift)`` — the manifest body that describes what is installed, and how it
+        differs from the one currently on disk.
+
+    Raises:
+        PromptPackInvalid: A record file is malformed. A pack that cannot be read cannot be
+            described, and writing a manifest over an unreadable pack would bless the breakage.
+    """
+    manifest_path = root / "manifest.json"
+    existing: dict[str, Any] = {}
+    if manifest_path.is_file():
+        try:
+            parsed = json.loads(manifest_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            parsed = None
+        if isinstance(parsed, dict):
+            existing = parsed
+    shipped = [
+        _load_record(path, source="pack")
+        for path in sorted(root.rglob("*.json"))
+        if path != manifest_path
+    ]
+    references = [record.reference for record in shipped]
+    manifest: dict[str, Any] = {
+        "pack_id": str(existing.get("pack_id", root.name)),
+        "pack_version": str(existing.get("pack_version", "1.0.0")),
+        "schema_version": str(existing.get("schema_version", PROMPT_RECORD_SCHEMA_VERSION)),
+        "generated_at": str(
+            generated_at
+            if generated_at is not None
+            else existing.get("generated_at", "1970-01-01T00:00:00Z")
+        ),
+        "prompts": [reference.as_json() for reference in sorted(references, key=_reference_key)],
+        "pack_sha256": pack_hash(references),
+    }
+    return manifest, _drift(existing, manifest, root)
+
+
+def _reference_key(reference: PromptReference) -> tuple[str, str]:
+    """Order manifest entries by ``(prompt_id, version)`` so a rebuild is byte-stable."""
+    return (reference.prompt_id, reference.version)
+
+
+def _drift(existing: Mapping[str, Any], rebuilt: Mapping[str, Any], root: Path) -> ManifestDrift:
+    """Compare a committed manifest with a freshly computed one."""
+
+    def index(body: Mapping[str, Any]) -> dict[tuple[str, str], str]:
+        declared = body.get("prompts")
+        entries = declared if isinstance(declared, list) else []
+        return {
+            (str(entry.get("prompt_id")), str(entry.get("version"))): str(entry.get("sha256"))
+            for entry in entries
+            if isinstance(entry, dict)
+        }
+
+    before, after = index(existing), index(rebuilt)
+    return ManifestDrift(
+        pack_root=root,
+        added=tuple(sorted(set(after) - set(before))),
+        removed=tuple(sorted(set(before) - set(after))),
+        changed=tuple(sorted(key for key in set(before) & set(after) if before[key] != after[key])),
+        pack_sha256_changed=str(existing.get("pack_sha256", "")) != str(rebuilt["pack_sha256"]),
+    )
+
+
+def write_manifest(manifest: Mapping[str, Any], root: Path = PACK_ROOT) -> Path:
+    """Write ``manifest.json`` into ``root`` and return the path written.
+
+    Two trailing spaces of indentation and a final newline, matching every other JSON file in the
+    pack: the manifest is reviewed in diffs, and a one-line file makes a single changed hash look
+    like a rewritten pack.
+
+    Args:
+        manifest: The body from :func:`build_manifest`.
+        root: The pack directory.
+
+    Returns:
+        The path that was written.
+    """
+    path = root / "manifest.json"
+    path.write_text(json.dumps(manifest, indent=2, sort_keys=False) + "\n", encoding="utf-8")
+    return path

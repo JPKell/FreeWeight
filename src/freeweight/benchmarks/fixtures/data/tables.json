@@ -1,0 +1,11 @@
+{
+  "orders": [
+    {"order_id": "ORD-1", "record_id": "CUST-1001", "sku": "A1", "units": 3},
+    {"order_id": "ORD-2", "record_id": "CUST-1002", "sku": "B2", "units": 7},
+    {"order_id": "ORD-3", "record_id": "CUST-1001", "sku": "B2", "units": 4}
+  ],
+  "catalogue": [
+    {"sku": "A1", "unit_price_cents": 500, "name": "Bracket"},
+    {"sku": "B2", "unit_price_cents": 250, "name": "Washer"}
+  ]
+}

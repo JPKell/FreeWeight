@@ -1,0 +1,4 @@
+{
+  "A1": {"sku": "A1", "units": 12, "location": "shelf-3"},
+  "B2": {"sku": "B2", "units": 0, "location": "shelf-9"}
+}

@@ -1,0 +1,37 @@
+{
+  "prompt_id": "benchmarks.tool_use.task",
+  "version": "1.0.0",
+  "schema_version": "1.0",
+  "purpose": "State one task that the offered mock tools can answer, so tool selection, argument correctness and call economy can be measured against a known-correct call sequence.",
+  "task": "benchmark.tool_use",
+  "capability": "tool_use",
+  "system": "Use the offered tools when they are needed and answer directly when they are not. Every tool operates on fixture data supplied with this task. When you have the answer, state it plainly and stop.",
+  "template": "TASK\n{{ task }}",
+  "variables": {
+    "task": {
+      "type": "string",
+      "required": true,
+      "description": "The task, stated so that exactly one sequence of the offered tools answers it — or, for the no-tool-required scenarios, so that none of them does."
+    }
+  },
+  "response": {
+    "format": "text",
+    "json_schema_ref": null,
+    "expectations": [
+      "Either tool calls followed by a plain answer, or a plain answer where no tool is required."
+    ]
+  },
+  "model_requirements": {
+    "min_context_tokens": 4096,
+    "requires_capabilities": ["tool_use"],
+    "recommended_temperature": 0.0
+  },
+  "metadata": {
+    "author": "suite",
+    "created_at": "2026-08-27T00:00:00Z",
+    "changed_at": "2026-08-27T00:00:00Z",
+    "change_reason": "First version: native.tool_use needs one task prompt whose tool descriptions come from the fixture toolbox rather than from the prompt text.",
+    "supersedes": null,
+    "tags": ["benchmark", "tool_use"]
+  }
+}

@@ -5,15 +5,45 @@
   "generated_at": "2026-08-27T00:00:00Z",
   "prompts": [
     {
+      "prompt_id": "benchmarks.agent.goal",
+      "version": "1.0.0",
+      "sha256": "sha256:150e3096d6401bdf229d21cc175134102ebffcdddaf266d3f1d006f51589afee"
+    },
+    {
+      "prompt_id": "benchmarks.instruction_following.constrained",
+      "version": "1.0.0",
+      "sha256": "sha256:9432aced57043c1f8bff0139177f9739f8e38c3b9df11c4121c5722ad477d8a9"
+    },
+    {
       "prompt_id": "benchmarks.performance.probe",
       "version": "1.0.0",
       "sha256": "sha256:0e822daccf68b87d2444b88901a8944478bdaadf53bf7c323cb4af9b1be73a81"
     },
     {
+      "prompt_id": "benchmarks.structured_output.repair",
+      "version": "1.0.0",
+      "sha256": "sha256:189ffa455a2fd19bd124c2eaf2cd00dfab77aa9026ed7e154d6adac02b38bae8"
+    },
+    {
+      "prompt_id": "benchmarks.structured_output.schema",
+      "version": "1.0.0",
+      "sha256": "sha256:148126405e42aadb08bafe836863b04d9dd38e9239704e42b5f0b3c4fe0a1ea3"
+    },
+    {
       "prompt_id": "benchmarks.token_economy.probe",
       "version": "1.0.0",
       "sha256": "sha256:d9e7b2093dd4d3fc9fe199b419cf750d49522795db6c3a8a76615e46de220f7d"
+    },
+    {
+      "prompt_id": "benchmarks.tool_recovery.task",
+      "version": "1.0.0",
+      "sha256": "sha256:7fffba0cfe02e66c40782cbebf11760ab0c087717cd83eb5c9f6dc7ca27fb108"
+    },
+    {
+      "prompt_id": "benchmarks.tool_use.task",
+      "version": "1.0.0",
+      "sha256": "sha256:dd3c4723e0506d7de8dbfc0639be5499eb027dfda106a4575513efb9acd050c0"
     }
   ],
-  "pack_sha256": "sha256:cb1ed08db62e3c2b116b69473e7ab3795308c85cd0fdf8a247e9237210d1ec34"
+  "pack_sha256": "sha256:941aa3280c3855c8c5e2be326a8a8d4bdb7d93fe00b3e4df109c6e9efcff8ead"
 }

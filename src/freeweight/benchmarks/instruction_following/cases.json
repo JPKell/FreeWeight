@@ -1,0 +1,171 @@
+{
+  "tests": [
+    {
+      "key": "instruction_following.format",
+      "name": "Opening, closing and formatting",
+      "metric_keys": ["strict_prompt_accuracy", "loose_prompt_accuracy", "instruction_level_accuracy", "violations_format"],
+      "cases": [
+        {
+          "case_id": "format-opening",
+          "scenario": "specific_opening_text",
+          "required_context_tokens": 2048,
+          "variables": {"task": "Write one sentence about running a language model on a laptop."},
+          "expectation": {
+            "constraints": [
+              {"kind": "starts_with", "value": "RESULT:", "case_sensitive": true, "instruction": "Begin the response with exactly RESULT: and nothing before it."}
+            ]
+          }
+        },
+        {
+          "case_id": "format-closing",
+          "scenario": "specific_closing_text",
+          "required_context_tokens": 2048,
+          "variables": {"task": "Write one sentence about measuring throughput."},
+          "expectation": {
+            "constraints": [
+              {"kind": "ends_with", "value": "END", "case_sensitive": true, "instruction": "End the response with exactly END and nothing after it."}
+            ]
+          }
+        },
+        {
+          "case_id": "format-pattern",
+          "scenario": "formatting_constraint",
+          "required_context_tokens": 2048,
+          "variables": {"task": "State a version number for a fictional tool called Loadout."},
+          "expectation": {
+            "constraints": [
+              {"kind": "matches", "value": "\\b[0-9]+\\.[0-9]+\\.[0-9]+\\b", "instruction": "Include a version number written as three numbers separated by dots, for example 2.4.1."}
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "key": "instruction_following.length",
+      "name": "Length constraints",
+      "metric_keys": ["strict_prompt_accuracy", "loose_prompt_accuracy", "instruction_level_accuracy", "violations_length"],
+      "cases": [
+        {
+          "case_id": "length-words",
+          "scenario": "word_count_range",
+          "required_context_tokens": 2048,
+          "variables": {"task": "Describe what a benchmark harness does."},
+          "expectation": {
+            "constraints": [
+              {"kind": "word_count_range", "minimum": 10, "maximum": 20, "instruction": "Use between 10 and 20 words in total."}
+            ]
+          }
+        },
+        {
+          "case_id": "length-lines",
+          "scenario": "line_count",
+          "required_context_tokens": 2048,
+          "variables": {"task": "List things that make a measurement reproducible."},
+          "expectation": {
+            "constraints": [
+              {"kind": "line_count", "minimum": 3, "maximum": 3, "instruction": "Write exactly three non-blank lines."}
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "key": "instruction_following.keyword",
+      "name": "Required and forbidden words",
+      "metric_keys": ["strict_prompt_accuracy", "loose_prompt_accuracy", "instruction_level_accuracy", "violations_keyword"],
+      "cases": [
+        {
+          "case_id": "keyword-required",
+          "scenario": "required_phrase",
+          "required_context_tokens": 2048,
+          "variables": {"task": "Explain in one sentence why a cold measurement differs from a warm one."},
+          "expectation": {
+            "constraints": [
+              {"kind": "required_phrase", "value": "cache", "instruction": "Include the word cache."}
+            ]
+          }
+        },
+        {
+          "case_id": "keyword-forbidden",
+          "scenario": "forbidden_phrase",
+          "required_context_tokens": 2048,
+          "variables": {"task": "Describe a graphics card in one sentence."},
+          "expectation": {
+            "constraints": [
+              {"kind": "forbidden_phrase", "value": "GPU", "instruction": "Do not use the letters GPU anywhere in the response."}
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "key": "instruction_following.structure",
+      "name": "Structural constraints",
+      "metric_keys": ["strict_prompt_accuracy", "loose_prompt_accuracy", "instruction_level_accuracy", "violations_structure"],
+      "cases": [
+        {
+          "case_id": "structure-list",
+          "scenario": "exact_list_length",
+          "required_context_tokens": 2048,
+          "variables": {"task": "Name properties worth measuring about a local model."},
+          "expectation": {
+            "constraints": [
+              {"kind": "list_length", "value": "^-\\s+", "minimum": 4, "maximum": 4, "instruction": "Write exactly four bullet points, each line beginning with a hyphen and a space."}
+            ]
+          }
+        },
+        {
+          "case_id": "structure-every-line",
+          "scenario": "per_line_shape",
+          "required_context_tokens": 2048,
+          "variables": {"task": "List three measurements a benchmark can take, one per line."},
+          "expectation": {
+            "constraints": [
+              {"kind": "every_line_matches", "value": "^[0-9]+\\. ", "instruction": "Begin every line with a number, a full stop and a space, for example 1. like this."},
+              {"kind": "line_count", "minimum": 3, "maximum": 3, "instruction": "Write exactly three non-blank lines."}
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "key": "instruction_following.language",
+      "name": "Language constraint",
+      "metric_keys": ["strict_prompt_accuracy", "loose_prompt_accuracy", "instruction_level_accuracy", "violations_language"],
+      "cases": [
+        {
+          "case_id": "language-greek",
+          "scenario": "language_constraint",
+          "required_context_tokens": 2048,
+          "variables": {"task": "Write one short sentence about the weather."},
+          "expectation": {
+            "constraints": [
+              {"kind": "script", "value": "GREEK", "instruction": "Write the answer using Greek letters only."}
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "key": "instruction_following.combined",
+      "name": "Several constraints at once",
+      "metric_keys": ["strict_prompt_accuracy", "loose_prompt_accuracy", "instruction_level_accuracy", "violations_format", "violations_length", "violations_keyword", "violations_structure"],
+      "cases": [
+        {
+          "case_id": "combined-four",
+          "scenario": "multiple_simultaneous",
+          "required_context_tokens": 2048,
+          "variables": {"task": "Summarise what a reproducibility fingerprint records."},
+          "expectation": {
+            "constraints": [
+              {"kind": "starts_with", "value": "SUMMARY:", "case_sensitive": true, "instruction": "Begin the response with exactly SUMMARY: and nothing before it."},
+              {"kind": "word_count_range", "minimum": 12, "maximum": 30, "instruction": "Use between 12 and 30 words in total."},
+              {"kind": "required_phrase", "value": "hash", "instruction": "Include the word hash."},
+              {"kind": "forbidden_phrase", "value": "as an AI", "instruction": "Do not refer to yourself."}
+            ]
+          }
+        }
+      ]
+    }
+  ]
+}
