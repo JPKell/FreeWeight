@@ -14,11 +14,15 @@ Four value objects and two protocols:
 * :class:`Benchmark` — the runnable protocol: a manifest plus its tests.
 * :class:`BenchmarkRegistry` — the lookup the run engine uses, populated by the composition root.
 
-Deliberately **not** here: prompt records and ``prompt_subset_hash``
-([ADR-0028](../../../../docs/adr/0028-prompt-pack-granularity.md)), which arrive with the prompt
-library at Phase 6, and dataset installation, which arrives with the external adapters. A Phase 5
-manifest declares no prompts and its cases carry literal prompt text, which is exactly what makes
-``native.echo`` self-contained.
+Prompt *records* are still not here — they are data, loaded and hashed by
+:mod:`freeweight.services.prompts` — but a manifest now carries the ``prompt_ids`` it declares and
+the ``prompt_subset_hash`` over exactly those
+([ADR-0028](../../../../docs/adr/0028-prompt-pack-granularity.md)). The subset hash is a
+*fingerprint input*; the pack hash is not. A suite that declares no prompts (``native.echo``,
+whose cases carry literal text) has no subset hash and separates nothing, which is what keeps a
+self-test self-contained.
+
+Dataset installation is still absent; it arrives with the external adapters.
 
 Pure domain: stdlib and :mod:`baseaicore` only.
 """
@@ -92,13 +96,23 @@ class BenchmarkCase:
             uniqueness constraint and the thing a user compares between two runs.
         ordinal: The case's position in its test's declared order, from 0. Recorded on the sample
             so a run whose case order was randomized can still be read back in declaration order.
-        prompt: The literal user-turn text sent to the model. Phase 6 replaces this with a
-            reference into the prompt library for the shipped suites; a self-test suite keeps
-            literal text so it depends on nothing.
+        prompt: The rendered user-turn text sent to the model. Rendered, not templated: by the
+            time a case exists the prompt library has already produced its final text, so the
+            hash on the sample is over exactly what was sent.
         expectation: What the scorer compares against. Its shape is the scorer's business — this
             module deliberately does not interpret it.
         metadata: Anything the benchmark wants recorded with the sample that is neither prompt nor
             expectation.
+        system_prompt: The system-turn text, or ``None`` for a case that has none.
+        prompt_id: The prompt record this case was rendered from, or ``None`` for a suite whose
+            cases carry literal text (``native.echo``). Stored on the sample so a result can name
+            the exact prompt that produced it (prompt standards §4).
+        prompt_version: That record's version, or ``None``.
+        required_context_tokens: The served context this case needs. A case that needs more than
+            the run's served context is **skipped with a recorded reason** rather than sent and
+            failed — benchmark catalog §3.1's "only those the model supports", made a property of
+            the case rather than of the suite, since the same suite runs against models with
+            different contexts.
     """
 
     case_id: str
@@ -106,6 +120,10 @@ class BenchmarkCase:
     prompt: str
     expectation: Mapping[str, Any] = field(default_factory=dict)
     metadata: Mapping[str, Any] = field(default_factory=dict)
+    system_prompt: str | None = None
+    prompt_id: str | None = None
+    prompt_version: str | None = None
+    required_context_tokens: int | None = None
 
 
 @runtime_checkable
@@ -130,6 +148,29 @@ class BenchmarkTest(Protocol):
     @property
     def scorer(self) -> Scorer:
         """The scorer every case in this test is scored by."""
+        ...
+
+    @property
+    def measurement_class(self) -> str:
+        """``cold``, ``warm``, ``cache_reused`` or ``n/a`` (benchmark catalog §3.1).
+
+        Declared by the test, stored on its ``run_tests`` row, and read by
+        :mod:`freeweight.domain.aggregation`, which refuses to combine tests of different classes
+        into one run-level metric. A test that does not care about model state declares ``n/a``;
+        it never declares ``warm`` by default, because a default here would silently make a cold
+        measurement comparable to a warm one.
+        """
+        ...
+
+    @property
+    def streaming(self) -> bool:
+        """Whether this test's cases are executed through :meth:`~modelrack.Provider.stream`.
+
+        ``True`` is what makes ``client_ttft_ms`` and inter-chunk timings exist at all: a blocking
+        call has no first-token moment to observe. It is declared per test rather than inferred,
+        because streaming and non-streaming calls are different measurements of the same model and
+        a run must record which one it made.
+        """
         ...
 
     @property
@@ -172,6 +213,13 @@ class BenchmarkManifest:
             self-test suite, which measures the harness rather than the model.
         requires: Preconditions for the whole suite.
         dataset_hashes: Pinned hashes of any installed data. Empty for a self-contained suite.
+        prompt_ids: The ``(prompt_id, version, sha256)`` triples this suite declares, exactly as
+            the manifest states them. Empty for a suite whose cases carry literal prompt text.
+        prompt_subset_hash: The hash over **only** those prompts, or ``None`` when the suite
+            declares none. This — never the pack hash — is what enters the reproducibility
+            fingerprint and the evidence-separation rules (ADR-0028 §1). It is read from the
+            manifest and verified against the installed pack by the suite's own loader, because a
+            manifest cannot be trusted to describe prompts it does not contain.
         license: The suite's licence, as written in the manifest.
         body: The manifest exactly as parsed, minus ``manifest_hash`` — the input
             :func:`compute_manifest_hash` hashes, retained so the stored copy is the file's own
@@ -186,6 +234,8 @@ class BenchmarkManifest:
     capabilities: tuple[str, ...]
     requires: Mapping[str, Any]
     dataset_hashes: Mapping[str, str]
+    prompt_ids: tuple[Mapping[str, str], ...]
+    prompt_subset_hash: str | None
     license: str
     body: Mapping[str, Any]
 
@@ -228,6 +278,13 @@ class BenchmarkManifest:
             capabilities=tuple(str(item) for item in hashable.get("capabilities", ())),
             requires=dict(hashable.get("requires", {})),
             dataset_hashes=dict(hashable.get("dataset_hashes", {})),
+            prompt_ids=tuple(
+                {str(key): str(value) for key, value in dict(entry).items()}
+                for entry in hashable.get("prompt_ids", ())
+            ),
+            prompt_subset_hash=(
+                str(hashable["prompt_subset_hash"]) if hashable.get("prompt_subset_hash") else None
+            ),
             license=str(hashable.get("license", "project")),
             body=hashable,
         )

@@ -1,0 +1,41 @@
+{
+  "key": "native.performance",
+  "name": "Native Performance",
+  "version": "1.0.0",
+  "category": "performance",
+  "runner": "native",
+  "scorer": "response_arrived",
+  "capabilities": ["speed", "latency"],
+  "requires": {
+    "provider_capabilities": ["token_counts"],
+    "sandbox": false,
+    "network": false
+  },
+  "dataset_hashes": {},
+  "prompt_ids": [
+    {
+      "prompt_id": "benchmarks.performance.probe",
+      "version": "1.0.0",
+      "sha256": "sha256:0e822daccf68b87d2444b88901a8944478bdaadf53bf7c323cb4af9b1be73a81"
+    }
+  ],
+  "prompt_subset_hash": "sha256:0208c8445d0dae8650d6ca8b29b2ab28bea6790d75e3954af53ba35dc38b5df5",
+  "target_device": "gpu",
+  "metrics": [
+    {"key": "prompt_tokens", "unit": "count", "higher_is_better": true, "aggregation": "mean"},
+    {"key": "prompt_eval_ms", "unit": "ms", "higher_is_better": false, "aggregation": "mean"},
+    {"key": "prompt_tokens_per_second", "unit": "tokens/s", "higher_is_better": true, "aggregation": "mean"},
+    {"key": "output_tokens", "unit": "count", "higher_is_better": true, "aggregation": "mean"},
+    {"key": "decode_ms", "unit": "ms", "higher_is_better": false, "aggregation": "mean"},
+    {"key": "decode_tokens_per_second", "unit": "tokens/s", "higher_is_better": true, "aggregation": "mean"},
+    {"key": "total_ms", "unit": "ms", "higher_is_better": false, "aggregation": "mean"},
+    {"key": "ttft_ms", "unit": "ms", "higher_is_better": false, "aggregation": "mean"},
+    {"key": "inter_chunk_ms_mean", "unit": "ms", "higher_is_better": false, "aggregation": "mean"},
+    {"key": "inter_chunk_ms_p50", "unit": "ms", "higher_is_better": false, "aggregation": "mean"},
+    {"key": "inter_chunk_ms_p95", "unit": "ms", "higher_is_better": false, "aggregation": "mean"},
+    {"key": "inter_token_ms_mean", "unit": "ms", "higher_is_better": false, "aggregation": "mean"},
+    {"key": "load_ms", "unit": "ms", "higher_is_better": false, "aggregation": "mean"}
+  ],
+  "license": "project",
+  "description": "Speed, and only speed: prompt-evaluation and decode throughput at the catalog's prompt sizes and output lengths, time to first token, streamed inter-chunk latency, and cold model load. Cold and warm results are separated, never averaged, and a per-token latency figure appears only where the provider reports one token per streamed delta."
+}

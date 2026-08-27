@@ -1,0 +1,19 @@
+{
+  "pack_id": "freeweight.core",
+  "pack_version": "1.0.0",
+  "schema_version": "1.0",
+  "generated_at": "2026-08-27T00:00:00Z",
+  "prompts": [
+    {
+      "prompt_id": "benchmarks.performance.probe",
+      "version": "1.0.0",
+      "sha256": "sha256:0e822daccf68b87d2444b88901a8944478bdaadf53bf7c323cb4af9b1be73a81"
+    },
+    {
+      "prompt_id": "benchmarks.token_economy.probe",
+      "version": "1.0.0",
+      "sha256": "sha256:d9e7b2093dd4d3fc9fe199b419cf750d49522795db6c3a8a76615e46de220f7d"
+    }
+  ],
+  "pack_sha256": "sha256:cb1ed08db62e3c2b116b69473e7ab3795308c85cd0fdf8a247e9237210d1ec34"
+}

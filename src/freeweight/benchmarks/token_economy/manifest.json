@@ -1,0 +1,39 @@
+{
+  "key": "native.token_economy",
+  "name": "Native Token Economy",
+  "version": "1.0.0",
+  "category": "token_efficiency",
+  "runner": "native",
+  "scorer": "answer_arrived",
+  "capabilities": ["token_efficiency"],
+  "requires": {
+    "provider_capabilities": ["token_counts"],
+    "sandbox": false,
+    "network": false
+  },
+  "dataset_hashes": {},
+  "prompt_ids": [
+    {
+      "prompt_id": "benchmarks.token_economy.probe",
+      "version": "1.0.0",
+      "sha256": "sha256:d9e7b2093dd4d3fc9fe199b419cf750d49522795db6c3a8a76615e46de220f7d"
+    }
+  ],
+  "prompt_subset_hash": "sha256:5f6f254181e8972334da6ff3515e1fe2d04bc065b82c05c384bab3b048b658e1",
+  "target_device": "any",
+  "metrics": [
+    {"key": "output_tokens", "unit": "count", "higher_is_better": false, "aggregation": "mean"},
+    {"key": "prompt_tokens", "unit": "count", "higher_is_better": false, "aggregation": "mean"},
+    {"key": "thinking_tokens", "unit": "count", "higher_is_better": false, "aggregation": "mean"},
+    {"key": "tool_tokens", "unit": "count", "higher_is_better": false, "aggregation": "mean"},
+    {"key": "output_chars", "unit": "count", "higher_is_better": false, "aggregation": "mean"},
+    {"key": "output_words", "unit": "count", "higher_is_better": false, "aggregation": "mean"},
+    {"key": "output_bytes", "unit": "count", "higher_is_better": false, "aggregation": "mean"},
+    {"key": "output_tokens_per_success", "unit": "tokens", "higher_is_better": false, "aggregation": "ratio"},
+    {"key": "total_tokens_per_success", "unit": "tokens", "higher_is_better": false, "aggregation": "ratio"},
+    {"key": "quality_per_1k_output_tokens", "unit": "score/1k tokens", "higher_is_better": true, "aggregation": "ratio"},
+    {"key": "successes_per_million_output_tokens", "unit": "count/1M tokens", "higher_is_better": true, "aggregation": "ratio"}
+  ],
+  "license": "project",
+  "description": "What an answer costs: input, output, thinking and tool tokens with the character, word and byte counts beside them, and the four derived per-success figures. Token counts are never compared across models without the size counts, because tokenizers differ."
+}

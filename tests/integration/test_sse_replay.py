@@ -102,7 +102,7 @@ def completed_run(environment: RunEnvironment) -> str:
         model_ref=environment.model_ref,
         suite_key="native.echo",
         execution=ExecutionConfig.resolve(
-            ExecutionSettings(warmup_repetitions=0), measured_repetitions=1
+            ExecutionSettings(warmup_repetitions=0, cooldown_seconds=0), measured_repetitions=1
         ),
     )
     RunScheduler(

@@ -1,0 +1,42 @@
+{
+  "prompt_id": "benchmarks.performance.probe",
+  "version": "1.0.0",
+  "schema_version": "1.0",
+  "purpose": "Drive one timed generation whose prompt length and requested output length are set by the caller, so speed can be measured without the model's answer mattering.",
+  "task": "benchmark.performance",
+  "capability": "speed",
+  "system": null,
+  "template": "{{ passage }}\n\n{{ instruction }}",
+  "variables": {
+    "passage": {
+      "type": "string",
+      "required": true,
+      "description": "Filler text sized to the prompt length under test. Its content is irrelevant to the measurement; only its token count is."
+    },
+    "instruction": {
+      "type": "string",
+      "required": true,
+      "description": "What to do with the passage, including the requested output length for the decode-throughput cases."
+    }
+  },
+  "response": {
+    "format": "text",
+    "json_schema_ref": null,
+    "expectations": [
+      "Any text. This prompt measures how fast tokens arrive, never whether they are correct."
+    ]
+  },
+  "model_requirements": {
+    "min_context_tokens": 512,
+    "requires_capabilities": [],
+    "recommended_temperature": 0.0
+  },
+  "metadata": {
+    "author": "suite",
+    "created_at": "2026-08-27T00:00:00Z",
+    "changed_at": "2026-08-27T00:00:00Z",
+    "change_reason": "First version: native.performance needs one prompt record so the reproducibility fingerprint has a real prompt subset hash from the first measured run.",
+    "supersedes": null,
+    "tags": ["benchmark", "performance"]
+  }
+}

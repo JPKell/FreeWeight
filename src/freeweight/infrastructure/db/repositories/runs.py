@@ -273,6 +273,14 @@ class RunRepository:
         application_version: str | None,
         label: str | None,
         now: datetime,
+        prompt_pack_id: str | None = None,
+        prompt_pack_version: str | None = None,
+        prompt_pack_hash: str | None = None,
+        served_context: int | None = None,
+        served_context_source: str | None = None,
+        gpu_index: int | None = None,
+        multi_gpu_visible: bool = False,
+        degradations_json: Any = None,
     ) -> Run:
         """Insert one run in its initial state and return it.
 
@@ -292,6 +300,17 @@ class RunRepository:
             application_version: FreeWeight's own version.
             label: The user's label for this run, or ``None``.
             now: The instant to record as ``created_at``.
+            prompt_pack_id: The installed prompt pack's identity — **provenance only**, never a
+                fingerprint input (ADR-0028 §1).
+            prompt_pack_version: That pack's version.
+            prompt_pack_hash: That pack's hash.
+            served_context: The context the model is actually served at, or ``None`` when nothing
+                could say.
+            served_context_source: ``configured``, ``reported`` or ``assumed``.
+            gpu_index: The device this run's metrics are attributed to (ADR-0027 §3).
+            multi_gpu_visible: Whether more than one GPU was visible when the run was created.
+            degradations_json: Conditions recorded against the run at creation, such as the
+                divergences a forced repeat proceeded past.
 
         Returns:
             The inserted run.
@@ -311,6 +330,14 @@ class RunRepository:
             provider_version=provider_version,
             application_version=application_version,
             label=label,
+            prompt_pack_id=prompt_pack_id,
+            prompt_pack_version=prompt_pack_version,
+            prompt_pack_hash=prompt_pack_hash,
+            served_context=served_context,
+            served_context_source=served_context_source,
+            gpu_index=gpu_index,
+            multi_gpu_visible=multi_gpu_visible,
+            degradations_json=degradations_json,
         )
         session.add(run)
         session.flush()
@@ -384,6 +411,37 @@ class RunRepository:
         if error_text is not None:
             values["error_text"] = error_text
         session.execute(update(Run).where(Run.id == run_id).values(**values))
+
+    def set_observations(
+        self,
+        session: Session,
+        run_id: str,
+        *,
+        telemetry_overhead_percent: float | None = None,
+        degradations_json: Any = None,
+    ) -> None:
+        """Record what executing this run observed about the conditions it ran in.
+
+        Separate from :meth:`set_status` because these are not transitions: the sampling-overhead
+        calibration and the degradation list are measurements *about* the run, written once while
+        it executes, and folding them into the status writer would mean every status change had to
+        remember not to clear them.
+
+        Args:
+            session: The caller's active session.
+            run_id: The run to update.
+            telemetry_overhead_percent: What this machine's telemetry sampling costs, as a share of
+                the sampling interval; ``None`` leaves the column alone.
+            degradations_json: The full degradation list, replacing whatever was there. Passed
+                whole rather than appended to, so the writer is the one place that knows the list.
+        """
+        values: dict[str, Any] = {}
+        if telemetry_overhead_percent is not None:
+            values["telemetry_overhead_percent"] = telemetry_overhead_percent
+        if degradations_json is not None:
+            values["degradations_json"] = degradations_json
+        if values:
+            session.execute(update(Run).where(Run.id == run_id).values(**values))
 
     def claim_next_queued(self, session: Session, *, now: datetime) -> Run | None:
         """Atomically take the oldest queued run and move it to ``preparing``.
@@ -534,11 +592,20 @@ class RunTestRepository:
         completed_at: datetime | None = None,
         error_code: str | None = None,
         error_text: str | None = None,
+        measurement_class: str | None = None,
     ) -> None:
-        """Write a test's new status and the fields that transition carries."""
+        """Write a test's new status and the fields that transition carries.
+
+        ``measurement_class`` is written when the test starts rather than when it finishes: it is
+        what the test *declares* it is measuring (``cold``, ``warm``, ``cache_reused``, ``n/a``),
+        and aggregation refuses to combine tests that disagree about it, so a run interrupted
+        mid-test must already carry it.
+        """
         values: dict[str, Any] = {"status": status}
         if skip_reason is not None:
             values["skip_reason"] = skip_reason
+        if measurement_class is not None:
+            values["measurement_class"] = measurement_class
         if started_at is not None:
             values["started_at"] = started_at
         if completed_at is not None:

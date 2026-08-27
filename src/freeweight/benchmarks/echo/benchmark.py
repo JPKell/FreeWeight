@@ -118,6 +118,16 @@ class EchoTest:
         return HarnessRoundTripScorer()
 
     @property
+    def measurement_class(self) -> str:
+        """``n/a``. A self-test measures the harness, for which cold and warm mean nothing."""
+        return "n/a"
+
+    @property
+    def streaming(self) -> bool:
+        """``False``. A round trip is a round trip; nothing here needs a first-token moment."""
+        return False
+
+    @property
     def metrics(self) -> Sequence[MetricDefinition]:
         """The single metric this test produces."""
         return (

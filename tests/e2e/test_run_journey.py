@@ -43,6 +43,10 @@ def workspace(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     database = tmp_path / "freeweight.sqlite3"
     monkeypatch.setenv("FREEWEIGHT_STORAGE__DATABASE_URL", f"sqlite:///{database}")
     monkeypatch.setenv("FREEWEIGHT_PROVIDER__KIND", "fake")
+    # The shipped default is a 5 s cooldown between tests (spec §12). It is real behaviour and is
+    # exercised in its own unit test; paying it in every end-to-end journey would buy nothing but
+    # minutes.
+    monkeypatch.setenv("FREEWEIGHT_EXECUTION__COOLDOWN_SECONDS", "0")
     engine = create_engine_for(f"sqlite:///{database}")
     try:
         MigrationRunner(engine, script_location=MIGRATIONS_LOCATION).upgrade(backup=False)
@@ -103,8 +107,13 @@ class TestCriterion1CliRunCompletes:
         for test in body["tests"]:
             assert test["status"] == "completed"
             assert test["completed_cases"] == test["total_cases"]
-        run_metric = next(m for m in body["metrics"] if m["run_test_id"] is None)
-        assert run_metric["key"] == "harness_roundtrip_success"
+        # Selected by key, not by position: a run's run-level metrics now include the telemetry
+        # summary (peak VRAM, power, energy, temperature), which sorts before this one.
+        run_metric = next(
+            m
+            for m in body["metrics"]
+            if m["run_test_id"] is None and m["key"] == "harness_roundtrip_success"
+        )
         assert run_metric["sample_count"] > 0
         assert run_metric["excluded_count"] == 0
 
@@ -513,3 +522,93 @@ class TestExitCodesAndTextOutput:
         result = _cli("run", "wait", "01ZZZZZZZZZZZZZZZZZZZZZZZZ")
         assert result.exit_code == 2
         assert "RUN_NOT_FOUND" in result.output
+
+
+class TestPhase6RepeatAndTheRunPage:
+    """Phase 6's two user-facing additions, driven the way a person drives them.
+
+    ``run repeat`` and the run detail page are Phase 6 *Work* rather than Phase 5 acceptance
+    criteria, so they live in their own class here rather than under one of the numbered ones
+    above.
+    """
+
+    def test_run_repeat_reruns_the_recorded_configuration(self, workspace: Path) -> None:
+        _discover(workspace)
+        started = _cli(
+            "run", "start", "--model", "fake-model:8b-q8_0", "--suite", "native.echo", "--json"
+        )
+        assert started.exit_code == 0, started.output
+        original = json.loads(started.output.splitlines()[0])["run_id"]
+
+        repeated = _cli("run", "repeat", original, "--json")
+        assert repeated.exit_code == 0, repeated.output
+        body = json.loads(repeated.output.splitlines()[0])
+        assert body["repeat_of"] == original
+        assert body["run_id"] != original
+
+        shown = json.loads(_cli("run", "show", body["run_id"], "--json").output)
+        assert shown["status"] == "completed"
+        assert shown["label"].startswith("repeat of ")
+
+    def test_run_repeat_check_reports_that_the_provenance_is_identical(
+        self, workspace: Path
+    ) -> None:
+        _discover(workspace)
+        started = _cli(
+            "run", "start", "--model", "fake-model:8b-q8_0", "--suite", "native.echo", "--json"
+        )
+        original = json.loads(started.output.splitlines()[0])["run_id"]
+
+        checked = _cli("run", "repeat", original, "--check")
+        assert checked.exit_code == 0, checked.output
+        # Nothing about this environment moved between the two runs, and the command says so
+        # rather than printing nothing and leaving the user to infer it.
+        assert "Provenance identical" in checked.output
+
+    def test_run_repeat_names_a_run_that_does_not_exist(self, workspace: Path) -> None:
+        result = _cli("run", "repeat", "01JNOPE")
+        assert result.exit_code == 2
+        assert "RUN_NOT_FOUND" in result.output
+
+    def test_the_run_page_shows_the_fingerprint_and_the_provenance(
+        self, client: TestClient, workspace: Path
+    ) -> None:
+        _discover(workspace)
+        created = client.post(
+            "/api/v1/runs",
+            json={"model": "fake-model:8b-q8_0", "suite": "native.echo", "repetitions": 1},
+        )
+        run_id = created.json()["id"]
+        _wait_for_terminal(client, run_id)
+
+        page = client.get(f"/runs/{run_id}")
+        assert page.status_code == 200
+        assert "Fingerprint" in page.text
+        assert "Served context" in page.text
+        assert "Attributed device" in page.text
+        assert "Fingerprint document" in page.text
+        # Telemetry either charted or honestly absent — never a blank section.
+        assert ("Telemetry" in page.text) and (
+            "telemetry-chart" in page.text or "No telemetry was recorded" in page.text
+        )
+
+    def test_the_api_returns_the_fingerprint_document_and_degradations(
+        self, client: TestClient, workspace: Path
+    ) -> None:
+        _discover(workspace)
+        created = client.post(
+            "/api/v1/runs",
+            json={"model": "fake-model:8b-q8_0", "suite": "native.echo", "repetitions": 1},
+        )
+        run_id = created.json()["id"]
+        _wait_for_terminal(client, run_id)
+
+        body = client.get(f"/api/v1/runs/{run_id}").json()
+        document = body["provenance"]["fingerprint_document"]
+        assert document["benchmark"]["suite_key"] == "native.echo"
+        assert body["provenance"]["served_context_source"] in {
+            "configured",
+            "reported",
+            "assumed",
+        }
+        assert body["degradations"] == []

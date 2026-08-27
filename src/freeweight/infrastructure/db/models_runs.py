@@ -1,8 +1,9 @@
 """freeweight.infrastructure.db.models_runs — Phase 5 tables: the run engine's own schema.
 
-Eight tables, per [Data Model §2](../../../../../../docs/apps/freeweight/data-model.md):
+Ten tables, per [Data Model §2](../../../../../../docs/apps/freeweight/data-model.md):
 ``benchmark_suites``, ``benchmark_tests``, ``runs``, ``run_tests``, ``samples``, ``metric_values``,
-``run_events`` and ``artifacts``. Split from :mod:`freeweight.infrastructure.db.models` (which
+``run_events`` and ``artifacts`` from Phase 5, and ``telemetry_samples`` /
+``telemetry_gpu_samples`` from Phase 6. Split from :mod:`freeweight.infrastructure.db.models` (which
 holds Phase 2's identity tables) purely for file size; both modules share one
 :class:`~freeweight.infrastructure.db.base.Base`, and both are imported by
 :mod:`freeweight.services.database` so Alembic's autogenerate parity check sees every table.
@@ -54,6 +55,8 @@ __all__ = [
     "RunEvent",
     "RunTest",
     "Sample",
+    "TelemetryGpuSample",
+    "TelemetrySample",
 ]
 
 _RUN_STATUSES = (
@@ -439,3 +442,87 @@ class Artifact(Base):
     size_bytes: Mapped[int | None] = mapped_column(BigInteger)
     content_type: Mapped[str | None] = mapped_column(String)
     created_at: Mapped[datetime] = mapped_column(UtcDateTime, nullable=False, default=utcnow)
+
+
+class TelemetrySample(Base):
+    """One host telemetry observation taken during a run — **one row per sample**.
+
+    Persisted only while a run is executing (``telemetry.persist_during_runs``): SweatMeter owns no
+    storage (spec §10), and telemetry outside a run belongs to nothing that could ever be read back
+    against a measurement.
+
+    The host fields live here and the per-device fields live in :class:`TelemetryGpuSample`
+    because a single table repeated every host field across a machine's GPUs, so any host aggregate
+    double-counted on a two-GPU machine — silently, and only on hardware the reference machine does
+    not have ([ADR-0027 §4](../../../../../../docs/adr/0027-multi-gpu-semantics.md)). The split also
+    removes the "one row per sample with ``gpu_index NULL``" special case: a machine with no GPU
+    produces host rows and no GPU rows, which is ordinary rather than special.
+    """
+
+    __tablename__ = "telemetry_samples"
+    __table_args__ = (Index("ix_telemetry_samples_run_id_timestamp", "run_id", "timestamp"),)
+
+    id: Mapped[str] = ulid_primary_key()
+    run_id: Mapped[str] = mapped_column(
+        String(26), ForeignKey("runs.id", ondelete="CASCADE"), nullable=False
+    )
+    timestamp: Mapped[datetime] = mapped_column(UtcDateTime, nullable=False, default=utcnow)
+    cpu_percent: Mapped[float | None] = mapped_column(Float)
+    load_average_1m: Mapped[float | None] = mapped_column(Float)
+    ram_used_bytes: Mapped[int | None] = mapped_column(BigInteger)
+    ram_available_bytes: Mapped[int | None] = mapped_column(BigInteger)
+    ram_total_bytes: Mapped[int | None] = mapped_column(BigInteger)
+    cpu_temperature_c: Mapped[float | None] = mapped_column(Float)
+    disk_read_bytes_per_sec: Mapped[float | None] = mapped_column(Float)
+    disk_write_bytes_per_sec: Mapped[float | None] = mapped_column(Float)
+    process_rss_bytes: Mapped[int | None] = mapped_column(BigInteger)
+
+
+class TelemetryGpuSample(Base):
+    """One device's telemetry within one host sample. Zero or more rows per host row.
+
+    ``UNIQUE (telemetry_sample_id, gpu_index)`` states in DDL that a device appears at most once
+    per observation — the constraint a "sum across GPUs" bug would have to violate before it could
+    double a VRAM figure.
+
+    Written for **every** visible GPU regardless of which device a run is attributed to
+    (ADR-0027 §3), so where the provider actually placed the model can be seen after the fact even
+    on a run whose memory metrics were recorded as ``multi_gpu_placement_unknown``.
+    """
+
+    __tablename__ = "telemetry_gpu_samples"
+    __table_args__ = (
+        UniqueConstraint(
+            "telemetry_sample_id",
+            "gpu_index",
+            name="uq_telemetry_gpu_samples_sample_id_gpu_index",
+        ),
+        Index("ix_telemetry_gpu_samples_run_id_gpu_index", "run_id", "gpu_index"),
+        Index("ix_telemetry_gpu_samples_telemetry_sample_id", "telemetry_sample_id"),
+    )
+
+    id: Mapped[str] = ulid_primary_key()
+    telemetry_sample_id: Mapped[str] = mapped_column(
+        String(26), ForeignKey("telemetry_samples.id", ondelete="CASCADE"), nullable=False
+    )
+    # Denormalized from the parent purely so the run detail page's chart query reads one table per
+    # series instead of joining every GPU row back to its host row to find the run it belongs to
+    # (data model §2). It cascades from ``runs`` as well, so a deleted run takes both rows.
+    run_id: Mapped[str] = mapped_column(
+        String(26), ForeignKey("runs.id", ondelete="CASCADE"), nullable=False
+    )
+    gpu_index: Mapped[int] = mapped_column(Integer, nullable=False)
+    gpu_uuid: Mapped[str | None] = mapped_column(String)
+    gpu_utilization_percent: Mapped[float | None] = mapped_column(Float)
+    gpu_memory_utilization_percent: Mapped[float | None] = mapped_column(Float)
+    vram_used_bytes: Mapped[int | None] = mapped_column(BigInteger)
+    vram_total_bytes: Mapped[int | None] = mapped_column(BigInteger)
+    gpu_temperature_c: Mapped[float | None] = mapped_column(Float)
+    gpu_memory_temperature_c: Mapped[float | None] = mapped_column(Float)
+    gpu_power_watts: Mapped[float | None] = mapped_column(Float)
+    gpu_power_limit_watts: Mapped[float | None] = mapped_column(Float)
+    gpu_fan_percent: Mapped[float | None] = mapped_column(Float)
+    gpu_core_clock_mhz: Mapped[float | None] = mapped_column(Float)
+    gpu_memory_clock_mhz: Mapped[float | None] = mapped_column(Float)
+    throttle_reasons_json: Mapped[object | None] = mapped_column(PortableJSON)
+    throttle_reasons_available: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)

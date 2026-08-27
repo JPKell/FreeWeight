@@ -20,6 +20,7 @@ from freeweight.config import LoadedSettings, load_settings
 from freeweight.observability.logging import configure_logging
 from freeweight.services.database import Database, ensure_ready
 from freeweight.services.machine import profile_machine
+from freeweight.services.runs import shipped_prompt_library
 from freeweight.services.telemetry import build_collector
 from freeweight.web.app import create_app
 
@@ -51,9 +52,15 @@ def bootstrap() -> Application:
     Returns:
         The wired :class:`Application`.
 
+    The prompt pack is loaded and validated here too, before anything can run: prompt standards
+    §5 makes a malformed prompt a *startup* failure, because a pack that fails halfway through a
+    run has already produced measurements whose provenance nobody can reconstruct.
+
     Raises:
         ConfigurationError: Configuration is invalid, or an unsafe bind/auth combination is
             configured.
+        PromptPackInvalid: A prompt record is malformed, or the pack manifest does not describe
+            the records on disk.
         MigrationRequired: The database is behind head and ``storage.auto_migrate`` is false.
         SchemaAhead: The database was written by a newer application version.
         DatabaseUnavailable: The configured database could not be reached at all.
@@ -62,6 +69,10 @@ def bootstrap() -> Application:
     configure_logging(
         level=loaded.settings.logging.level, log_format=loaded.settings.logging.format
     )
+    # Before the database, deliberately: a build whose prompts do not validate cannot produce a
+    # correct measurement, and finding that out after migrating a database is worse than finding
+    # it out first. Cached, so nothing loads the pack a second time.
+    shipped_prompt_library()
     database_url = loaded.settings.storage.database_url
     if database_url is not None:
         # Always true by the time Settings has validated (StorageSettings fills it in), but the

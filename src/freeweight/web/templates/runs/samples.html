@@ -19,16 +19,20 @@
 <table>
   <caption class="muted">
     {{ samples | length }} sample(s). A sample that could not be scored shows — for its score and
-    keeps its row: it is excluded from the aggregate, not from the count.
+    keeps its row: it is excluded from the aggregate, not from the count. A skipped sample was
+    never sent — its error column says why.
   </caption>
   <thead>
     <tr>
       <th scope="col">Case</th>
       <th scope="col">Rep</th>
       <th scope="col">Status</th>
+      <th scope="col">Prompt</th>
       <th scope="col">Score</th>
       <th scope="col">Method</th>
+      <th scope="col">Output tokens</th>
       <th scope="col">Output chars</th>
+      <th scope="col">TTFT (ms)</th>
       <th scope="col">Wall (ms)</th>
       <th scope="col">Finish</th>
       <th scope="col">Error</th>
@@ -40,13 +44,24 @@
       <td><code>{{ sample.case_id }}</code></td>
       <td class="numeric">{{ sample.repetition }}</td>
       <td><span class="status status-{{ sample.status }}">{{ sample.status }}</span></td>
+      <td>
+        {% if sample.prompt_id %}
+        <code>{{ sample.prompt_id }}</code> <span class="muted">{{ sample.prompt_version }}</span>
+        {% else %}<span class="muted" title="This suite's cases carry literal text.">—</span>{% endif %}
+      </td>
       <td class="numeric">
         {% if sample.score is none %}
         <span class="muted" title="{{ sample.error_code or 'not scored' }}">—</span>
         {% else %}{{ "%.3f" | format(sample.score) }}{% endif %}
       </td>
       <td>{{ sample.score_method or "—" }}</td>
+      <td class="numeric">{{ sample.output_tokens if sample.output_tokens is not none else "—" }}</td>
       <td class="numeric">{{ sample.output_chars if sample.output_chars is not none else "—" }}</td>
+      <td class="numeric">
+        {% if sample.client_ttft_ms is none %}
+        <span class="muted" title="Only a streamed call has a first-token moment to observe.">—</span>
+        {% else %}{{ "%.1f" | format(sample.client_ttft_ms) }}{% endif %}
+      </td>
       <td class="numeric">{{ "%.1f" | format(sample.client_wall_ms) if sample.client_wall_ms is not none else "—" }}</td>
       <td>{{ sample.finish_reason or "—" }}</td>
       <td>{{ sample.error_code or "—" }}</td>

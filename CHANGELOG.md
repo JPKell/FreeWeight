@@ -8,6 +8,61 @@ packaging and release standards §3.
 ## [Unreleased]
 
 ### Added
+- Phase 6: the first real measurements. `native.performance` measures prompt-evaluation and
+  decode throughput at the catalog's prompt sizes and output lengths, time to first token,
+  streamed inter-chunk latency and cold model load; `native.token_economy` measures what an
+  answer costs in tokens, characters, words and bytes, with the four derived per-success figures.
+  Cold and warm results are separated rather than averaged, and a per-token latency figure appears
+  only where the provider reports one token per streamed delta.
+- The prompt library (`freeweight.services.prompts`): versioned JSON prompt records, a pack
+  manifest, a `StrictUndefined` renderer, canonical record hashing and `prompt_subset_hash`, with
+  the whole pack loaded and validated once at startup. The **per-benchmark subset hash** — not the
+  pack hash — is the reproducibility-fingerprint input, so editing a prompt no benchmark uses
+  separates no results (ADR-0028). Written as an in-application module that becomes
+  `setspec.prompts` at LoadCoach P4.
+- The reproducibility fingerprint of Machine Identity §4, assembled in
+  `freeweight.domain.provenance`: model identity and digest, runtime profile, provider and
+  version, machine, the drift-sensitive environment, the benchmark's manifest hash and prompt
+  subset hash, the resolved execution parameters, the served context with its source, and the
+  target GPU index. The full document is stored, not only its hash, and two documents diff field
+  by field.
+- `freeweight run repeat <run>` re-executes a recorded run with its identical frozen
+  configuration; `--check` prints the field-level provenance diff afterwards. It refuses, naming
+  every field that moved, when the model digest, the machine, the provider version or a dataset
+  hash has changed, and `--force` proceeds and records the divergence on the new run.
+- Telemetry persisted for the duration of a run, split across two tables and migration `0003`:
+  `telemetry_samples` holds one row per observation with the host fields and
+  `telemetry_gpu_samples` one row per visible device, so no host field is double-counted on a
+  multi-GPU machine (ADR-0027). Every derived figure names its device, and memory, power, energy
+  and temperature are `unsupported` with `multi_gpu_placement_unknown` when more than one GPU is
+  visible and the provider does not report placement.
+- The telemetry-sampling overhead is measured on the machine before each run and stored on the
+  run (`runs.telemetry_overhead_percent`), so the distortion is provenance rather than an
+  assumption (spec §15).
+- Idle detection with a defined outcome (spec §13): the run waits for GPU and CPU to fall below
+  `execution.idle_gpu_threshold_percent`; `on_idle_timeout = "warn"` proceeds and records a
+  `measured_while_busy` degradation with the observed utilization, and `"refuse"` fails the run
+  with `INSUFFICIENT_RESOURCES` and the same numbers.
+- The served context is resolved and recorded with its source (`configured` | `reported` |
+  `assumed`), and a benchmark case that needs more context than the model is served is stored as
+  a `skipped` sample with its reason rather than sent and failed.
+- The run detail page shows the provenance table, the stored fingerprint document, per-device
+  telemetry charts (server-rendered inline SVG with a text summary beside each), metric spread and
+  device attribution; the sample drill-down names the prompt record and version behind every
+  sample and shows its time to first token.
+- `execution.cooldown_seconds` is now honoured between tests, and `execution.gpu_index` and the
+  idle settings are frozen into every run's effective configuration.
+
+### Changed
+- `GET /api/v1/runs/{id}` gained `provenance` (served context and source, GPU attribution,
+  telemetry overhead, prompt pack, fingerprint document) and `degradations`; metric objects gained
+  `gpu_index`, `stddev` and `coefficient_of_variation`.
+- Aggregation moved out of the run service into `freeweight.domain.aggregation`, which derives
+  each metric from the stored samples through `freeweight.domain.metrics` and refuses to combine
+  tests of different measurement classes into one run-level figure.
+- A benchmark test that cannot enumerate its cases now fails only that test at *every* stage,
+  including run creation and preparation, rather than failing the run (spec §13).
+
 - Phase 5: the run engine, end to end against `FakeProvider`. `freeweight run start --suite
   native.echo` queues a run, executes it (claim → prepare → warm → execute → aggregate →
   complete), stores every raw sample, and streams progress to the browser and the terminal;

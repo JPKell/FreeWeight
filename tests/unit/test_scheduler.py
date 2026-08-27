@@ -39,7 +39,9 @@ def _queue_run(environment: RunEnvironment, *, label: str | None = None) -> str:
         environment.registry,
         model_ref=environment.model_ref,
         suite_key="native.echo",
-        execution=ExecutionConfig.resolve(ExecutionSettings(), measured_repetitions=1),
+        execution=ExecutionConfig.resolve(
+            ExecutionSettings(cooldown_seconds=0), measured_repetitions=1
+        ),
         label=label,
     )
     return summary.id

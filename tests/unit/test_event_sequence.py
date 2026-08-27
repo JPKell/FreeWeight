@@ -42,7 +42,7 @@ def _queued_run(environment: RunEnvironment) -> str:
         environment.registry,
         model_ref=environment.model_ref,
         suite_key="native.echo",
-        execution=ExecutionConfig.resolve(ExecutionSettings()),
+        execution=ExecutionConfig.resolve(ExecutionSettings(cooldown_seconds=0)),
     )
     return summary.id
 

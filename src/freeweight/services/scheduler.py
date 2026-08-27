@@ -41,7 +41,9 @@ from freeweight.services.runs import build_registry, execute_run
 if TYPE_CHECKING:
     from baseaicore.timeutil import Clock
     from modelrack.provider import Provider
+    from sweatmeter import TelemetryCollector
 
+    from freeweight.config import TelemetrySettings
     from freeweight.domain.benchmark import BenchmarkRegistry
     from freeweight.services.database import Database
 
@@ -93,6 +95,13 @@ class RunScheduler:
         provider: The provider runs generate through.
         registry: The benchmarks this build can run. Defaults to
             :func:`~freeweight.services.runs.build_registry`.
+        collector: The telemetry collector runs are observed through, or ``None`` to record no
+            telemetry and skip the idle check. Handed in rather than built here so that the one
+            collector the process already owns — the telemetry bar's — is the one a run samples
+            from, instead of a second one paying ``nvidia-smi``'s cost in parallel with it.
+        telemetry: The ``[telemetry]`` settings, or ``None`` to record nothing. Both this and
+            ``collector`` must be present for a run to persist telemetry, so a caller cannot half
+            configure it.
         poll_interval_seconds: How long the loop waits when the queue is empty. Only the *empty*
             case waits: after finishing a run the loop looks again immediately, so a queue of ten
             runs is not paced by this value.
@@ -101,12 +110,14 @@ class RunScheduler:
 
     __slots__ = (
         "_clock",
+        "_collector",
         "_database",
         "_poll_interval_seconds",
         "_provider",
         "_publisher",
         "_registry",
         "_stop",
+        "_telemetry",
         "_thread",
     )
 
@@ -116,6 +127,8 @@ class RunScheduler:
         provider: Provider,
         *,
         registry: BenchmarkRegistry | None = None,
+        collector: TelemetryCollector | None = None,
+        telemetry: TelemetrySettings | None = None,
         poll_interval_seconds: float = _DEFAULT_POLL_INTERVAL_SECONDS,
         clock: Clock = utc_now,
     ) -> None:
@@ -123,6 +136,8 @@ class RunScheduler:
         self._database = database
         self._provider = provider
         self._registry = registry if registry is not None else build_registry()
+        self._collector = collector
+        self._telemetry = telemetry
         self._poll_interval_seconds = poll_interval_seconds
         self._clock = clock
         self._publisher = RunEventPublisher(database, clock=clock)
@@ -251,6 +266,8 @@ class RunScheduler:
             self._registry,
             self._publisher,
             run_id,
+            collector=self._collector,
+            telemetry=self._telemetry,
             clock=self._clock,
         )
         logger.info("run.finished", extra={"run_id": run_id, "status": status.value})

@@ -1,0 +1,37 @@
+{
+  "prompt_id": "benchmarks.token_economy.probe",
+  "version": "1.0.0",
+  "schema_version": "1.0",
+  "purpose": "Ask for one bounded answer whose token, character, word and byte costs are recorded, so token economy is measured against a task a model can actually complete.",
+  "task": "benchmark.token_economy",
+  "capability": "token_efficiency",
+  "system": null,
+  "template": "{{ task }}\n\nAnswer directly. Do not restate the question.",
+  "variables": {
+    "task": {
+      "type": "string",
+      "required": true,
+      "description": "The question or instruction whose answer's token cost is being measured."
+    }
+  },
+  "response": {
+    "format": "text",
+    "json_schema_ref": null,
+    "expectations": [
+      "A direct answer. Length is the measurement, so no length is wrong; the scorer only records that an answer arrived."
+    ]
+  },
+  "model_requirements": {
+    "min_context_tokens": 512,
+    "requires_capabilities": [],
+    "recommended_temperature": 0.0
+  },
+  "metadata": {
+    "author": "suite",
+    "created_at": "2026-08-27T00:00:00Z",
+    "changed_at": "2026-08-27T00:00:00Z",
+    "change_reason": "First version: native.token_economy needs one prompt record so its manifest can declare a prompt subset hash.",
+    "supersedes": null,
+    "tags": ["benchmark", "token_economy"]
+  }
+}

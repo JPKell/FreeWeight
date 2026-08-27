@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import asyncio
 import time
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Annotated, Any, Protocol
 
 from fastapi import APIRouter, Form, Query, Request, Response, status
@@ -44,14 +45,15 @@ from freeweight.services.runs import (
     list_runs,
     list_samples,
 )
+from freeweight.services.telemetry_recording import TelemetrySeries, load_series
 from freeweight.web.rendering import render
 
 if TYPE_CHECKING:
-    from collections.abc import AsyncGenerator
+    from collections.abc import AsyncGenerator, Sequence
 
     from freeweight.services.database import Database
 
-__all__ = ["api_router", "router"]
+__all__ = ["Chart", "api_router", "router"]
 
 api_router = APIRouter(tags=["runs"])
 router = APIRouter(include_in_schema=False)
@@ -134,9 +136,31 @@ def _detail_json(detail: RunDetail) -> dict[str, Any]:
             "higher_is_better": metric.higher_is_better,
             "sample_count": metric.sample_count,
             "excluded_count": metric.excluded_count,
+            # A device figure names its device; a device-independent one carries null rather than
+            # a defaulted 0, which would claim an attribution nobody made (ADR-0027 §5).
+            "gpu_index": metric.gpu_index,
+            "stddev": metric.stddev,
+            "coefficient_of_variation": metric.coefficient_of_variation,
         }
         for metric in detail.metrics
     ]
+    # api.md: "Run with tests, aggregate metrics, degradations and the fingerprint document".
+    # The document, not only its hash — a hash a caller cannot explain is no use during a
+    # regression hunt (Machine Identity §4 rule 2).
+    body["provenance"] = {
+        "served_context": detail.run.served_context,
+        "served_context_source": detail.run.served_context_source,
+        "gpu_index": detail.run.gpu_index,
+        "multi_gpu_visible": detail.run.multi_gpu_visible,
+        "telemetry_overhead_percent": detail.run.telemetry_overhead_percent,
+        "prompt_pack": {
+            "id": detail.run.prompt_pack_id,
+            "version": detail.run.prompt_pack_version,
+            "hash": detail.run.prompt_pack_hash,
+        },
+        "fingerprint_document": dict(detail.run.fingerprint_document),
+    }
+    body["degradations"] = [dict(item) for item in detail.run.degradations]
     return body
 
 
@@ -486,17 +510,131 @@ def start_run_form(
     return RedirectResponse(f"/runs/{summary.id}", status_code=303)
 
 
+@dataclass(frozen=True, slots=True)
+class Chart:
+    """One telemetry series, reduced to what an inline SVG and its text alternative need.
+
+    Attributes:
+        key: A slug unique within the page, used for the SVG's accessible name.
+        label: The series' human-readable name, unit included — UI standards §5 requires every
+            number to show its unit, and a chart's unit belongs in its label rather than only in a
+            tooltip nobody can read on a phone.
+        unit: The unit on its own, for the summary table.
+        points: ``"x,y "``-joined coordinates in a 0–100 × 0–100 viewBox.
+        minimum: The lowest reported value.
+        maximum: The highest reported value, and the top of the axis.
+        mean: The mean of the reported values.
+        reported: How many observations carried this value.
+        missing: How many did not. A gap is drawn as a gap; a missing reading is never plotted as
+            zero, which would read as an idle machine (ADR-0016).
+    """
+
+    key: str
+    label: str
+    unit: str
+    points: str
+    minimum: float
+    maximum: float
+    mean: float
+    reported: int
+    missing: int
+
+
+def _chart(key: str, label: str, unit: str, values: Sequence[float | None]) -> Chart | None:
+    """Reduce one series to a :class:`Chart`, or ``None`` when nothing was reported.
+
+    The vertical axis always starts at zero. UI standards §5 forbids truncated axes that mislead,
+    and a telemetry chart is exactly where a truncated axis turns a 2 % utilization wobble into a
+    dramatic sawtooth.
+
+    A series in which every reading is missing produces ``None`` — an empty chart with a
+    zero-to-zero axis says "the machine did nothing" rather than "this could not be read".
+    """
+    reported = [value for value in values if value is not None]
+    if not reported:
+        return None
+    top = max(reported)
+    span = top if top > 0 else 1.0
+    step = 100.0 / (len(values) - 1) if len(values) > 1 else 0.0
+    points = " ".join(
+        f"{index * step:.2f},{100.0 - (value / span) * 100.0:.2f}"
+        for index, value in enumerate(values)
+        if value is not None
+    )
+    return Chart(
+        key=key,
+        label=label,
+        unit=unit,
+        points=points,
+        minimum=min(reported),
+        maximum=top,
+        mean=sum(reported) / len(reported),
+        reported=len(reported),
+        missing=len(values) - len(reported),
+    )
+
+
+def _charts(series: TelemetrySeries) -> list[Chart]:
+    """Build every chart a run's telemetry supports, host first and then per device.
+
+    Per device, never combined: there is no machine-wide GPU figure in this system, so two GPUs
+    produce two sets of charts rather than one averaged pair (ADR-0027 §5).
+    """
+    charts = [
+        _chart("cpu", "Host CPU utilization (%)", "%", series.cpu_percent),
+        _chart("ram", "Host RAM used (bytes)", "bytes", series.ram_used_bytes),
+    ]
+    for gpu in series.gpus:
+        charts.extend(
+            [
+                _chart(
+                    f"gpu{gpu.gpu_index}-util",
+                    f"GPU {gpu.gpu_index} utilization (%)",
+                    "%",
+                    gpu.utilization_percent,
+                ),
+                _chart(
+                    f"gpu{gpu.gpu_index}-vram",
+                    f"GPU {gpu.gpu_index} VRAM used (bytes)",
+                    "bytes",
+                    gpu.vram_used_bytes,
+                ),
+                _chart(
+                    f"gpu{gpu.gpu_index}-power",
+                    f"GPU {gpu.gpu_index} power (W)",
+                    "W",
+                    gpu.power_watts,
+                ),
+                _chart(
+                    f"gpu{gpu.gpu_index}-temp",
+                    f"GPU {gpu.gpu_index} temperature (°C)",
+                    "°C",
+                    gpu.temperature_c,
+                ),
+            ]
+        )
+    return [chart for chart in charts if chart is not None]
+
+
 @router.get("/runs/{run_id}", response_class=HTMLResponse)
 def run_detail_page(request: Request, run_id: str) -> HTMLResponse:
-    """Render one run: its status, its tests and its live event timeline.
+    """Render one run: its provenance, its metrics, its telemetry and its live event timeline.
 
     ``last_event_sequence`` is rendered into the page so the browser's ``EventSource`` resumes
     from what the server already showed. Without it a page refreshed mid-run would either miss the
     events that arrived between render and connect, or replay the whole run into a timeline that
     already had them.
+
+    The telemetry charts are rendered **server-side as inline SVG**, with a summary table beside
+    them (UI standards §5's "text/table alternative for the key figures"). A run's telemetry is a
+    finite, already-persisted series, so fetching it over a second request and drawing it in
+    JavaScript would add a loading state, a failure state and a dependency to a page that needs
+    none of them (ADR-0020: progressive enhancement, no SPA).
     """
+    database: Database = request.app.state.database
     try:
-        detail = get_run(request.app.state.database, run_id)
+        detail = get_run(database, run_id)
+        series = load_series(database, detail.run.id)
     except (RunNotFound, DatabaseError) as exc:
         return HTMLResponse(
             render(
@@ -505,6 +643,8 @@ def run_detail_page(request: Request, run_id: str) -> HTMLResponse:
                 page="runs",
                 detail=None,
                 run_ref=run_id,
+                charts=(),
+                telemetry_samples=0,
                 error=f"{exc.message} ({exc.code})",
             ),
             status_code=404 if isinstance(exc, RunNotFound) else 503,
@@ -516,6 +656,8 @@ def run_detail_page(request: Request, run_id: str) -> HTMLResponse:
             page="runs",
             detail=detail,
             run_ref=run_id,
+            charts=_charts(series),
+            telemetry_samples=series.sample_count,
             error=None,
         )
     )

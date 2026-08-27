@@ -158,11 +158,14 @@ def start(  # noqa: PLR0913 — every parameter is a documented run option, not 
 
     with _open_backend(config) as (settings, database, provider):
         registry = build_registry()
+        # One collector for the whole command: the run is created against the machine it profiles
+        # and executed with telemetry sampled from the same instrument.
+        collector = _collector()
         try:
             summary = create_run(
                 database,
                 provider,
-                _collector(),
+                collector,
                 registry,
                 model_ref=model,
                 suite_key=suite,
@@ -186,7 +189,13 @@ def start(  # noqa: PLR0913 — every parameter is a documented run option, not 
         # Deliberately not `scheduler.start()`: that runs startup recovery, which would mark a
         # run another process is executing `interrupted`. This command drives the loop body
         # directly instead, so it can only ever take a run nothing else has claimed.
-        scheduler = RunScheduler(database, provider, registry=registry)
+        scheduler = RunScheduler(
+            database,
+            provider,
+            registry=registry,
+            collector=collector,
+            telemetry=settings.telemetry,
+        )
         try:
             while True:
                 current = _reload(database, summary.id)
@@ -342,6 +351,143 @@ def show(
             f"    {metric.metric_key:<28} {scope:<5} {value:>10} {metric.unit:<8} "
             f"n={metric.sample_count} excluded={metric.excluded_count}"
         )
+
+
+@app.command("repeat")
+def repeat(  # noqa: PLR0913 — every parameter is a documented option, not incidental state
+    run_id: Annotated[str, typer.Argument(help="Run ULID or an unambiguous prefix.")],
+    check: Annotated[
+        bool,
+        typer.Option("--check", help="Diff the repeat's provenance against the original after it."),
+    ] = False,
+    force: Annotated[
+        bool,
+        typer.Option("--force", help="Repeat anyway, recording every divergence on the new run."),
+    ] = False,
+    detach: Annotated[
+        bool,
+        typer.Option("--detach/--no-detach", help="Queue the repeat and exit without running it."),
+    ] = False,
+    config: _ConfigOption = None,
+    json_output: _JsonOption = False,
+) -> None:
+    """Re-run a recorded run with its identical effective configuration. Mode: local.
+
+    The reproduction workflow of Machine Identity §7. The original run's frozen execution
+    parameters are reused verbatim — never re-resolved from configuration, which would silently
+    repeat a *different* run whenever a default had changed since.
+
+    **Refuses, with reasons, when the environment has moved.** A changed model digest, a different
+    machine, an upgraded provider or a moved dataset each make the repeat a measurement of
+    something else; the command exits ``5`` and prints what changed, what was recorded and what is
+    here now. ``--force`` proceeds and records the divergence on the new run's degradations rather
+    than pretending the two runs match.
+
+    ``--check`` prints a field-level diff of the two runs' fingerprint documents after the repeat
+    finishes, so "is that other result the same thing?" is answered by naming the fields that
+    differ rather than by two hex strings.
+
+    Exit codes are ``run start``'s: ``0`` completed, ``5`` failed (including a refused repeat),
+    ``6`` cancelled, ``7`` another process holds the machine's execution slot.
+    """
+    from baseaicore import SuiteError
+
+    from freeweight.domain.provenance import diff_documents
+    from freeweight.services.runs import build_registry, get_run, repeat_run
+    from freeweight.services.scheduler import RunScheduler
+
+    with _open_backend(config) as (settings, database, provider):
+        registry = build_registry()
+        collector = _collector()
+        try:
+            original = get_run(database, run_id).run
+            summary = repeat_run(
+                database,
+                provider,
+                collector,
+                registry,
+                run_ref=run_id,
+                force=force,
+            )
+        except SuiteError as exc:
+            typer.echo(f"Error: {exc.message} ({exc.code})", err=True)
+            for blocker in exc.details.get("blockers", []):
+                typer.echo(
+                    f"  {blocker['field']}: recorded {blocker['recorded']!r}, "
+                    f"now {blocker['observed']!r}",
+                    err=True,
+                )
+            raise typer.Exit(2 if exc.code == "RUN_NOT_FOUND" else 5) from exc
+
+        if json_output:
+            typer.echo(
+                json.dumps(
+                    {"run_id": summary.id, "status": summary.status, "repeat_of": original.id}
+                )
+            )
+        else:
+            typer.echo(f"Queued run {summary.id}, repeating {original.id}.")
+        if detach:
+            return
+
+        scheduler = RunScheduler(
+            database,
+            provider,
+            registry=registry,
+            collector=collector,
+            telemetry=settings.telemetry,
+        )
+        try:
+            while True:
+                current = _reload(database, summary.id)
+                if current.status in _TERMINAL_STATUSES:
+                    break
+                if scheduler.run_once() is None:
+                    typer.echo(
+                        f"Another run holds this machine; {summary.id} stays queued.", err=True
+                    )
+                    raise typer.Exit(7)
+        except KeyboardInterrupt:
+            typer.echo(f"Cancelled run {summary.id}.", err=True)
+            raise typer.Exit(6) from None
+
+        final = _reload(database, summary.id)
+        if check:
+            _print_fingerprint_diff(database, original.id, summary.id, diff=diff_documents)
+        _print_final(final, json_output=json_output)
+        raise typer.Exit(_exit_code_for(final.status))
+
+
+def _document(row: Any) -> dict[str, Any]:  # noqa: ANN401 — a runs row
+    """Return one run's stored fingerprint document, or an empty one when it has none."""
+    body = getattr(row, "fingerprint_document_json", None)
+    return dict(body) if isinstance(body, dict) else {}
+
+
+def _print_fingerprint_diff(
+    database: Database, original_id: str, repeat_id: str, *, diff: Any
+) -> None:
+    """Print the field-level diff between two runs' fingerprint documents.
+
+    Machine Identity §4 rule 3: two runs with different fingerprints are never silently merged,
+    and what separates them is shown field by field. "No difference" is printed explicitly rather
+    than left as silence, because silence is also what a diff nobody computed looks like.
+    """
+    from freeweight.infrastructure.db.repositories.runs import RunRepository
+
+    with database.read() as session:
+        repository = RunRepository()
+        left = repository.get_by_id(session, original_id)
+        right = repository.get_by_id(session, repeat_id)
+        before = _document(left)
+        after = _document(right)
+    differences = diff(before, after)
+    if not differences:
+        typer.echo("Provenance identical: every fingerprint input matched the original run.")
+        return
+    typer.echo(f"Provenance differs on {len(differences)} field(s):")
+    for entry in differences:
+        typer.echo(f"  {entry.path}: {entry.left!r} -> {entry.right!r}")
 
 
 @app.command("cancel")

@@ -97,7 +97,16 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
     )
     app.state.telemetry = telemetry
     app.state.registry = build_registry()
-    scheduler = RunScheduler(database, app.state.provider, registry=app.state.registry)
+    scheduler = RunScheduler(
+        database,
+        app.state.provider,
+        registry=app.state.registry,
+        # The same collector the telemetry bar samples from, so a run's persisted telemetry and
+        # the live view are two readings of one instrument rather than two instruments competing
+        # for ``nvidia-smi``.
+        collector=telemetry.collector,
+        telemetry=settings.telemetry,
+    )
     app.state.scheduler = scheduler
     # Both background threads are started *inside* the try, so that a failure in the second one
     # still stops the first. Started before it, a raise between the two would skip the `finally`

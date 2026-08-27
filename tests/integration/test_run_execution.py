@@ -52,7 +52,8 @@ def _queue(environment: RunEnvironment, *, repetitions: int = 1) -> str:
         model_ref=environment.model_ref,
         suite_key="native.echo",
         execution=ExecutionConfig.resolve(
-            ExecutionSettings(warmup_repetitions=0), measured_repetitions=repetitions
+            ExecutionSettings(warmup_repetitions=0, cooldown_seconds=0),
+            measured_repetitions=repetitions,
         ),
     )
     return summary.id
@@ -120,7 +121,7 @@ class TestHappyPath:
             model_ref=environment.model_ref,
             suite_key="native.echo",
             execution=ExecutionConfig.resolve(
-                ExecutionSettings(warmup_repetitions=0),
+                ExecutionSettings(warmup_repetitions=0, cooldown_seconds=0),
                 measured_repetitions=1,
                 store_responses=True,
             ),
@@ -208,7 +209,7 @@ class TestFailureContainment:
             model_ref=environment.model_ref,
             suite_key="native.echo",
             execution=ExecutionConfig.resolve(
-                ExecutionSettings(warmup_repetitions=0), measured_repetitions=1
+                ExecutionSettings(warmup_repetitions=0, cooldown_seconds=0), measured_repetitions=1
             ),
         )
         scheduler = RunScheduler(environment.database, environment.provider, registry=registry)
@@ -230,7 +231,7 @@ class TestFailureContainment:
             model_ref=environment.model_ref,
             suite_key="native.echo",
             execution=ExecutionConfig.resolve(
-                ExecutionSettings(warmup_repetitions=0), measured_repetitions=1
+                ExecutionSettings(warmup_repetitions=0, cooldown_seconds=0), measured_repetitions=1
             ),
         )
         RunScheduler(environment.database, environment.provider, registry=registry).run_once()
@@ -285,7 +286,8 @@ class TestCancellation:
             model_ref=environment.model_ref,
             suite_key="native.echo",
             execution=ExecutionConfig.resolve(
-                ExecutionSettings(warmup_repetitions=warmups), measured_repetitions=2
+                ExecutionSettings(warmup_repetitions=warmups, cooldown_seconds=0),
+                measured_repetitions=2,
             ),
         )
         provider.run_id = summary.id

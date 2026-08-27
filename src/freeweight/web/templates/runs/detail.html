@@ -28,8 +28,76 @@
 <p class="muted">
   Created {{ run.created_at | timestamp }} · started {{ run.started_at | timestamp }} ·
   completed {{ run.completed_at | timestamp }}<br>
-  Fingerprint <code>{{ run.reproducibility_fingerprint }}</code>
+  Fingerprint <code title="{{ run.reproducibility_fingerprint }}">{{ run.reproducibility_fingerprint }}</code>
 </p>
+
+{% if run.degradations %}
+<div class="warning-state" role="status">
+  <p><strong>This run was measured under conditions worth knowing about.</strong></p>
+  <ul>
+    {% for degradation in run.degradations %}
+    <li><code>{{ degradation.kind }}</code> — {{ degradation.detail | tojson }}</li>
+    {% endfor %}
+  </ul>
+</div>
+{% endif %}
+
+<h3>Provenance</h3>
+<table>
+  <caption class="muted">
+    What would have to be true to repeat this run. Reproduce it with
+    <code>freeweight run repeat {{ run.id[:10] }} --check</code>.
+  </caption>
+  <tbody>
+    <tr>
+      <th scope="row">Served context</th>
+      <td>
+        {% if run.served_context is none %}
+        <span class="muted" title="Neither the caller, the provider nor the descriptor reported one.">—</span>
+        {% else %}{{ run.served_context }} tokens
+        <span class="muted">({{ run.served_context_source }})</span>{% endif %}
+      </td>
+    </tr>
+    <tr>
+      <th scope="row">Attributed device</th>
+      <td>
+        GPU {{ run.gpu_index if run.gpu_index is not none else "—" }}
+        {% if run.multi_gpu_visible %}
+        <span class="muted">· more than one GPU was visible; memory, KV and energy figures are
+        unsupported unless the provider reports placement</span>
+        {% endif %}
+      </td>
+    </tr>
+    <tr>
+      <th scope="row">Telemetry sampling overhead</th>
+      <td class="numeric">
+        {% if run.telemetry_overhead_percent is none %}
+        <span class="muted" title="Not calibrated on this run.">—</span>
+        {% else %}{{ "%.3f" | format(run.telemetry_overhead_percent) }} %{% endif %}
+      </td>
+    </tr>
+    <tr>
+      <th scope="row">Prompt pack</th>
+      <td>
+        {% if run.prompt_pack_id %}
+        {{ run.prompt_pack_id }} {{ run.prompt_pack_version }}
+        <code title="{{ run.prompt_pack_hash }}">{{ run.prompt_pack_hash[:19] }}…</code>
+        <span class="muted">provenance only — the fingerprint takes each benchmark's own prompt
+        subset hash</span>
+        {% else %}<span class="muted">This suite renders no prompt records.</span>{% endif %}
+      </td>
+    </tr>
+  </tbody>
+</table>
+
+<details>
+  <summary>Fingerprint document</summary>
+  <p class="muted">
+    The inputs the fingerprint was taken over, stored in full. A hash that cannot be explained is
+    no use during a regression hunt.
+  </p>
+  <pre><code>{{ run.fingerprint_document | tojson(indent=2) }}</code></pre>
+</details>
 
 {% if not run.is_terminal %}
 <form method="post" action="/runs/{{ run.id }}/cancel">
@@ -76,9 +144,11 @@
     <tr>
       <th scope="col">Metric</th>
       <th scope="col">Scope</th>
+      <th scope="col">GPU</th>
       <th scope="col">Value</th>
       <th scope="col">Unit</th>
       <th scope="col">Aggregation</th>
+      <th scope="col">Spread</th>
       <th scope="col">Samples</th>
       <th scope="col">Excluded</th>
     </tr>
@@ -88,6 +158,7 @@
     <tr>
       <td>{{ metric.metric_key }}</td>
       <td>{{ "run" if metric.run_test_id is none else "test" }}</td>
+      <td class="numeric">{{ metric.gpu_index if metric.gpu_index is not none else "—" }}</td>
       <td class="numeric">
         {% if metric.unavailable_reason %}
         <span class="muted" title="{{ metric.unavailable_reason }}">—</span>
@@ -97,14 +168,53 @@
       </td>
       <td>{{ metric.unit }}</td>
       <td>{{ metric.aggregation }}</td>
+      <td class="numeric">
+        {% if metric.stddev is none %}
+        <span class="muted" title="One measurement has no spread.">—</span>
+        {% else %}± {{ "%.4f" | format(metric.stddev) }}{% endif %}
+      </td>
       <td class="numeric">{{ metric.sample_count if metric.sample_count is not none else "—" }}</td>
       <td class="numeric">{{ metric.excluded_count if metric.excluded_count is not none else "—" }}</td>
     </tr>
     {% else %}
-    <tr><td colspan="7" class="muted">No aggregates yet — they are written once every sample is durable.</td></tr>
+    <tr><td colspan="9" class="muted">No aggregates yet — they are written once every sample is durable.</td></tr>
     {% endfor %}
   </tbody>
 </table>
+
+<h3>Telemetry</h3>
+{% if charts %}
+<p class="muted">
+  {{ telemetry_samples }} observation(s) recorded while this run executed. Each series names its
+  device; nothing is summed or averaged across GPUs. A gap in a line is a reading this machine
+  could not take, never a zero.
+</p>
+{% for chart in charts %}
+<figure class="chart">
+  <figcaption id="chart-{{ chart.key }}-label">{{ chart.label }}</figcaption>
+  <svg viewBox="0 0 100 100" preserveAspectRatio="none" role="img"
+       aria-labelledby="chart-{{ chart.key }}-label" class="telemetry-chart">
+    <polyline points="{{ chart.points }}" fill="none" stroke="currentColor" stroke-width="1"
+              vector-effect="non-scaling-stroke" />
+  </svg>
+  <p class="muted">
+    Axis 0 – {{ "%.2f" | format(chart.maximum) }} {{ chart.unit }} ·
+    min {{ "%.2f" | format(chart.minimum) }} ·
+    mean {{ "%.2f" | format(chart.mean) }} ·
+    max {{ "%.2f" | format(chart.maximum) }} {{ chart.unit }} ·
+    {{ chart.reported }} reported, {{ chart.missing }} not readable
+  </p>
+</figure>
+{% endfor %}
+{% else %}
+<div class="empty-state">
+  <p><strong>No telemetry was recorded for this run.</strong></p>
+  <p>
+    Either this machine reports none, or <code>telemetry.persist_during_runs</code> is off. It is
+    real and empty, not missing.
+  </p>
+</div>
+{% endif %}
 
 <h3>Events</h3>
 <ol id="run-events" class="event-log" aria-live="polite"></ol>
