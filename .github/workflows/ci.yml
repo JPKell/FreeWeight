@@ -108,6 +108,24 @@ jobs:
       - run: pip install -e ".[dev]"
       - run: pytest -m "not live and not performance" --cov --cov-report=term-missing --cov-fail-under=85
 
+  diff-coverage:
+    # Testing standards §10 lists `diff-cover` among the gates required before merge: the
+    # repository-wide floor says nothing about whether *this change* was tested, and a large
+    # well-covered codebase absorbs an untested addition without the floor moving.
+    needs: [tests]
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    steps:
+      - uses: actions/checkout@v4
+        # diff-cover compares against the merge base, so the base branch has to be in the object
+        # store; a depth-1 clone does not have it.
+        with: { fetch-depth: 0 }
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12" }
+      - run: pip install -e ".[dev]"
+      - run: pytest -m "not live and not performance" --cov --cov-report=xml
+      - run: diff-cover coverage.xml --compare-branch=origin/${{ github.base_ref }} --fail-under=90
+
   contracts:
     runs-on: ubuntu-latest
     steps:

@@ -1,0 +1,37 @@
+{
+  "prompt_id": "goals.technical_explanation.wal",
+  "version": "1.0.0",
+  "schema_version": "1.0",
+  "purpose": "A starter explanation prompt. Replace it with something from your own domain.",
+  "task": "goal.technical_explanation",
+  "capability": "reasoning",
+  "system": null,
+  "template": "Explain to a working developer who has never used SQLite what write-ahead logging is, why it lets readers and a writer work at the same time, and what it costs. Use headings and at least one short code or command example.",
+  "variables": {},
+  "response": {
+    "format": "text",
+    "json_schema_ref": null,
+    "expectations": []
+  },
+  "model_requirements": {
+    "min_context_tokens": 4096,
+    "requires_capabilities": [],
+    "recommended_temperature": 0.3
+  },
+  "metadata": {
+    "author": "freeweight",
+    "created_at": "2026-08-28T00:00:00Z",
+    "changed_at": "2026-08-28T00:00:00Z",
+    "change_reason": "Shipped starter task.",
+    "supersedes": null,
+    "tags": [
+      "goal",
+      "starter"
+    ],
+    "goal_task": {
+      "key": "sqlite_wal",
+      "name": "Explain SQLite write-ahead logging",
+      "is_starter": true
+    }
+  }
+}

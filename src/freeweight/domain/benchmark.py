@@ -239,6 +239,13 @@ class BenchmarkManifest:
             manifest and verified against the installed pack by the suite's own loader, because a
             manifest cannot be trusted to describe prompts it does not contain.
         license: The suite's licence, as written in the manifest.
+        headline_metric: The one figure that stands for this suite where a single number is
+            needed — the dashboard's comparison heatmap. ``None`` for a suite that has not
+            declared one, which is the honest outcome of nobody having decided rather than a
+            reason to guess: an inferred "first metric" would silently change the day the suite
+            gained one. Declared here, on the suite that owns the editorial judgement, rather than
+            in a table beside the dashboard where a new suite is added in one place and forgotten
+            in another.
         body: The manifest exactly as parsed, minus ``manifest_hash`` — the input
             :func:`compute_manifest_hash` hashes, retained so the stored copy is the file's own
             content rather than a lossy reconstruction of it.
@@ -256,6 +263,7 @@ class BenchmarkManifest:
     prompt_subset_hash: str | None
     license: str
     body: Mapping[str, Any]
+    headline_metric: str | None = None
 
     @property
     def manifest_hash(self) -> str:
@@ -305,6 +313,9 @@ class BenchmarkManifest:
             ),
             license=str(hashable.get("license", "project")),
             body=hashable,
+            headline_metric=(
+                str(hashable["headline_metric"]) if hashable.get("headline_metric") else None
+            ),
         )
 
 

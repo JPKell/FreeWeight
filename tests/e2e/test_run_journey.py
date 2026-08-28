@@ -47,6 +47,13 @@ def workspace(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     # exercised in its own unit test; paying it in every end-to-end journey would buy nothing but
     # minutes.
     monkeypatch.setenv("FREEWEIGHT_EXECUTION__COOLDOWN_SECONDS", "0")
+    # The shipped default waits for three consecutive quiet telemetry observations at one-second
+    # intervals before the first provider call (spec §13). That is ~2.2 s of every run here, it is
+    # the same wait on every one of them, and it is exercised in its own right by
+    # tests/integration/test_performance_benchmark.py::TestIdleDetection, which covers all three
+    # of its outcomes. Paying it again in every end-to-end journey buys nothing but minutes —
+    # the same argument the cooldown line above makes. `0` is the documented way to disable it.
+    monkeypatch.setenv("FREEWEIGHT_EXECUTION__IDLE_GPU_THRESHOLD_PERCENT", "0")
     engine = create_engine_for(f"sqlite:///{database}")
     try:
         MigrationRunner(engine, script_location=MIGRATIONS_LOCATION).upgrade(backup=False)

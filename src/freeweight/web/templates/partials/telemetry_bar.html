@@ -3,11 +3,11 @@
     display: flex;
     align-items: center;
     gap: 1rem;
-    height: 34px;
+    height: var(--mw-telemetry-h);
     font-variant-numeric: tabular-nums;
     font-size: 0.875rem;
-    color: gray;
-    border-top: 1px solid rgba(128, 128, 128, 0.3);
+    color: var(--mw-text-muted);
+    border-top: 1px solid var(--mw-border);
     overflow-x: auto;
     white-space: nowrap;
   }
@@ -17,8 +17,8 @@
   .telemetry-value--temp::after { content: "\00b0C"; }
   .telemetry-value--percent::after { content: "%"; }
   .telemetry-value--power::after { content: "W"; }
-  .telemetry-sep { border-left: 1px solid rgba(128, 128, 128, 0.3); height: 1rem; }
-  .telemetry-unit { color: rgba(128, 128, 128, 0.8); }
+  .telemetry-sep { border-left: 1px solid var(--mw-border); height: 1rem; }
+  .telemetry-unit { color: var(--mw-text-muted); }
 </style>
 <div class="telemetry-bar" id="telemetry-bar" aria-label="System telemetry">
   <span class="telemetry-field" data-group="cpu">

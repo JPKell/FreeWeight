@@ -72,7 +72,22 @@ _RUN_STATUSES = (
     "interrupted",
 )
 _TEST_STATUSES = ("pending", "running", "completed", "failed", "skipped", "cancelled")
-_SAMPLE_STATUSES = ("completed", "failed", "timeout", "cancelled", "skipped")
+_SAMPLE_STATUSES = (
+    "completed",
+    "awaiting_judgement",
+    "failed",
+    "timeout",
+    "cancelled",
+    "skipped",
+)
+"""The states one sample can be in.
+
+``awaiting_judgement`` is the only non-terminal one: the model answered, the deterministic criteria
+scored, and the jury has not run yet. It exists because a goal run judges in a **second phase**, so
+that the candidate and the jurors are never resident at the same time — and a sample between the
+two phases is genuinely in a state of its own. Recording it as ``completed`` with a partial
+composite would publish a score whose missing judged weight looked like a measurement; recording it
+as ``failed`` would say the generation went wrong when it did not."""
 
 _TOOL_CALL_STATUSES = ("ok", "error", "unknown_tool", "invalid_arguments")
 """What became of one requested call.
@@ -294,6 +309,9 @@ class Sample(Base):
         CheckConstraint(
             "status = 'completed' OR score IS NULL", name="score_null_unless_completed"
         ),
+        CheckConstraint(
+            "started_at IS NULL OR started_at <= created_at", name="started_at_before_created_at"
+        ),
         UniqueConstraint(
             "run_test_id",
             "case_id",
@@ -342,6 +360,7 @@ class Sample(Base):
     result_json: Mapped[object | None] = mapped_column(PortableJSON)
     error_code: Mapped[str | None] = mapped_column(String)
     error_text: Mapped[str | None] = mapped_column(Text)
+    started_at: Mapped[datetime | None] = mapped_column(UtcDateTime)
     created_at: Mapped[datetime] = mapped_column(UtcDateTime, nullable=False, default=utcnow)
 
 

@@ -1,0 +1,164 @@
+{% extends "base.html" %}
+{% block title %}Agreement — FreeWeight{% endblock %}
+{% block content %}
+<h2>{{ goal.pack.name }}</h2>
+{% include "partials/_wizard_steps.html" %}
+<h3>6. {{ step.heading }}</h3>
+
+{% if error %}
+<div class="error-state" role="alert"><p>{{ error }}</p></div>
+{% endif %}
+
+{% if outcome %}
+{% set verdict = outcome.verdict %}
+<div class="{{ 'notice' if verdict.state.value == 'calibrated' else 'warning-state' }}" role="status">
+  <h3>
+    {% if verdict.state.value == 'calibrated' %}
+    The jury agrees with you well enough to be worth trusting
+    {% elif verdict.state.value == 'uncalibrated' %}
+    Not measurable yet — and that is a useful answer
+    {% else %}
+    {{ verdict.state.value | replace('_', ' ') }}
+    {% endif %}
+  </h3>
+  <p class="band">
+    {% if verdict.weighted_kappa_w is none %}
+    There is no agreement figure yet.
+    {% else %}
+    Across your judged criteria, the jury and you agree at
+    <strong>{{ '%.2f' % verdict.weighted_kappa_w }}</strong>
+    over <strong>{{ verdict.n_holdout }}</strong> held-out samples.
+    {% endif %}
+  </p>
+  <p>
+    {% if verdict.state.value == 'calibrated' %}
+    Results from this goal emit capability evidence, discounted by a judge validity factor of
+    {{ '%.2f' % verdict.judge_validity_factor }}.
+    {% elif verdict.state.value == 'uncalibrated' %}
+    Your goal still runs, and every sample stays inspectable. What it will not do is emit
+    capability evidence — not discounted evidence, none. The criteria below are where the jury
+    and you diverged most, and that is where the rubric needs work.
+    {% else %}
+    Grade more samples: the minimum is {{ verdict.min_samples }} and you have
+    {{ verdict.graded_samples }}. Too few grades is a different thing from poor agreement, and
+    this is the first one.
+    {% endif %}
+  </p>
+</div>
+
+<h3>What the number means</h3>
+<div class="table-scroll">
+  <table>
+    <caption>The band, and the consequence, in words. The coefficient is beside it, never instead
+      of it.</caption>
+    <thead>
+      <tr><th scope="col">Band</th><th scope="col">&kappa;<sub>w</sub></th><th scope="col">What it means for you</th></tr>
+    </thead>
+    <tbody>
+      {% for label, range_text, meaning in bands %}
+      <tr>
+        <td><strong>{{ label }}</strong></td>
+        <td class="mono">{{ range_text }}</td>
+        <td>{{ meaning }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+<h3>Per criterion</h3>
+<div class="table-scroll">
+  <table data-table="agreement">
+    <caption>
+      Every coefficient carries its <code>n_holdout</code>. A &kappa;<sub>w</sub> without its n is
+      a number pretending to be a fact.
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">Criterion</th>
+        <th scope="col" class="numeric">Weight</th>
+        <th scope="col" class="numeric">&kappa;<sub>w</sub></th>
+        <th scope="col" class="numeric">&rho;</th>
+        <th scope="col" class="numeric">MAE</th>
+        <th scope="col" class="numeric">Bias</th>
+        <th scope="col" class="numeric">n<sub>holdout</sub></th>
+        <th scope="col">Band</th>
+        <th scope="col">The lint's read</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for agreement in outcome.criteria %}
+      <tr>
+        <td>{{ agreement.criterion_key }}</td>
+        <td class="numeric">{{ '%.0f' % (agreement.weight * 100) }}%</td>
+        <td class="numeric">{{ '%.3f' % agreement.result.kappa_w }}</td>
+        <td class="numeric">{{ '%.3f' % agreement.result.rho }}</td>
+        <td class="numeric">{{ '%.2f' % agreement.result.mae }}</td>
+        <td class="numeric">
+          {{ '%+.2f' % agreement.result.bias }}
+          <br><span class="unit">{{ 'generous' if agreement.result.bias > 0 else 'harsh' }}</span>
+        </td>
+        <td class="numeric">{{ agreement.result.n_holdout }}</td>
+        <td>{{ agreement.band | replace('_', ' ') }}</td>
+        <td class="muted">{{ agreement.lint or '—' }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+{% for agreement in outcome.criteria %}
+{% if agreement.disagreements %}
+<h3>Where {{ agreement.criterion_key }} diverged most</h3>
+<p class="muted">
+  Your grade, your note, and the jury's. This is the part that teaches: the number is attached to
+  a sample you remember rather than to an abstraction.
+</p>
+{% for disagreement in agreement.disagreements %}
+<div class="table-scroll">
+  <table>
+    <tbody>
+      <tr>
+        <th scope="row">You graded</th>
+        <td class="numeric">{{ disagreement.author_grade }}</td>
+        <td>{{ disagreement.author_note or '—' }}</td>
+      </tr>
+      <tr>
+        <th scope="row">The jury graded</th>
+        <td class="numeric">{{ disagreement.jury_grade }}</td>
+        <td>{{ disagreement.jury_rationale or '—' }}</td>
+      </tr>
+    </tbody>
+  </table>
+</div>
+<details>
+  <summary>The sample</summary>
+  <pre>{{ disagreement.excerpt }}</pre>
+</details>
+{% endfor %}
+{% endif %}
+{% endfor %}
+
+{% if outcome.warnings %}
+<div class="warning-state">
+  <h3>Before you read those numbers</h3>
+  <ul>
+    {% for warning in outcome.warnings %}<li>{{ warning }}</li>{% endfor %}
+  </ul>
+</div>
+{% endif %}
+
+<p class="muted">
+  FreeWeight proposes no rewritten criterion text. It names the problem and shows the evidence.
+  The rubric is yours, and a model that edited it until it could measure it would be measuring its
+  own edit.
+</p>
+{% else %}
+<div class="empty-state">
+  <h3>No calibration yet</h3>
+  <p>Grade this goal's samples, then run the calibration:</p>
+  <pre>freeweight goals calibrate {{ goal.slug }}</pre>
+  <p><a href="/goals/{{ goal.slug }}/grade">Go to grading</a></p>
+</div>
+{% endif %}
+{% endblock %}

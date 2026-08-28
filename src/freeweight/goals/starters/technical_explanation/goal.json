@@ -1,0 +1,99 @@
+{
+  "slug": "technical_explanation",
+  "name": "Technical explanation",
+  "goal_pack_version": "1.0.0",
+  "schema_version": "1.0",
+  "intent": "Correct, well-pitched technical prose for a named audience. Mixed on purpose: reading level and shape are rules, correctness and audience fit are judged, and the split is visible in the score method mix.",
+  "contributes_to": "reasoning",
+  "created_by": "freeweight",
+  "criteria": [
+    {
+      "key": "reading_level",
+      "name": "Pitched at the audience",
+      "intent": "The audience is a working developer who has not seen this system. Grade 9-14 is what that means, numerically.",
+      "rung": "rule",
+      "weight": 0.20,
+      "rule": {
+        "type": "readability",
+        "metric": "flesch_kincaid_grade",
+        "min": 9.0,
+        "max": 14.0,
+        "tolerance": 4.0
+      }
+    },
+    {
+      "key": "shape",
+      "name": "Explanatory shape",
+      "intent": "An explanation has sections and at least one worked example. Both are countable.",
+      "rung": "rule",
+      "weight": 0.20,
+      "rule": {
+        "type": "structure",
+        "headings": {"min": 1, "max": 6},
+        "max_heading_depth": 3,
+        "code_blocks": {"min": 1, "max": 6}
+      }
+    },
+    {
+      "key": "no_repetition",
+      "name": "Does not restate itself",
+      "intent": "Padding an explanation by saying the same thing three ways is a measurable habit.",
+      "rung": "rule",
+      "weight": 0.15,
+      "rule": {
+        "type": "repetition",
+        "n": 5,
+        "max_rate": 0.08
+      }
+    },
+    {
+      "key": "technical_correctness",
+      "name": "Technically correct",
+      "intent": "The part no rule can carry: is what it says true.",
+      "rung": "judge",
+      "weight": 0.30,
+      "scale": {
+        "points": 5,
+        "descriptors": {
+          "5": "Every technical statement is correct, and the caveats are the right ones.",
+          "4": "Correct, with one imprecision that a reader would not be misled by.",
+          "3": "Broadly correct with one claim that is wrong in a way that matters.",
+          "2": "Several wrong claims, presented with the same confidence as the right ones.",
+          "1": "Confidently wrong about the central mechanism."
+        }
+      }
+    },
+    {
+      "key": "audience_fit",
+      "name": "Fits its audience",
+      "intent": "Assumes what a working developer knows, explains what they would not.",
+      "rung": "judge",
+      "weight": 0.15,
+      "scale": {
+        "points": 5,
+        "descriptors": {
+          "5": "Assumes exactly what a working developer knows; explains precisely what they would not.",
+          "4": "Well judged, with one term left undefined or one over-explained.",
+          "3": "Uneven: patronising in places, opaque in others.",
+          "2": "Consistently pitched at the wrong level.",
+          "1": "Unusable for this audience: either a glossary or a specification."
+        }
+      }
+    }
+  ],
+  "judge": {
+    "jury_size": 3,
+    "models": [],
+    "repetitions": 3,
+    "randomize_order": true,
+    "allow_remote": false,
+    "temperature": 0.0
+  },
+  "calibration": {
+    "target_samples": 12,
+    "min_samples": 8,
+    "holdout_fraction": 0.4,
+    "partition_seed": 20260828,
+    "min_agreement": 0.4
+  }
+}

@@ -18,6 +18,7 @@ from freeweight.cli.commands import goals as goals_commands
 from freeweight.cli.commands import judges as judges_commands
 from freeweight.cli.commands import models as models_commands
 from freeweight.cli.commands import prompts as prompts_commands
+from freeweight.cli.commands import results as results_commands
 from freeweight.cli.commands import runs as runs_commands
 from freeweight.cli.commands import system as system_commands
 
@@ -71,4 +72,5 @@ app.add_typer(
     judges_commands.app, name="judges", help="Inspect judge eligibility and dry-run a jury."
 )
 app.add_typer(runs_commands.app, name="run", help="Start, inspect and cancel benchmark runs.")
+app.add_typer(results_commands.app, name="results", help="Inspect and compare stored results.")
 app.add_typer(prompts_commands.app, name="prompts", help="Inspect and rebuild the prompt pack.")

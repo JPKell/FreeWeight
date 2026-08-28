@@ -2,14 +2,14 @@
 
 **Owner:** FreeWeight. **Status:** Specification.
 **Decision records:** ADR-0031 (goal suites and the calibrated-judge instrument), ADR-0032 (judge validity, the gate, the `user.*` namespace).
-**Related:** [Spec](spec.md) · Benchmark Catalog · Data Model · [API](api.md)
+**Related:** [Spec](spec.md) · [Benchmark Catalog](benchmark-catalog.md) · [Data Model](data-model.md) · [API](api.md)
 
 ---
 
 ## 1. The mental model, in one paragraph
 
 A goal is a benchmark the user writes. It has **criteria**; each criterion is scored at the highest
-rung of the scoring ladder that can actually check it. Rules check what rules
+rung of the [scoring ladder](benchmark-catalog.md) that can actually check it. Rules check what rules
 can check — forbidden phrases, sentence-length distribution, point of view, structure. A jury of
 models scores what only judgement can reach — voice, wit, register. Before any judged criterion is
 believed, the user grades a dozen examples themselves, the jury is scored against the grades it was
@@ -143,6 +143,50 @@ must.
 
 ---
 
+### 2.3 The bundle — the portable form of a pack
+
+A pack is a directory, and a directory does not travel. `freeweight goals export` writes the whole
+pack as **one hash-pinned JSON document**, and it is what `freeweight goals import` and
+`POST /api/v1/goals/import` read.
+
+```json
+{
+  "bundle_version": "1.0",
+  "slug": "house_voice",
+  "goal_hash": "sha256:…",
+  "goal_pack_version": "1.2.0",
+  "created_by": "the name the author gave, free text",
+  "files": {"goal.json": "…", "tasks/001.json": "…", "prompts/judge.rubric.v1.json": "…"},
+  "bundle_sha256": "sha256:…"
+}
+```
+
+`files` maps each pack-relative path to its literal text — every file under the pack directory,
+including the calibration samples and the author's grades where they exist. `bundle_sha256` covers
+the file map, so a modified bundle is refused rather than imported.
+
+An import validates **everything before it writes anything**: the document's shape, its total size
+against `goals.max_pack_bytes`, every member's name for path containment, the bundle hash, and the
+slug's availability. Only then is a temporary directory populated, parsed and linted; only then is
+it moved into place. An import **never overwrites in place** — a colliding slug is refused with the
+existing `goal_hash` named, and the caller renames.
+
+**This is not `benchmark.goal_pack`, and the difference is load-bearing.** The SetSpec envelope at
+`GET /api/v1/goals/{slug}/export` carries the goal's *definition* — criteria, weights, scales, judge
+config, gate, hashes, and each task's prompt by id and hash — which is what another application
+needs to understand what a `user.*` capability measured. It is not enough to rebuild a pack from:
+an id and a hash are not the prompt text. The bundle is the pack; the envelope describes it.
+
+| | Bundle | `benchmark.goal_pack` |
+|---|---|---|
+| Written by | `freeweight goals export` | `GET /api/v1/goals/{slug}/export` |
+| Contains | Every file, verbatim | The definition, prompts by id + hash |
+| Round-trips | Yes — this is what `goals import` reads | No |
+| Audience | The author, and another FreeWeight | Any consumer of the contract |
+| Versioned by | `bundle_version` | `schema_version` |
+
+---
+
 ## 3. Criteria and the rule catalogue
 
 Every criterion declares a rung. The lint in §7 flags a `judge` criterion a rule could check.
@@ -185,6 +229,17 @@ answerable without judgement far more often than it first appears.
 
 `rung: "human"` queues the sample for the user to grade in a blinded UI, recorded with
 `score_method = "human"`. Validity is 1.0 by definition; throughput is one person.
+
+**Status: the criterion validates, hashes, lints and is counted in `score_method_mix`; the run-time
+grading UI arrives at [Phase 11](development-plan.md).** Until it does, a rung-4 criterion skips
+every sample with `human_grade_pending` and contributes no score, and the applied weight shows the
+shortfall rather than hiding it — a goal that declares one measures less of itself than it says,
+visibly.
+
+The *calibration* grading UI is a different surface and it does exist: §5.2's blinded grading of
+calibration samples ships, in the wizard and as `freeweight goals grade`. What Phase 11 adds is the
+second entry point, over an ordinary run's samples — and it lands there because that is the phase
+where a human grade first has somewhere to go, which is evidence.
 
 ### 3.4 Rung 5 — judged criteria
 
@@ -341,6 +396,16 @@ its own edit (ADR-0031 §3).
 * Changing the jury changes `goal_hash` and therefore separates results. This is not incidental: a
   new jury is a new instrument, and the old numbers were produced by the old one.
 
+**The jury runs in its own phase, after every answer has been generated** ([spec
+§7.4](spec.md)). The candidate is evicted first, so the jurors have the machine to themselves —
+interleaved, a jury of three held four models resident at once on a machine chosen because it had
+room for one. It costs the measurement nothing: a jury grades *stored text*, so when it reads
+changes nothing about what it reads, and the verdict is identical either way.
+
+It also makes a goal run's own resource figures mean something. Judging happens after the telemetry
+window has closed, so peak VRAM and energy describe the candidate rather than whichever model
+happened to be larger.
+
 ---
 
 ## 7. Authoring: what the application actually shows the user
@@ -399,16 +464,23 @@ calibration set of graded samples. They make the feature demonstrable on a fresh
 teach the shape of a good rubric by being read. **They are starters, not defaults**: a goal whose
 criteria and tasks are unedited is badged `unforked` in the UI and in its results.
 
-| Key | Goal | Carries |
-|---|---|---|
-| `starter.creative_voice` | Style and tone in creative non-fiction | The hardest case; ~40 % rule weight, judged remainder. Demonstrates that even "voice" partly mechanizes |
-| `starter.brand_voice` | Compliance with a defined persona or house style guide | Highest rule weight (~70 %): banned terms, register, structure, reading level. Judged remainder is small |
-| `starter.summary_faithfulness` | Coverage without fabrication | Mostly rung 3: `claim_coverage` and `no_unsupported_claims` against annotated sources. Shows that "did it make things up" is usually deterministic |
-| `starter.technical_explanation` | Correct, well-pitched technical prose | Mixed: `readability` band and `structure` as rules, correctness and audience-fit judged |
+They are **read in this order**, and the order is the lesson:
 
-The pedagogy is deliberate. Read in the order above, the packs go from 40 % to 70 % to ~90 %
-deterministic weight, which is the single most useful thing a user can internalize about writing a
-measurable rubric: **the better you understand what you want, the less of it needs a judge.**
+| # | Key | Goal | Deterministic weight | Carries |
+|---|---|---|---:|---|
+| 1 | `starter.creative_voice` | Style and tone in creative non-fiction | ~40 % | The hardest case. Demonstrates that even "voice" partly mechanizes |
+| 2 | `starter.technical_explanation` | Correct, well-pitched technical prose | ~55 % | `readability` band and `structure` as rules; correctness and audience-fit judged |
+| 3 | `starter.brand_voice` | Compliance with a defined persona or house style guide | ~70 % | Banned terms, register, structure, reading level. The judged remainder is small |
+| 4 | `starter.summary_faithfulness` | Coverage without fabrication | ~90 % | Mostly rung 3: `claim_coverage` and `no_unsupported_claims` against annotated sources. Shows that "did it make things up" is usually deterministic |
+
+The pedagogy is deliberate. Read in this order the packs go **40 % → 55 % → 70 % → 90 %**
+deterministic weight, strictly rising, which is the single most useful thing a user can internalize
+about writing a measurable rubric: **the better you understand what you want, the less of it needs a
+judge.**
+
+The order is declared once, in `freeweight.goals.starters.READING_ORDER`, and both the CLI and the
+starters page render from it — a reading order that is prose in one place and an implicit list
+somewhere else is a reading order that drifts.
 
 ---
 

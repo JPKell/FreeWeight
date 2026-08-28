@@ -4,6 +4,7 @@
   "version": "1.0.0",
   "category": "reliability",
   "runner": "native",
+  "headline_metric": "harness_roundtrip_success",
   "scorer": "harness_roundtrip",
   "capabilities": [],
   "requires": {

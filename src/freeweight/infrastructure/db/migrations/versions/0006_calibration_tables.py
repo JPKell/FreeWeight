@@ -203,9 +203,27 @@ def upgrade() -> None:
             name="uq_judge_verdicts_score_id_juror_repetition",
         ),
     )
+    # The goal wizard's pre-pack state. Its own table rather than rows in `settings`: a draft has
+    # a lifecycle a key-value store cannot express, and `db status` was counting drafts as
+    # settings.
+    op.create_table(
+        "wizard_drafts",
+        sa.Column("id", sa.String(length=26), nullable=False),
+        sa.Column("slug", sa.String(), nullable=True),
+        sa.Column("body_json", freeweight.infrastructure.db.types.PortableJSON(), nullable=False),
+        sa.Column("created_at", freeweight.infrastructure.db.types.UtcDateTime(), nullable=False),
+        sa.Column("updated_at", freeweight.infrastructure.db.types.UtcDateTime(), nullable=False),
+        sa.Column("expires_at", freeweight.infrastructure.db.types.UtcDateTime(), nullable=False),
+        sa.PrimaryKeyConstraint("id", name=op.f("pk_wizard_drafts")),
+    )
+    with op.batch_alter_table("wizard_drafts", schema=None) as batch_op:
+        batch_op.create_index("ix_wizard_drafts_expires_at", ["expires_at"], unique=False)
 
 
 def downgrade() -> None:
+    with op.batch_alter_table("wizard_drafts", schema=None) as batch_op:
+        batch_op.drop_index("ix_wizard_drafts_expires_at")
+    op.drop_table("wizard_drafts")
     op.drop_table("judge_verdicts")
     with op.batch_alter_table("calibration_reports", schema=None) as batch_op:
         batch_op.drop_index("ix_calibration_reports_goal_id_measured_at")

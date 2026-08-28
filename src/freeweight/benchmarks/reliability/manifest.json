@@ -1,0 +1,111 @@
+{
+  "key": "native.reliability",
+  "name": "Native Reliability",
+  "version": "1.0.0",
+  "category": "reliability",
+  "runner": "native",
+  "headline_metric": "score_mean",
+  "scorer": "exact_short_answer",
+  "capabilities": [
+    "reliability"
+  ],
+  "requires": {
+    "provider_capabilities": [],
+    "sandbox": false,
+    "network": false
+  },
+  "dataset_hashes": {
+    "reliability_cases": "sha256:95ba7f618d6793a0e0728179724168703f3554c0aa45f4852303c2b92847a82f"
+  },
+  "prompt_ids": [
+    {
+      "prompt_id": "benchmarks.reliability.probe",
+      "version": "1.0.0",
+      "sha256": "sha256:2884990903adc69fdd7bc87f56c6795654069695cde6d06f7b36229959740ec3"
+    }
+  ],
+  "prompt_subset_hash": "sha256:7d933a2329a952eb553c7836c592c068a519fe415bfeb0f51438866d4d23b0ff",
+  "target_device": "gpu",
+  "metrics": [
+    {
+      "key": "answer_correct",
+      "unit": "ratio",
+      "higher_is_better": true,
+      "aggregation": "mean"
+    },
+    {
+      "key": "score_mean",
+      "unit": "ratio",
+      "higher_is_better": true,
+      "aggregation": "mean"
+    },
+    {
+      "key": "score_median",
+      "unit": "ratio",
+      "higher_is_better": true,
+      "aggregation": "median"
+    },
+    {
+      "key": "score_min",
+      "unit": "ratio",
+      "higher_is_better": true,
+      "aggregation": "min"
+    },
+    {
+      "key": "score_max",
+      "unit": "ratio",
+      "higher_is_better": true,
+      "aggregation": "max"
+    },
+    {
+      "key": "score_stddev",
+      "unit": "ratio",
+      "higher_is_better": false,
+      "aggregation": "mean"
+    },
+    {
+      "key": "score_coefficient_of_variation",
+      "unit": "ratio",
+      "higher_is_better": false,
+      "aggregation": "mean"
+    },
+    {
+      "key": "score_p95",
+      "unit": "ratio",
+      "higher_is_better": true,
+      "aggregation": "p95"
+    },
+    {
+      "key": "score_p99",
+      "unit": "ratio",
+      "higher_is_better": true,
+      "aggregation": "p99"
+    },
+    {
+      "key": "pass_at_1",
+      "unit": "ratio",
+      "higher_is_better": true,
+      "aggregation": "mean"
+    },
+    {
+      "key": "pass_at_k",
+      "unit": "ratio",
+      "higher_is_better": true,
+      "aggregation": "mean"
+    },
+    {
+      "key": "answer_agreement",
+      "unit": "ratio",
+      "higher_is_better": true,
+      "aggregation": "mean"
+    },
+    {
+      "key": "outliers_flagged",
+      "unit": "count",
+      "higher_is_better": false,
+      "aggregation": "sum"
+    }
+  ],
+  "license": "project",
+  "description": "How much the same question moves between asks. Every repetition is stored and every repetition counts: dispersion, the unbiased pass@k over all attempts, and byte-level answer agreement across repetitions. Outliers are flagged and reported, never silently discarded; an exclusion happens only under a named policy and is preserved with the values it removed."
+}

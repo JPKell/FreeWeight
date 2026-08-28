@@ -41,13 +41,35 @@ def test_db_status_json_after_upgrade() -> None:
     assert payload["dialect"] == "sqlite"
     assert payload["is_at_head"] is True
     assert payload["integrity_ok"] is True
+    # Every table the application owns, all empty on a fresh database. The set grew at Phase 10:
+    # a status report that omitted `runs`, `samples` and `metric_values` said nothing about the
+    # tables that actually hold a user's measurement history (database standards §7).
     assert payload["table_row_counts"] == {
         "api_tokens": 0,
+        "artifacts": 0,
+        "benchmark_suites": 0,
+        "benchmark_tests": 0,
+        "calibration_grades": 0,
+        "calibration_reports": 0,
+        "calibration_samples": 0,
+        "criterion_scores": 0,
+        "goal_criteria": 0,
+        "goal_tasks": 0,
+        "goals": 0,
+        "judge_verdicts": 0,
         "machines": 0,
+        "metric_values": 0,
         "model_descriptors": 0,
         "models": 0,
+        "run_events": 0,
+        "run_tests": 0,
+        "runs": 0,
         "runtime_profiles": 0,
+        "samples": 0,
         "settings": 0,
+        "telemetry_gpu_samples": 0,
+        "telemetry_samples": 0,
+        "tool_calls": 0,
     }
 
 

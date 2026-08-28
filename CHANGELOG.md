@@ -8,6 +8,382 @@ packaging and release standards §3.
 ## [Unreleased]
 
 ### Added
+- **The nine endpoints spec §7.1 declared and no phase built.** `GET /api/v1/models`,
+  `/models/{ref}`, `/models/{ref}/results`, `POST /models/discover`; `GET /api/v1/machines` and
+  `/machines/{id}`; `GET /api/v1/benchmarks` and `/benchmarks/{key}`; and
+  `POST /api/v1/runs/{id}/repeat`, which had a service function and a CLI command and no route at
+  all.
+- **`tests/contract/test_declared_surface.py` — and it came first.** It reads §7.1 out of the
+  specification, not a list maintained beside it, and fails when a declared path is not routable.
+  A path a later phase owns is named in its `SCHEDULED` map with the owner, so "not built yet"
+  stays a decision rather than an absence.
+
+  **It found three gaps the manual audit had missed** — the whole machines API and the repeat
+  endpoint — which is the argument for asserting a specification against its build instead of
+  reading both and comparing them by eye. Six paths had been declared and unbuilt since Phase 1.
+- **`tests/integration/test_integration_milestones.py`** — roadmap §4's I1–I3 as tests a reviewer
+  can point at (`pytest -m I2`). §4 says no integration milestone is complete "on the basis of a
+  code review"; the verifications existed, spread across the import contracts, the telemetry tests
+  and the export contract, and nothing labelled them.
+
+### Changed
+- **A goal run generates every sample, then judges them all — the two never overlap.** Judging used
+  to happen inside the per-sample loop, immediately after each generation, so with the provider's
+  default `keep_alive` the candidate stayed resident while every juror loaded: a jury of three meant
+  four models at once, on a machine chosen because it had room for one, and `2N` load cycles for `N`
+  cases instead of `1 + jury_size`. The candidate is now evicted between the phases
+  (`provider.unload`), so a juror has the machine to itself.
+
+  **It costs the measurement nothing**, and that is asserted rather than assumed: a jury grades
+  *stored text* — the collaborator's signature takes a `str` — so when it reads changes nothing
+  about what it reads, and a test checks that the two-phase verdict is identical to the one-phase
+  one, `result_json` included.
+
+  Two things it fixes beyond memory. **Telemetry now describes the candidate**: the recording window
+  closes and residency is observed before any juror loads, where previously a goal run's peak VRAM
+  and energy total could belong to whichever model happened to be larger. And **a jury that fails
+  takes one sample, not the run** — this phase runs after every answer exists, so aborting would
+  discard a whole run's generation over one unjudgeable answer.
+
+  A sample between the phases is `awaiting_judgement`: its own status, with no score and no
+  `criterion_scores` rows, because half a criterion set is exactly the partial read those rows exist
+  to prevent. It is the one non-terminal sample status, a completed run never contains one, and a
+  run interrupted between phases resumes into judging without regenerating anything.
+- **`benchmark.export` is now `freeweight.export`**, with no compatibility path for the old name
+  ([ADR-0035](docs/adr/)). The schema sat in SetSpec's namespace and appeared in no
+  `SUPPORTED_SCHEMAS`; a contract test now scans the source and fails on any schema name that is
+  neither SetSpec's nor `freeweight.`-prefixed.
+- **A run summary's metrics can be told apart.** `aggregate_metrics` carries `metric_key` from
+  SetSpec, so an exported `benchmark.run_summary` is a list of *named* measurements rather than a
+  list of numbers.
+- **`native.energy` integrates only over the requests.** Each interval between two power readings
+  is clipped to the union of the run's sample windows, so the settle wait, the warm-ups and the
+  cooldowns no longer inflate every per-token figure. Clipping rather than filtering, because a
+  reading taken inside a request whose next reading falls after it would otherwise carry the whole
+  idle gap at the request's power level. `peak_gpu_power_watts` follows the same rule.
+- **`native.reliability`'s questions live in `cases.json`** and are hashed into `dataset_hashes`,
+  like every other suite whose content can drift. They were a tuple in a Python module, where only
+  the suite *version* separated results — which depended on whoever edited them remembering to bump
+  it (`PHASE9_ISSUES.md` §6, closed).
+- **A suite declares its own `headline_metric`.** The dashboard's heatmap read a hand-maintained
+  table in `services/results.py`, so a new suite was added in one place and forgotten in another.
+  The declaration is now on the manifest, where the editorial judgement belongs
+  (`PHASE10_ISSUES.md` §12, closed).
+- **The scheduler re-reads stored settings between runs.** A run's effective configuration is frozen
+  at creation, so re-reading between runs cannot change a measurement underneath itself — and it is
+  what the settings page already promised. The telemetry sampler is deliberately not re-intervalled:
+  its interval is recorded on every run as a measurement condition (`PHASE10_ISSUES.md` §11).
+- **Wizard drafts have their own table.** `wizard_drafts`, with `created_at`, `updated_at` and an
+  `expires_at` that every save pushes out, so the clock measures neglect rather than age. They were
+  rows in `settings`, which could express none of that and made `db status` count half-written goals
+  as settings (`PHASE10_ISSUES.md` §4, closed).
+
+### Removed
+- **`storage.retention_days`.** A measurement does not expire: a result taken six months ago is
+  exactly as true as one taken today, and what invalidates it — the model leaving the machine, the
+  hardware changing — is not something a clock can detect. The setting also applied to nothing,
+  which read as a promise about disk usage the application was not keeping. Deleting a model's
+  results is the operation that was actually wanted, and `scope=model` already previews and confirms
+  like every other destructive one (`PHASE10_ISSUES.md` §9, closed).
+
+### Added
+- **`samples.started_at`.** A sample's telemetry window is now recorded at both ends rather than
+  reconstructed as `created_at - client_wall_ms` — an approximation that could attribute a reading
+  to the wrong request whenever the sampler interval was close to the request duration
+  (`PHASE9_ISSUES.md` §3, closed; §4 closed behind it).
+- **A context sweep on `results compare`.** A comparison of one model at three or more served
+  contexts on one machine now carries the fitted KV cost function —
+  `weights_bytes + bytes_per_token × context`, with `r²` beside it — differenced from each run's own
+  `model_vram_bytes`. Derived rather than requested: a user who has run one model at several
+  contexts has already produced the measurement. It is a *study across runs*, which is why it lives
+  here and cannot be a suite ([ADR-0034](docs/adr/) §6). On the reference machine, three runs of
+  qwen3:8b fit 4.64 GiB + 148 KiB/token at r² = 0.9998.
+- **`benchmarks.long_context_max_tokens`.** The depth sweep's ladder is fitted to a configurable
+  ceiling — truncated below it, doubling up to it — because how far a sweep can reach is a property
+  of the machine, not of the suite. The *effective* ladder is hashed into that suite's
+  `dataset_hashes`, so two ceilings are two measurements and are never averaged
+  (`PHASE8_ISSUES.md` §18).
+- **`--since` / `--until` on the results export**, half-open so consecutive windows tile: a history
+  larger than one document exports as several that reassemble exactly, with each document stating
+  the window it covers (`PHASE10_ISSUES.md` §8, closed).
+- **`--include-prompt-text` on the results export**, adding an appendix of each distinct rendered
+  prompt keyed by its hash. Built by re-rendering rather than by reading stored text — prompt text
+  is not stored — so it also verifies: a prompt is only offered under the hash its current text
+  produces, and one edited since the run is absent rather than present and wrong
+  (`PHASE10_ISSUES.md` §10, closed).
+- **[ADR-0034](docs/adr/) — run-level derived metrics.** The seam three suites use to compute
+  figures no scorer can see — `native.memory_kv` needs the descriptor and the VRAM series,
+  `native.energy` the power series, `native.reliability` every stored repetition — existed as an
+  allowlist and a comment. It is now a decision: a pure `derive()` in the benchmark package, an
+  explicit allowlist rather than a protocol every suite may implement, and the boundary that
+  **a derived metric is a function of one run**. Benchmark catalogue §5.1 gains it as the fourth
+  metric source (`PHASE9_ISSUES.md` §1, closed).
+- **[ADR-0035](docs/adr/) — application-owned document schemas.** `benchmark.export` was minted by
+  this application in SetSpec's namespace and appears in no `SUPPORTED_SCHEMAS`, which ADR-0025 §1
+  says cannot happen. Applications now have a namespace of their own; the schema becomes
+  `freeweight.export`, with the reader accepting both names until 1.0 (`PHASE10_ISSUES.md` §1,
+  closed as a decision — **the rename is owed in code**).
+- **`scripts/sync_docs.py`** — the `docs/` mirror is written rather than maintained, with `--check`
+  for CI. The de-linking convention (a link out of the mirrored set is flattened to its text,
+  because a link to a file this repository does not contain looks navigable and is not) is now the
+  script instead of a habit. All seven documents, where there were four (`PHASE8_ISSUES.md` §6).
+
+### Documentation
+- **The eleven † metrics move to catalogue §3.15, out of 1.0 scope.** Seven audit figures, three
+  long-context ones and the judge's repetition variance were specified before anything measured
+  them and no phase ever took them. The section is titled "1.0 scope" and a metric with no owner
+  does not belong in it; each is recorded with what it is blocked on, because what was considered
+  and not built is worth as much to the next reader as what was (`PHASE8_ISSUES.md` §5, closed).
+- **FreeWeight's version trajectory is written down: `0.9-beta` at M2.** The roadmap's §6 table had
+  no application rows at all and started FreeWeight at M3, which left the version of a
+  feature-complete application undecided and understated ten delivered phases. The tag is cut at
+  M2 exit, not before — that exit is a demonstration on a real model, not a state of the source.
+- **The generated configuration reference goes to Phase 11.** Configuration standards §8 requires
+  one and it does not exist; spec §12 is hand-maintained and has drifted twice. The write-or-check
+  pattern now exists in this repository, so the second generator is much cheaper than the first.
+- **Spec §13: an uncalibrated judged goal runs rather than refusing.** The spec and
+  [ADR-0032](docs/adr/) §3 contradicted each other and the code followed the ADR. The ADR's
+  argument — the diagnostic data is what the user needs to fix the rubric, and it costs one
+  GPU-bound run — applies *more* strongly before the first calibration than after a failed gate:
+  the author has nothing at all to look at (`PHASE8_ISSUES.md` §12, closed).
+- **Prompt standards §6 marks an override at run granularity.** "Every record that used them" read
+  as a column on `samples`, which would store one identical value ten thousand times and offer no
+  fact the run does not already carry (`PHASE8_ISSUES.md` §14, closed).
+- **The rung-4 grading UI belongs to Phase 11.** Phase 10 was named as its owner and shipped the
+  *calibration* half only, which is how it came to belong to no phase. Phase 11 is where a human
+  grade first has somewhere to go (`PHASE8_ISSUES.md` §9, closed).
+- **Spec §13 lists five error codes it was missing** — `GOAL_PATH_UNSAFE`, `GOAL_HASH_MISMATCH`,
+  `PROMPT_OVERRIDE_REFUSED`, and `COMPARISON_SUBJECT_NOT_FOUND` / `COMPARISON_REFUSED`, found while
+  writing the first three — each with why the shared set could not describe it. **API §11** is the
+  code-to-status table the document never had, and **API §12** names every schema an export emits.
+- **Spec §12 documents `[runtime]`**, which shipped in Phase 10 and was undocumented: what it sends,
+  that every field separates results, why the provider's own default can be catastrophic on a
+  memory-constrained machine, and why the fields Ollama configures at server startup are
+  deliberately absent.
+- **Spec §7.1 and §7.2 mark every declared-but-unimplemented surface**, six paths and four command
+  groups, and name what would have caught them: §7.1 has no test asserting its own paths are
+  routable.
+- **Spec §14 states the regex guard correctly.** The dialect refuses a catastrophic pattern at
+  pack-load time; the timeout is the backstop. The previous wording promised the timeout would do
+  work CPython cannot let it do — the GIL is held for the whole match, measured at 3.1 s against a
+  50 ms budget.
+- **UI/UX standards §1 carries the compliant palette**, with measured contrast for both themes
+  against both grounds and the bar each token must clear. The standard's own `--mw-text-subtle` and
+  `--mw-accent` could not satisfy its own §13, so §13 asked for something no build could pass; it
+  now asks for the pairs the application renders, each against its role.
+- **Benchmark catalogue**: `source` on a metric definition is documented; §5.1 explains why the
+  fallthrough is unsafe for a conditional rate; a † marks every metric declared and owned by no
+  phase; §5 states that a suite's headline metric belongs on its manifest.
+- **Subjective Goals §2.3** describes the goal-pack bundle — the format `goals import` actually
+  reads, as distinct from the `benchmark.goal_pack` envelope that describes a pack and cannot
+  rebuild one. **§8**'s starter table is the reading order, four packs and four figures.
+- **Honest statements of what does not happen**, each where a reader would otherwise assume
+  otherwise: retention deletes nothing on a timer (spec §12), `include_prompts` exports identity
+  rather than text (API §5), `PUT /settings` does not re-interval a running sampler (API §8), wizard
+  drafts live in the `settings` table and should not (data model), rung-4 criteria are skipped and
+  the run-grading UI belongs to no phase (Subjective Goals §3.3).
+- **Packaging standards §4's dependency example is dated.** The block is the state as of M3; copied
+  verbatim before then it made this distribution unresolvable, which is what happened.
+- **`max_context_capped_by_configuration`** beside `max_successful_context_tokens`. The two cases
+  report the same number and are not the same fact — "the model refused at the next rung" is the
+  model's limit, "the sweep stopped where it was told to" is the configuration's — and a reader
+  comparing two models could not previously tell them apart (`PHASE9_ISSUES.md` §7, closed).
+- **`served_context_observed`** on every run, from the provider's own report of what it is serving.
+  Where it contradicts a context the run merely *assumed*, the run carries a
+  `served_context_assumed_incorrectly` degradation naming both numbers. The frozen fingerprint is
+  never rewritten: provenance that changes after the fact is not provenance.
+- **`ResidentModel.context_length`** in ModelRack, parsed from the `context_length` that `/api/ps`
+  reports beside `size_vram` and was being discarded. It is what makes a *reported* served context
+  distinguishable from an *assumed* one at all (ADR-0023 §4).
+
+### Fixed
+- **The bare `pytest` entry point could not collect five test modules**, and it is the one CI runs.
+  Under the default `prepend` import mode pytest puts the *test file's* directory on `sys.path`, not
+  the repository root, so the five modules that import shared fixtures as `tests.conftest` resolved
+  only under `python -m pytest`, which inserts the working directory. `pythonpath = ["."]` makes
+  both invocations agree. Found by running the documented gate command literally.
+- **The jury was served at the provider's choice too.** `JuryService` built its own
+  `GenerationRequest` without a runtime profile — and the model that took a machine down was the
+  *juror*, not the candidate. A goal run's jury now serves under the candidate's own profile, since
+  judging at a different context than the answers were generated at would be a second, unrecorded
+  variable; both calibration juries serve under `[runtime]`.
+
+### Changed
+- The live suite's model guard derives its budget from the machine's actual VRAM — card, less a
+  reserve for whatever else draws the display, less the KV allowance at the pinned context —
+  instead of a hard-coded constant. On the reference machine that took the usable model count from
+  1 of 11, to 6, to **9 of 11**, excluding only the two that genuinely do not fit.
+
+### Added
+- **A run can be served at a chosen context.** `[runtime] context_size` in configuration,
+  `freeweight run start --context-size`, and a `runtime` block on `POST /api/v1/runs` — the
+  section and the flag ADR-0023 §1 and §3 named and nothing implemented. Measuring one model at
+  8K and again at 64K is now two subjects with two runtime profile hashes and two fingerprints,
+  which is what ADR-0017's hard separation requires and what a context comparison needs.
+- **Per-model memory is recorded on every run** as `model_vram_bytes` and `model_total_bytes`,
+  read from the provider's own residency report rather than from device-wide telemetry. Paired
+  with the run's `served_context` this gives the allocation function a scheduler needs — two runs
+  at two contexts yield the bytes-per-token slope exactly, with no regression against a device
+  total that other processes also move. Emitted only when the provider actually reports residency;
+  a provider that cannot produces no row rather than a fabricated one.
+
+### Fixed
+- **The runtime profile was never sent to the provider.** `_build_request` built every
+  `GenerationRequest` without one, so a run's profile was stored, hashed into the reproducibility
+  fingerprint, and then not used — every run was served at whatever the provider chose while its
+  record named a profile it had never been asked for. With a modern local model advertising
+  128K–262K context, that meant enormous KV allocations and performance numbers dominated by spill:
+  on one machine a 15.7B model was served at 112K, spilled 21.9 GiB of KV cache to system RAM, ran
+  at 3.9 tokens/second, and took the display driver and the kernel down with it. The profile now
+  reaches the provider, warm-up warms under the same profile it measures under, and `repeat_run`
+  repeats the original's stored profile rather than re-resolving from current configuration.
+- `resolve_served_context`'s `CONFIGURED` branch was unreachable, so every run recorded the model's
+  *advertised* maximum as its served context with source `assumed`. Runs that set a context now
+  record `configured` and a number that is a fact.
+
+### Added
+- **A nightly workflow** (`.github/workflows/nightly.yml`) running `-m live` and `-m performance`.
+  Testing standards §10 schedules both nightly on hardware and neither ran anywhere; the
+  performance suite added in Phase 10 in particular had no home. The live job reports its skips
+  with `-rs`, so "no Ollama on this runner" cannot be mistaken for a pass.
+- **`diff-cover` as a pull-request gate.** Testing standards §10 lists it among the gates required
+  before merge. A repository-wide coverage floor says nothing about whether *this change* was
+  tested, and a large well-covered codebase absorbs an untested addition without the floor moving.
+- **Contract tests for the three schemas FreeWeight emits** (`tests/contract/test_export_schemas.py`):
+  `benchmark.export`, `benchmark.goal_pack` and `benchmark.calibration_report`, each written
+  through its strict outbound model and read back through the preserving inbound one, plus the
+  unknown-field round trip API standards §7 rule 4 requires of a reader. The `contracts` CI job
+  previously selected zero tests and exited 5 — it failed on every push.
+- **Live coverage of the M2 exit condition** (`tests/live/test_real_run.py`): the Phase 9 suites,
+  Phase 10's drill-down/comparison/export on real runs, and a subjective goal authored through the
+  wizard's own forms, calibrated against a **real jury**, and scored — on real weights. The
+  grades are supplied from a fixed pattern rather than by a person, which the test says outright:
+  it demonstrates the pipeline, not that a human would agree with the jury.
+- The three FreeWeight documents absent from this repository's `docs/` mirror —
+  `benchmark-catalog.md`, `data-model.md` and `risks.md`. Their absence had also forced links to
+  them out of the four documents that were mirrored; those links are restored.
+
+### Changed
+- **Dependency ranges corrected to what exists and what is verified.** `setspec>=0.3,<0.4` was
+  copied from the packaging standards' example, which describes the post-M3 state: SetSpec is 0.2
+  until its schemas are frozen at M3, so the declared range made this distribution unresolvable.
+  It is now `>=0.2,<0.3` and moves with the freeze. Four of the seven `dev` pins were a major
+  behind the toolchain the gate is actually run with (pytest, pytest-cov, pytest-randomly, mypy),
+  so CI installed a different toolchain than any developer ran.
+- The end-to-end fixtures disable the idle-detection wait. The shipped default waits for three
+  consecutive quiet telemetry observations at one-second intervals before the first provider call,
+  which was **2.2 s of every run** in the suite and the same wait on every one of them. Idle
+  detection keeps its own tests, which cover all three of its outcomes. The default suite went from
+  4:55 back to **2:15**, under testing standards §10's three-minute limit and below the
+  pre-Phase-10 baseline.
+
+### Added
+- **Phase 10: the dashboard, the results experience, data management and exports.** A dashboard
+  that answers the four questions before the user scrolls, and answers them with *one stored
+  measurement from one named run* — the latest completed run of that suite for that model. Nothing
+  on it is averaged across runs, because averaging two runs that measured different benchmark
+  versions on different hardware produces a number about nothing; the anti-lie test recomputes
+  every headline figure straight from the raw samples and requires equality. Every figure is at
+  most two interactions from the records behind it, and the last of those is a **case inspector**
+  showing one request's prompt identity, response, tool calls, per-criterion scoring, juror
+  rationales and the telemetry observed while it ran.
+- **A metric-level results query** (`GET /api/v1/results`, `freeweight results list`) with cursor
+  pagination over a total order — run creation, run ID, metric key and the metric row's own ID,
+  because one run legitimately holds several rows under one key and a shorter sort key silently
+  skipped the second of every pair.
+- **Streaming exports** in JSON, JSONL and CSV over run, model, suite, comparison and whole-database
+  scopes (`GET /api/v1/results/export`, `freeweight results export`). The document leaves the
+  process as chunks, so a 10 000-sample run costs one run of memory rather than all of it, and the
+  assembled JSON is byte-identical to the canonicalizer it claims to match. Unavailable
+  measurements are the string `"unsupported"` in every format — never `0`, never `null`, never an
+  empty cell.
+- **Data management that previews before it removes anything.** `GET /api/v1/database/stats`,
+  `POST /api/v1/database/delete-preview`, `DELETE /api/v1/database/results`, and the page behind
+  them. The preview returns a token computed over the selection *and* the counts; the deletion
+  recomputes both and refuses if either moved, so "this will delete 412 rows" is a statement rather
+  than a hope. Models, machines, descriptors, runtime profiles, benchmark definitions, goals and
+  every calibration row are untouched and are re-counted afterwards to show it.
+- **A settings page for the settings a running server may change**, by allowlist. Anything
+  security-relevant — the bind address, the exposure flag, auth tokens, the remote-provider
+  allowance, the database URL, the data roots — is refused with `403 FORBIDDEN` naming the key, and
+  is listed on the page as read-only with its environment variable beside it.
+- **`freeweight results list|show|export`**, completing spec §7.2's four verbs, and a realistic
+  `Example:` in every command's help across the whole CLI.
+- **Phase 10A: the goal authoring wizard and the four starter packs.** Seven server-rendered steps
+  that take a user with no prior setup from a sentence to a JSON goal pack they own. Step 2 is the
+  part that earns the feature: of every criterion it asks whether two people would grade the same
+  text the same way and whether it is one quality or two, and where the answer is "two" it makes
+  the split visible rather than performing it. The rule proposer never applies a rule — accepting
+  one is the only thing that moves a criterion down the ladder, and the running statement of how
+  much weight has come off the judge updates as it happens.
+- **Blinded, resumable inline grading.** The model that produced a sample is never fetched, the
+  order is a stable per-goal shuffle, and every grade is a stored row rather than page state — so a
+  refresh, a server restart mid-sitting and an out-of-order regrade all lose nothing and duplicate
+  nothing. The calibration report states the band and its consequence in words, with the
+  coefficient and `n_holdout` beside them, and shows the samples where the jury and the author
+  diverged most.
+- **Four starter packs** — `creative_voice`, `technical_explanation`, `brand_voice` and
+  `summary_faithfulness` — each with tasks, criteria, proposed rules and a worked, graded
+  calibration set that reproduces its documented agreement figures under a fixed seed and a
+  reference jury. Read in that order their deterministic weight rises 40 % → 55 % → 70 % → 90 %.
+  A fork that has not been edited is badged `unforked` in the pack, in the UI, in its results and
+  in its exports.
+
+### Changed
+- `db status` now reports row counts for **every** table the application owns. The previous set
+  omitted `runs`, `samples` and `metric_values` — every table that actually holds a user's
+  measurement history, and every table a deletion touches.
+- `GET /results/compare?subjects=…&suite=…` accepts **model** references as well as run
+  references: a model resolves to its latest completed run of `suite`, and naming a model with no
+  suite is refused rather than guessed. The run reading and the `suite` guard are unchanged. This
+  closes `PHASE9_ISSUES.md` §9; the resolver lives beside the dashboard's so the two cannot come to
+  disagree about what "latest" means.
+- The design tokens gained `--mw-accent-text` and `--mw-border-strong`. The brand accent is
+  3.87:1 on white, below the 4.5:1 UI/UX standards §7 calls non-negotiable for body text, so link
+  text uses a darkened pair while the brand blue keeps filling buttons, drawing the focus ring and
+  colouring the chart series. A contrast test now runs over every token pair the application
+  actually renders, in both themes.
+
+### Fixed
+- Cursor pagination truncated its timestamp to milliseconds, so the second page of any result set
+  came back empty. Cursors now carry the stored instant at full precision.
+
+### Added
+- **Phase 9: memory, energy, reliability, and a comparison engine that refuses to average.**
+  `native.memory_kv` computes a theoretical KV cost from the descriptor's own architecture fields
+  and compares it against the VRAM slope actually observed across a 1K–64K context sweep, reporting
+  the fit quality beside the slope so the phase's named risk — slope noise from another process —
+  is visible rather than averaged in. A missing architecture field produces `unsupported`, never a
+  number built from a guess; a hybrid or state-space architecture is flagged and excluded from the
+  transformer formula rather than forced through it; and an out-of-memory rejection is stored as
+  the maximum-context measurement it is, not as a failed run. The cache-reuse pair is two tests in
+  two measurement classes, so a first pass over a prefix and a reuse of it can never be averaged
+  into one prefill number.
+- `native.energy`: joules integrated from the power samples' **own timestamps**, never from the
+  sampler's nominal interval — which drifts most exactly while the device is busiest — with joules
+  per request, per output token and per successful task, tokens per joule, successful tasks per
+  kWh, peak power, host temperature and the throttle verdict. Every figure is labelled a
+  telemetry-derived estimate by the type that carries it, and an unknown throttle state is
+  `unsupported` rather than "did not throttle".
+- `native.reliability`: dispersion, the unbiased `pass@k` over every stored repetition, and
+  byte-level answer agreement across repetitions. Outliers are flagged and reported under a named
+  policy and are never silently discarded; where a caller chooses to exclude, the policy, the
+  threshold and the removed values come back with the result.
+- `freeweight.domain.statistics`: mean, median, min, max, sample standard deviation, coefficient of
+  variation and percentiles, `pass@k` and answer agreement — each returned as a `Statistic` that
+  carries the sample count it used and the count it excluded, so a figure cannot be reported
+  without them. An all-`unsupported` series is `unsupported` with a reason, never `0`, and a single
+  observation has no standard deviation rather than one of `0.0`.
+- `freeweight.domain.comparison`: comparability verdicts over BaseAiCore's matrix, plus the two
+  facts a measurement subject cannot carry — the descriptor's family and quantization — which turn
+  its `indeterminate` into a named quantization study. Subjects are partitioned per metric kind
+  into groups that may be merged, and a subject joins a group only when it clears *every* member of
+  it. Every separation carries the field-level fingerprint diff that explains it.
+- `GET /api/v1/results/compare`, the `/compare` page and `freeweight results compare`: one row per
+  metric, one column per run, the sample and exclusion counts under every figure, and a visible,
+  labelled separation wherever two columns must not be read against each other. Comparing runs from
+  two suite versions is refused with the versions named and the diff printed; the CLI still exits
+  `0`, because "these cannot be merged, and here is why" is an answer rather than a breakage.
 - **Phase 8: four judgement-dependent suites, and judge infrastructure that measures the judge.**
   `native.audit` runs a mutation corpus *and its clean originals*, so "a model that reports many
   possible problems must not score well" is a measurement rather than an aspiration: precision,

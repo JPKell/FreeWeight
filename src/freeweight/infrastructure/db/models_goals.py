@@ -69,6 +69,7 @@ __all__ = [
     "GoalCriterion",
     "GoalTaskRow",
     "JudgeVerdict",
+    "WizardDraft",
 ]
 
 _RUNGS = ("rule", "reference", "human", "judge")
@@ -365,3 +366,28 @@ class JudgeVerdict(Base):
     output_tokens: Mapped[float | None] = mapped_column(Float)
     refused_reason: Mapped[str | None] = mapped_column(String)
     created_at: Mapped[datetime] = mapped_column(UtcDateTime, nullable=False, default=utcnow)
+
+
+class WizardDraft(Base):
+    """A goal-authoring session between steps 1 and 4, before any pack has been written.
+
+    Its own table rather than a key in ``settings``, which is where it used to live. A draft is
+    user data with a lifecycle — created, edited over minutes or days, then deleted when its pack
+    is written or abandoned — and none of that was expressible in a key-value settings store: no
+    expiry, no index, and ``db status`` counted drafts as settings.
+
+    ``expires_at`` is what makes an abandoned draft disappear rather than accumulate. It is a
+    column rather than a sweep because the read path already has to decide whether a draft is
+    still live, and a draft past its expiry is *gone* whether or not anything has collected it
+    yet — which is the same rule :meth:`load_draft` applies.
+    """
+
+    __tablename__ = "wizard_drafts"
+    __table_args__ = (Index("ix_wizard_drafts_expires_at", "expires_at"),)
+
+    id: Mapped[str] = mapped_column(String(26), primary_key=True)
+    slug: Mapped[str | None] = mapped_column(String)
+    body_json: Mapped[object] = mapped_column(PortableJSON, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(UtcDateTime, nullable=False, default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(UtcDateTime, nullable=False, default=utcnow)
+    expires_at: Mapped[datetime] = mapped_column(UtcDateTime, nullable=False)

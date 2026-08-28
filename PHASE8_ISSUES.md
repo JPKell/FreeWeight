@@ -13,6 +13,36 @@ regression test somebody should be able to find the reason for.
 
 ---
 
+---
+
+## Status — 2026-08-28
+
+Two passes on 2026-08-28 — a documentation pass, then the decisions it surfaced — closed thirteen
+of these. What each one needed is recorded so a reader can tell "fixed" from "written down and
+still owed".
+
+| # | Issue | Status |
+|---|---|---|
+| 1 | Three stable error codes are not in spec §13's table | **Closed.** Spec §13 lists all five missing codes — the three named here plus `COMPARISON_SUBJECT_NOT_FOUND` and `COMPARISON_REFUSED`, found while doing it — each with why the shared set could not describe it. Statuses are in the new [API §11](docs/apps/freeweight/api.md), which is the error table the document never had. |
+| 2 | `MetricDefinition.source` is a manifest field the catalog does not document | **Closed.** Catalog §5 names `source` in the field list and the example; §5.1 explains why the fallthrough is unsafe for a conditional rate. |
+| 3 | Two export formats need naming apart | **Closed.** Spec §7.3 carries a table separating `benchmark.goal_pack` from the bundle; Subjective Goals gains §2.3 describing the bundle format; API §3a says which endpoint produces which. |
+| 4 | The `[goals]`, `[judge]` and `[calibration]` sections have no reference entry | **Partly.** Spec §12 now documents `[runtime]` — which shipped in Phase 10 and was undocumented — and states plainly that the *generated* reference Configuration Standards §8 requires is owed. The generator and its CI check still do not exist. |
+| 5 | `native.audit` and `native.long_context` produce fewer metrics than the catalog lists | **Closed.** The eleven unowned figures move to catalogue §3.15, out of 1.0 scope, each with what it is blocked on. §3 now promises only what ships. |
+| 6 | The `FreeWeight/docs/` mirror is stale and incomplete | **Closed, structurally.** All seven documents, written by `scripts/sync_docs.py`, with `--check` for CI. The de-linking convention is the script rather than a habit, which is what failed last time. |
+| 7 | `capability_evidence` does not exist yet | **Open.** Phase 11. |
+| 8 | `contributes_to` is stored and linted but never emitted twice | **Open.** Phase 11. |
+| 9 | Rung-4 (`human`) criteria are parsed and skipped | **Closed as a decision: Phase 11 owns it.** Phase 10 was named as owner and shipped the *calibration* half only, which is how it came to belong to no phase. Phase 11 is where a human grade first has somewhere to go — evidence — and its Work list now names the UI and the CLI. |
+| 10 | Starter packs, the wizard, and the endpoints that serve them | **Closed.** All shipped in Phase 10A: the starters page, `GET /api/v1/goals/starters`, `POST /goals/starters/{key}/fork`, and `freeweight goals starters|fork-starter`. |
+| 11 | The rule timeout cannot interrupt a regex | **Closed.** Spec §14 now says the dialect is the guard and the timeout the backstop, and states why CPython cannot deliver the other order. |
+| 12 | `CALIBRATION_REQUIRED` is specified and unimplemented | **Closed: the spec yields.** §13 now says an uncalibrated judged goal runs, emits no evidence, and reports what is missing. ADR-0032 §3's argument applies harder *before* the first calibration than after a failed gate — the author has nothing at all to look at. The code already did this. |
+| 13 | `runs.prompt_pack_id`, `prompt_pack_version`, `prompt_pack_hash` are always `NULL` | **Closed.** Populated from the active prompt library at run creation. |
+| 14 | `prompt_source = "user_override"` is on the run, not on every record | **Closed: the standard yields.** Prompt standards §6 now says run granularity, because an override applies to every sample of the run that rendered it — a per-sample column would store one identical value ten thousand times and add no fact. |
+| 15–17 | | **Closed** in-phase. |
+| 18 | Phase 8 acceptance criterion 3 shows the sweep's gap, not the model's | **Closed.** The ceiling is `benchmarks.long_context_max_tokens`, default 32 000: how far a sweep reaches is a property of the machine. The effective ladder is hashed into the suite's `dataset_hashes`, so two ceilings never average. |
+| 19 | Deleting a goal removes its pack directory without a backup | **Open.** Needs a decision. |
+
+---
+
 ## Needs a documentation change
 
 ### 1. Three stable error codes are not in spec §13's table

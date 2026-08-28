@@ -28,7 +28,7 @@ from freeweight.domain.goals.pack import Rung
 if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence
 
-__all__ = ["SampleComposite", "composite_score", "score_method_mix"]
+__all__ = ["SampleComposite", "composite_score", "outcome_detail", "score_method_mix"]
 
 
 def score_method_mix(outcomes: Sequence[CriterionOutcome]) -> dict[str, float]:
@@ -82,20 +82,35 @@ class SampleComposite:
             "applied_weight": self.applied_weight,
             "declared_weight": self.declared_weight,
             "score_method_mix": dict(self.score_method_mix),
-            "criteria": [
-                {
-                    "key": outcome.criterion_key,
-                    "rung": outcome.rung.value,
-                    "weight": outcome.weight,
-                    "raw_score": outcome.raw_score,
-                    "status": outcome.status.value,
-                    "gated": outcome.gated,
-                    "skip_reason": outcome.skip_reason,
-                    "detail": dict(outcome.detail),
-                }
-                for outcome in self.outcomes
-            ],
+            "criteria": [outcome_detail(outcome) for outcome in self.outcomes],
         }
+
+
+def outcome_detail(outcome: CriterionOutcome) -> dict[str, Any]:
+    """Render one criterion outcome as the entry a sample stores under ``criteria``.
+
+    One definition of the shape, because two things read it: this module's own
+    :meth:`SampleComposite.as_detail`, and the run engine, which turns each entry into a
+    ``criterion_scores`` row. A goal that defers its judging writes these entries before it has a
+    composite and reads them back afterwards, so a second spelling of the same dictionary would be
+    a silent way for the two halves of a run to disagree.
+
+    Args:
+        outcome: The criterion outcome.
+
+    Returns:
+        The entry, JSON-safe.
+    """
+    return {
+        "key": outcome.criterion_key,
+        "rung": outcome.rung.value,
+        "weight": outcome.weight,
+        "raw_score": outcome.raw_score,
+        "status": outcome.status.value,
+        "gated": outcome.gated,
+        "skip_reason": outcome.skip_reason,
+        "detail": dict(outcome.detail),
+    }
 
 
 def composite_score(outcomes: Sequence[CriterionOutcome]) -> SampleComposite:

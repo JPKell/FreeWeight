@@ -673,6 +673,28 @@ class SampleRepository:
         ).all()
         return {(str(row[0]), int(row[1]), int(row[2])) for row in rows}
 
+    def list_awaiting_judgement(self, session: Session, run_id: str) -> list[Sample]:
+        """Return this run's samples that generated but have not been judged.
+
+        The judging phase's work list. Ordered by test and then by declaration order, so a run
+        judged twice — a resumed one — presents its samples in the same sequence both times.
+
+        Args:
+            session: The read session.
+            run_id: The run.
+
+        Returns:
+            The pending samples, empty for every run without deferred judging.
+        """
+        return list(
+            session.scalars(
+                select(Sample)
+                .join(RunTest, RunTest.id == Sample.run_test_id)
+                .where(RunTest.run_id == run_id, Sample.status == "awaiting_judgement")
+                .order_by(Sample.run_test_id.asc(), Sample.ordinal.asc(), Sample.repetition.asc())
+            ).all()
+        )
+
     def list_for_run_test(
         self, session: Session, run_test_id: str, *, limit: int = 500
     ) -> list[Sample]:

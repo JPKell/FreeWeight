@@ -4,6 +4,7 @@
   "version": "1.0.0",
   "category": "long_context",
   "runner": "native",
+  "headline_metric": "retrieval_accuracy",
   "scorer": "long_context_retrieval",
   "capabilities": [
     "long_context"

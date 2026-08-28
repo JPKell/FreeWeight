@@ -1,0 +1,42 @@
+{
+  "prompt_id": "benchmarks.memory_kv.context_probe",
+  "version": "1.0.0",
+  "schema_version": "1.0",
+  "purpose": "Occupy a known amount of context and generate a token or two, so device memory can be read at that context length without the answer mattering.",
+  "task": "benchmark.memory_kv",
+  "capability": "memory_efficiency",
+  "system": null,
+  "template": "{{ passage }}\n\n{{ instruction }}",
+  "variables": {
+    "passage": {
+      "type": "string",
+      "required": true,
+      "description": "Filler text sized to the context length under test. Its content is irrelevant; only the KV cache it fills is measured."
+    },
+    "instruction": {
+      "type": "string",
+      "required": true,
+      "description": "What to do with the passage. Always asks for a very short answer, so decode contributes as little as possible to the memory reading."
+    }
+  },
+  "response": {
+    "format": "text",
+    "json_schema_ref": null,
+    "expectations": [
+      "Any text. This prompt measures what a context costs in device memory, never whether the answer is right."
+    ]
+  },
+  "model_requirements": {
+    "min_context_tokens": 1024,
+    "requires_capabilities": [],
+    "recommended_temperature": 0.0
+  },
+  "metadata": {
+    "author": "suite",
+    "created_at": "2026-08-27T00:00:00Z",
+    "changed_at": "2026-08-27T00:00:00Z",
+    "change_reason": "First version: native.memory_kv needs one prompt record so its observed context slope has a real prompt subset hash from the first measured run.",
+    "supersedes": null,
+    "tags": ["benchmark", "memory_kv"]
+  }
+}

@@ -36,6 +36,7 @@
       <th scope="col">Wall (ms)</th>
       <th scope="col">Finish</th>
       <th scope="col">Error</th>
+      <th scope="col">Inspect</th>
     </tr>
   </thead>
   <tbody>
@@ -43,7 +44,7 @@
     <tr>
       <td><code>{{ sample.case_id }}</code></td>
       <td class="numeric">{{ sample.repetition }}</td>
-      <td><span class="status status-{{ sample.status }}">{{ sample.status }}</span></td>
+      <td><span class="status status-{{ sample.status }}">{{ sample.status | replace("_", " ") }}</span></td>
       <td>
         {% if sample.prompt_id %}
         <code>{{ sample.prompt_id }}</code> <span class="muted">{{ sample.prompt_version }}</span>
@@ -65,6 +66,10 @@
       <td class="numeric">{{ "%.1f" | format(sample.client_wall_ms) if sample.client_wall_ms is not none else "—" }}</td>
       <td>{{ sample.finish_reason or "—" }}</td>
       <td>{{ sample.error_code or "—" }}</td>
+      {# The second of the two interactions UI standards §13 allows between a headline metric and
+         its raw record: the case inspector shows this sample's prompt identity, its response, its
+         tool calls, its per-criterion scoring and the telemetry observed while it ran. #}
+      <td><a href="/results/samples/{{ sample.id }}">inspect</a></td>
     </tr>
     {% endfor %}
   </tbody>

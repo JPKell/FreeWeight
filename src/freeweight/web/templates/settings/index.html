@@ -1,0 +1,97 @@
+{% extends "base.html" %}
+{% block title %}Settings — FreeWeight{% endblock %}
+{% block content %}
+<h2>Settings</h2>
+<p class="muted">
+  Only settings that can be changed safely while the server is running appear here. Anything that
+  decides who can reach this machine, what leaves it, or where its data lives is set in
+  <code>config.toml</code>, the environment or on the command line — and is listed below as
+  read-only.
+</p>
+
+{% if error %}
+<div class="error-state" role="alert">
+  <h3>That change was refused</h3>
+  <p>{{ error }}</p>
+</div>
+{% endif %}
+{% if notice %}
+<div class="notice" role="status">{{ notice }}</div>
+{% endif %}
+
+<form method="post" action="/settings">
+  <input type="hidden" name="booleans"
+         value="{{ views | selectattr('setting.kind', 'equalto', 'bool') | map(attribute='setting.key') | join(',') }}">
+  <div class="table-scroll">
+    <table>
+      <caption>Runtime-changeable settings. New values apply to work started after you save.</caption>
+      <thead>
+        <tr>
+          <th scope="col">Setting</th>
+          <th scope="col">Value</th>
+          <th scope="col">Source</th>
+          <th scope="col">What it does</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for view in views %}
+        <tr>
+          <th scope="row"><label for="s-{{ loop.index }}" class="mono">{{ view.setting.key }}</label></th>
+          <td>
+            {% if view.setting.kind == 'bool' %}
+            <input id="s-{{ loop.index }}" type="checkbox" name="setting.{{ view.setting.key }}"
+                   value="true" {% if view.effective_value %}checked{% endif %}
+                   {% if view.source == 'env' %}disabled{% endif %}>
+            {% elif view.setting.kind == 'choice' %}
+            <select id="s-{{ loop.index }}" name="setting.{{ view.setting.key }}"
+                    {% if view.source == 'env' %}disabled{% endif %}>
+              {% for choice in view.setting.choices %}
+              <option value="{{ choice }}" {% if view.effective_value == choice %}selected{% endif %}>{{ choice }}</option>
+              {% endfor %}
+            </select>
+            {% else %}
+            <input id="s-{{ loop.index }}" type="number" name="setting.{{ view.setting.key }}"
+                   value="{{ view.effective_value }}"
+                   {% if view.setting.minimum is not none %}min="{{ view.setting.minimum }}"{% endif %}
+                   {% if view.setting.maximum is not none %}max="{{ view.setting.maximum }}"{% endif %}
+                   {% if view.setting.kind == 'float' %}step="any"{% endif %}
+                   {% if view.source == 'env' %}disabled{% endif %}>
+            {% endif %}
+            {% if view.setting.unit %}<span class="unit">{{ view.setting.unit }}</span>{% endif %}
+          </td>
+          <td>
+            {{ view.source }}
+            {% if view.source == 'env' %}
+            <br><span class="unit">{{ view.setting.env_var }} wins over anything stored here.</span>
+            {% endif %}
+          </td>
+          <td class="muted">{{ view.setting.description }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  <p><button type="submit" data-variant="primary">Save settings</button></p>
+</form>
+
+<h3>Configuration file only</h3>
+<p class="muted">
+  These are security-relevant. They are never editable from this UI, in any state, for any user —
+  a boundary a browser session can move is not a boundary (configuration standards §7). Edit
+  <code>config.toml</code> and restart, or set the environment variable.
+</p>
+<div class="table-scroll">
+  <table>
+    <caption>Config-only keys. <code>freeweight config show</code> prints their effective values.</caption>
+    <thead><tr><th scope="col">Key</th><th scope="col">Environment variable</th></tr></thead>
+    <tbody>
+      {% for key in config_only %}
+      <tr>
+        <td class="mono">{{ key }}</td>
+        <td class="mono">FREEWEIGHT_{{ key.split('.')[0] | upper }}__{{ key.split('.')[1] | upper }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

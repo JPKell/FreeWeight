@@ -97,10 +97,17 @@ class SkipReason(StrEnum):
     ground truth the task did not supply. ``RULE_TIMEOUT`` and ``RULE_INVALID`` are failures of
     the criterion rather than absences of measurement, and they are recorded as ``error`` rather
     than ``skipped`` so a user can tell "this did not apply" from "this is broken".
+
+    ``JUDGE_DEFERRED`` is **transient and must never survive a completed run**: it marks a judged
+    criterion during the generation phase, before the jury has run. It is a different fact from
+    ``JUDGE_UNAVAILABLE``, which is permanent and means no jury could be assembled at all — one
+    says "not yet", the other says "not ever", and a reader who could not tell them apart would
+    read an in-progress run as a degraded one.
     """
 
     UNSUPPORTED = "unsupported"
     JUDGE_UNAVAILABLE = "judge_unavailable"
+    JUDGE_DEFERRED = "judge_deferred"
     HUMAN_GRADE_PENDING = "human_grade_pending"
     RULE_TIMEOUT = "rule_timeout"
     RULE_INVALID = "rule_invalid"

@@ -104,7 +104,7 @@ by real tables.
 
 **Work**
 * SQLAlchemy models for `machines`, `models`, `model_descriptors`, `runtime_profiles`, `settings`,
-  `api_tokens` (Data Model).
+  `api_tokens` ([Data Model](data-model.md)).
 * Engine/session plumbing written **as if it were a package** (it becomes WeightsDB later): pragmas,
   session scope, transaction helper, portable types.
 * Alembic: migration `0001`, autogenerate parity check in CI, startup revision check with the
@@ -308,7 +308,7 @@ for the run and a complete reproducibility fingerprint — and the same run can 
 * Prompt library: record schema, pack manifest, `StrictUndefined` renderer, canonical hashing,
   `prompt_subset_hash`, startup validation — written as if it were a package, because it becomes one
   at LoadCoach P4 (ADR-0028).
-* `native.performance` and `native.token_economy` per the Benchmark Catalog.
+* `native.performance` and `native.token_economy` per the [Benchmark Catalog](benchmark-catalog.md).
 * Telemetry table split (host rows and per-GPU rows) and `execution.gpu_index` attribution
   (ADR-0027); idle-detection outcome per
   [spec §13](spec.md).
@@ -495,16 +495,16 @@ the goal machinery on the deterministic half of the ladder before any model judg
 **Prerequisites:** P7 (prompt library, scorer patterns, run engine). Not P8 — nothing here judges.
 
 **Work**
-* Goal pack schema, loader and validator per Subjective Goals §2; packs load
+* Goal pack schema, loader and validator per [Subjective Goals §2](subjective-goals.md); packs load
   once at startup exactly as prompt packs do, and a malformed pack is a startup failure, not a
   mid-run surprise.
 * `goals`, `goal_criteria`, `goal_tasks`, `criterion_scores` tables and migration;
   `benchmark_suites.runner` gains `goal`, plus `goal_id` and `goal_hash`.
 * `goal_hash`: canonical JSON over the measurement-defining subset only
-  (Subjective Goals §2.2). Renaming a criterion must not move it; changing what
+  ([Subjective Goals §2.2](subjective-goals.md)). Renaming a criterion must not move it; changing what
   it checks must.
 * The rule-criterion library — all thirteen types in
-  Subjective Goals §3.1 — each a pure function with a docstring stating what it
+  [Subjective Goals §3.1](subjective-goals.md) — each a pure function with a docstring stating what it
   refuses, under `rule_timeout_ms`, with a linted regex dialect (no backreferences, bounded
   repetition).
 * Rung-3 reference criteria: `entity_recall`, `claim_coverage`, `no_unsupported_claims`,
@@ -875,14 +875,37 @@ application can consume with no FreeWeight code and no database access.
 * `capability_evidence` table, recomputation service, staleness detection and badging.
 * `GET /api/v1/evidence`, `GET /api/v1/evidence/export`, `freeweight evidence show|export`.
 * Contract tests against SetSpec goldens; publish the OpenAPI snapshot.
+* **The generated configuration reference** (Configuration Standards
+  §8): `docs/configuration.md`, produced from the
+  settings model so it cannot drift, listing per field its key path, environment variable, type,
+  default, valid range, whether it is runtime-changeable, its security implications and an example.
+  A CI job fails when the committed file differs from the generated one.
+
+  It lands here because the write-or-check pattern now exists in the repository —
+  `scripts/sync_docs.py` is the same shape — so the second generator is much cheaper than the first
+  was, and pydantic already holds every field, type, default and constraint. Spec §12 is the
+  hand-maintained authority until then, and it has drifted twice: `[goals]`, `[judge]`,
+  `[calibration]` and `[runtime]` were all added without it.
+* **The blinded grading UI for rung-4 (`human`) criteria**, and the CLI equivalent. A
+  `rung: "human"` criterion already validates, hashes, lints and appears in `score_method_mix`, and
+  then skips every sample with `human_grade_pending` — so a goal that declares one measures less of
+  itself than it says. The grading *machinery* exists: Phase 10A's calibration grading writes real
+  `calibration_grades` rows through the same blinded presentation
+  ([Subjective Goals §3.3, §5.2](subjective-goals.md)). What is missing is the second entry point,
+  over an ordinary run's samples rather than a calibration set. It lands here because this is the
+  phase where a human grade would first have somewhere to go: evidence. Phase 10 was named as the
+  owner and shipped the calibration half only, which is how it came to belong to no phase.
 
 **Files/subsystems**
 ```text
 src/freeweight/domain/{capability_mapping,confidence}.py
 src/freeweight/services/evidence.py  src/freeweight/web/routes/evidence.py
 src/freeweight/cli/commands/evidence.py  src/freeweight/config/capability_weights.toml
+src/freeweight/web/routes/grading.py  src/freeweight/web/templates/grading/
+scripts/generate_config_reference.py  docs/configuration.md
 tests/unit/{test_confidence,test_capability_mapping}.py
 tests/contract/{test_evidence_schema,test_evidence_export}.py
+tests/integration/test_human_grading.py
 ```
 
 **Tests**

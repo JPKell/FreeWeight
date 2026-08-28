@@ -1,0 +1,195 @@
+{
+  "schema_version": "1.0",
+  "description": "A worked calibration set: twelve candidate outputs and the grades a careful author gave them, spanning the scale. Grading twelve samples is a real sitting, and this set exists so a fresh install can show the whole calibration path without one.",
+  "samples": [
+    "The count came out eleven short. I recounted the pallet twice, then the aisle, then the whole row, and it stayed eleven short. Karl had gone home at six. I stood under the sodium light with the clipboard and thought about the eleven boxes the way you think about a tooth.\n\nThere was no drama in it. I wrote eleven in the variance column, initialled it, and left the sheet on the desk where the morning would find it. On the drive home I passed the depot twice because I missed the turning, which is what happens when you are still counting.",
+    "The inventory did not add up. Eleven units were missing from a pallet of four hundred. I counted it three times, which is two more times than counting usually deserves.\n\nI logged the variance and went home. The next morning somebody found nine of them behind the returns cage and nobody ever found the other two. That is roughly the ratio of most mysteries.",
+    "Counting stock at night is a strange sort of meditation. You lose track of yourself in the numbers, and the warehouse becomes a kind of cathedral of commerce where every box is a small prayer to logistics.\n\nWhen the count did not balance, I felt that familiar unease that comes from the gap between what we believe and what is true. It is a feeling worth sitting with.",
+    "Eleven boxes short. I counted the pallet at 21:40, again at 22:05, and a third time at 22:30, and the number did not move.\n\nI filled in the variance sheet. Under 'probable cause' I wrote 'unknown', which is the honest answer and also the one that generates the most email.",
+    "In today's fast-paced logistics landscape, discrepancies are inevitable. What matters is how we navigate the complexities of variance reporting and leverage our processes to unlock better outcomes.\n\nThat night, the inventory taught me a valuable lesson about resilience.",
+    "The count was short. I checked the pallet, the aisle and the returns cage, and it stayed short by eleven. The forklift charger hummed. Somewhere a pigeon was in the roof again.\n\nI wrote it up and left. On the way out I noticed the pigeon had got into the roof through the same gap as last March, which nobody had fixed, and which was not eleven boxes but was something.",
+    "It was late and the numbers were wrong. I did what anyone would do: I counted again, and then I counted again after that, and eventually I accepted the discrepancy and moved on with my life.\n\nSometimes you have to accept that not everything can be reconciled.",
+    "Eleven short on a pallet of four hundred, at 22:30, under a light that buzzes on the third flicker. I have counted that pallet enough times to know its shape from the aisle.\n\nI wrote eleven in the variance column. The column is four centimetres wide and has held worse.",
+    "The stock take revealed a shortfall. Investigation of the pallet, the surrounding aisle, and the returns area did not identify the missing units. The variance was recorded in accordance with the standard process and escalated the following morning.\n\nSubsequent review identified nine units; two remain unaccounted for.",
+    "I counted eleven boxes missing and then, because it was a Tuesday and I had nothing better to do, I counted them missing twice more.\n\nThe variance sheet has a box for probable cause. I have never once had a probable cause. I have had a great many improbable ones.",
+    "The night shift is a different country. Nobody speaks. The machines do most of the talking and the rest of us fill in forms about what they said.\n\nEleven boxes went missing and the forms had a great deal to say about it.",
+    "Something did not add up in the inventory that night, and it made me reflect on how we as an industry approach the tapestry of supply chain integrity.\n\nAt the end of the day, the numbers are just numbers, but the trust behind them is everything."
+  ],
+  "grades": [
+    {
+      "sample": 0,
+      "criterion": "dry_wit",
+      "grade": 5,
+      "note": "Understated and specific. The tooth line is the only flourish and it earns itself."
+    },
+    {
+      "sample": 0,
+      "criterion": "concrete_over_abstract",
+      "grade": 5,
+      "note": "Understated and specific. The tooth line is the only flourish and it earns itself."
+    },
+    {
+      "sample": 1,
+      "criterion": "dry_wit",
+      "grade": 4,
+      "note": "Dry, mostly concrete, slightly reaches for the closing line."
+    },
+    {
+      "sample": 1,
+      "criterion": "concrete_over_abstract",
+      "grade": 4,
+      "note": "Dry, mostly concrete, slightly reaches for the closing line."
+    },
+    {
+      "sample": 2,
+      "criterion": "dry_wit",
+      "grade": 2,
+      "note": "Abstraction throughout, and the wit is replaced by portent. Nothing you could photograph."
+    },
+    {
+      "sample": 2,
+      "criterion": "concrete_over_abstract",
+      "grade": 1,
+      "note": "Abstraction throughout, and the wit is replaced by portent. Nothing you could photograph."
+    },
+    {
+      "sample": 3,
+      "criterion": "dry_wit",
+      "grade": 5,
+      "note": "The email line is exactly the register I want. Times are specific."
+    },
+    {
+      "sample": 3,
+      "criterion": "concrete_over_abstract",
+      "grade": 4,
+      "note": "The email line is exactly the register I want. Times are specific."
+    },
+    {
+      "sample": 4,
+      "criterion": "dry_wit",
+      "grade": 1,
+      "note": "This is the thing I am trying to measure the absence of."
+    },
+    {
+      "sample": 4,
+      "criterion": "concrete_over_abstract",
+      "grade": 1,
+      "note": "This is the thing I am trying to measure the absence of."
+    },
+    {
+      "sample": 5,
+      "criterion": "dry_wit",
+      "grade": 4,
+      "note": "Concrete throughout. The pigeon does real work."
+    },
+    {
+      "sample": 5,
+      "criterion": "concrete_over_abstract",
+      "grade": 5,
+      "note": "Concrete throughout. The pigeon does real work."
+    },
+    {
+      "sample": 6,
+      "criterion": "dry_wit",
+      "grade": 3,
+      "note": "Flat reportage with a moral bolted on. No specifics."
+    },
+    {
+      "sample": 6,
+      "criterion": "concrete_over_abstract",
+      "grade": 2,
+      "note": "Flat reportage with a moral bolted on. No specifics."
+    },
+    {
+      "sample": 7,
+      "criterion": "dry_wit",
+      "grade": 5,
+      "note": "The column line is the best in the set. Everything is anchored."
+    },
+    {
+      "sample": 7,
+      "criterion": "concrete_over_abstract",
+      "grade": 5,
+      "note": "The column line is the best in the set. Everything is anchored."
+    },
+    {
+      "sample": 8,
+      "criterion": "dry_wit",
+      "grade": 1,
+      "note": "Correct and specific but written by a form. No voice at all."
+    },
+    {
+      "sample": 8,
+      "criterion": "concrete_over_abstract",
+      "grade": 3,
+      "note": "Correct and specific but written by a form. No voice at all."
+    },
+    {
+      "sample": 9,
+      "criterion": "dry_wit",
+      "grade": 5,
+      "note": "Very funny, and understated about it, but light on physical detail."
+    },
+    {
+      "sample": 9,
+      "criterion": "concrete_over_abstract",
+      "grade": 3,
+      "note": "Very funny, and understated about it, but light on physical detail."
+    },
+    {
+      "sample": 10,
+      "criterion": "dry_wit",
+      "grade": 4,
+      "note": "Nice register, a bit more figurative than concrete."
+    },
+    {
+      "sample": 10,
+      "criterion": "concrete_over_abstract",
+      "grade": 3,
+      "note": "Nice register, a bit more figurative than concrete."
+    },
+    {
+      "sample": 11,
+      "criterion": "dry_wit",
+      "grade": 1,
+      "note": "Every tell at once. The lowest possible grade on both."
+    },
+    {
+      "sample": 11,
+      "criterion": "concrete_over_abstract",
+      "grade": 1,
+      "note": "Every tell at once. The lowest possible grade on both."
+    }
+  ],
+  "expected": {
+    "dry_wit": {
+      "kappa_w": 0.821429,
+      "rho": 0.684211,
+      "mae": 0.8,
+      "bias": 0.0,
+      "n_holdout": 5,
+      "band": "strong"
+    },
+    "concrete_over_abstract": {
+      "kappa_w": 0.888889,
+      "rho": 0.948683,
+      "mae": 0.6,
+      "bias": -0.2,
+      "n_holdout": 5,
+      "band": "strong"
+    }
+  },
+  "expected_summary": {
+    "judge_validity_factor": 0.760428,
+    "weighted_kappa_w": 0.849537,
+    "calibration_state": "calibrated",
+    "n_holdout": 5,
+    "n_anchor": 7,
+    "reference_jury": {
+      "bias": 0,
+      "scatter": 1,
+      "jurors": 3,
+      "description": "A deterministic jury that reproduces the author's own grade with an alternating one-point scatter. It is not a model; it exists so a shipped calibration set has a figure that can be reproduced exactly on any machine, with no GPU and no network."
+    }
+  }
+}

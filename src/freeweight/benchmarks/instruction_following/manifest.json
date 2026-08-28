@@ -4,8 +4,11 @@
   "version": "1.0.0",
   "category": "instruction_following",
   "runner": "native",
+  "headline_metric": "strict_prompt_accuracy",
   "scorer": "instruction_constraints",
-  "capabilities": ["instruction_following"],
+  "capabilities": [
+    "instruction_following"
+  ],
   "requires": {
     "provider_capabilities": [],
     "sandbox": false,
@@ -22,14 +25,62 @@
   "prompt_subset_hash": "sha256:e082b59a2535442ec1dc5ab7c9dd00fbcee1323fce19a10b8e89bc5501d4967c",
   "target_device": "any",
   "metrics": [
-    {"key": "strict_prompt_accuracy", "unit": "ratio", "higher_is_better": true, "aggregation": "mean", "description": "Share of cases where every constraint was met on the response exactly as returned."},
-    {"key": "loose_prompt_accuracy", "unit": "ratio", "higher_is_better": true, "aggregation": "mean", "description": "The same share after a code fence, a conversational lead-in or surrounding quotes are stripped. Reported beside the strict figure, never in place of it."},
-    {"key": "instruction_level_accuracy", "unit": "ratio", "higher_is_better": true, "aggregation": "mean", "description": "Share of individual constraints met, so breaking one rule of five is distinguishable from breaking five."},
-    {"key": "violations_format", "unit": "count", "higher_is_better": false, "aggregation": "mean", "description": "Formatting violations per case: opening text, closing text, required pattern."},
-    {"key": "violations_length", "unit": "count", "higher_is_better": false, "aggregation": "mean", "description": "Length violations per case: word count, line count."},
-    {"key": "violations_keyword", "unit": "count", "higher_is_better": false, "aggregation": "mean", "description": "Keyword violations per case: a required phrase absent or a forbidden one present."},
-    {"key": "violations_structure", "unit": "count", "higher_is_better": false, "aggregation": "mean", "description": "Structural violations per case: list length, per-line shape."},
-    {"key": "violations_language", "unit": "count", "higher_is_better": false, "aggregation": "mean", "description": "Language violations per case: the answer was not written in the requested script."}
+    {
+      "key": "strict_prompt_accuracy",
+      "unit": "ratio",
+      "higher_is_better": true,
+      "aggregation": "mean",
+      "description": "Share of cases where every constraint was met on the response exactly as returned."
+    },
+    {
+      "key": "loose_prompt_accuracy",
+      "unit": "ratio",
+      "higher_is_better": true,
+      "aggregation": "mean",
+      "description": "The same share after a code fence, a conversational lead-in or surrounding quotes are stripped. Reported beside the strict figure, never in place of it."
+    },
+    {
+      "key": "instruction_level_accuracy",
+      "unit": "ratio",
+      "higher_is_better": true,
+      "aggregation": "mean",
+      "description": "Share of individual constraints met, so breaking one rule of five is distinguishable from breaking five."
+    },
+    {
+      "key": "violations_format",
+      "unit": "count",
+      "higher_is_better": false,
+      "aggregation": "mean",
+      "description": "Formatting violations per case: opening text, closing text, required pattern."
+    },
+    {
+      "key": "violations_length",
+      "unit": "count",
+      "higher_is_better": false,
+      "aggregation": "mean",
+      "description": "Length violations per case: word count, line count."
+    },
+    {
+      "key": "violations_keyword",
+      "unit": "count",
+      "higher_is_better": false,
+      "aggregation": "mean",
+      "description": "Keyword violations per case: a required phrase absent or a forbidden one present."
+    },
+    {
+      "key": "violations_structure",
+      "unit": "count",
+      "higher_is_better": false,
+      "aggregation": "mean",
+      "description": "Structural violations per case: list length, per-line shape."
+    },
+    {
+      "key": "violations_language",
+      "unit": "count",
+      "higher_is_better": false,
+      "aggregation": "mean",
+      "description": "Language violations per case: the answer was not written in the requested script."
+    }
   ],
   "license": "project",
   "description": "Deterministic constraint checking. Every case states machine-checkable constraints, the prompt shows the model exactly the constraints the scorer will apply, and no part of the score involves judgement about meaning."

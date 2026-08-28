@@ -26,7 +26,14 @@ import logging
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
-from baseaicore import Measurement, elapsed_ms, is_supported, monotonic_ns, sha256_of
+from baseaicore import (
+    Measurement,
+    RuntimeProfile,
+    elapsed_ms,
+    is_supported,
+    monotonic_ns,
+    sha256_of,
+)
 from modelrack import GenerationRequest, Message, Role, SamplingParameters
 from modelrack.errors import ProviderError
 
@@ -168,6 +175,12 @@ class JuryService:
         repetitions: How many times each juror grades each criterion.
         temperature: The sampling temperature every juror is polled at.
         seed: The run's own seed, so criterion order is reproducible from the run record.
+        runtime_profile: How each juror is loaded and served. A juror is a *measuring instrument*,
+            so the context it is served at is part of its identity as one — and left unset, a
+            provider serves it at the model's advertised maximum, which on a modern local model is
+            128K-262K and enough KV cache to take a machine down (ADR-0023 §4). The candidate's own
+            profile is deliberately reused: judging at a different context than the answers were
+            generated at would be a second, unrecorded variable.
         timeout_seconds: Per-call timeout.
     """
 
@@ -180,6 +193,7 @@ class JuryService:
     repetitions: int = 3
     temperature: float = 0.0
     seed: int = 0
+    runtime_profile: RuntimeProfile = field(default_factory=RuntimeProfile)
     timeout_seconds: float = 300.0
 
     def score_judged(
@@ -395,6 +409,7 @@ class JuryService:
         return GenerationRequest(
             identity=juror.identity,
             messages=tuple(messages),
+            runtime_profile=self.runtime_profile,
             sampling=SamplingParameters(temperature=self.temperature, seed=self.seed),
             timeout_seconds=self.timeout_seconds,
         )
@@ -506,6 +521,7 @@ def build_jury(  # noqa: PLR0913 — a jury is assembled from exactly these fact
     anchors: Mapping[str, tuple[AnchorExemplar, ...]] | None = None,
     seed: int = 0,
     remote: Mapping[str, bool] | None = None,
+    runtime_profile: RuntimeProfile | None = None,
 ) -> JuryService:
     """Assemble the jury for one goal run and resolve every juror through the provider.
 
@@ -579,4 +595,5 @@ def build_jury(  # noqa: PLR0913 — a jury is assembled from exactly these fact
         repetitions=judge.repetitions if judge is not None else settings.repetitions,
         temperature=settings.temperature,
         seed=seed,
+        runtime_profile=runtime_profile if runtime_profile is not None else RuntimeProfile(),
     )

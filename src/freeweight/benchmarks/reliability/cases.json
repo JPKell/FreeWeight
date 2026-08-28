@@ -1,0 +1,42 @@
+{
+  "tests": [
+    {
+      "key": "reliability.answer_stability",
+      "name": "Answer stability",
+      "cases": [
+        {"case_id": "arith-sum", "question": "What is 17 plus 25?", "accepted": ["42"]},
+        {
+          "case_id": "capital-france",
+          "question": "What is the capital city of France?",
+          "accepted": ["paris"]
+        },
+        {
+          "case_id": "count-letters",
+          "question": "How many letters are in the word 'benchmark'?",
+          "accepted": ["9", "nine"]
+        },
+        {
+          "case_id": "colour-sky",
+          "question": "What colour is a clear daytime sky, in one word?",
+          "accepted": ["blue"]
+        }
+      ]
+    },
+    {
+      "key": "reliability.format_stability",
+      "name": "Format stability",
+      "cases": [
+        {
+          "case_id": "format-yes",
+          "question": "Answer with exactly one word: is water wet? Answer yes or no.",
+          "accepted": ["yes"]
+        },
+        {
+          "case_id": "format-digit",
+          "question": "Answer with exactly one digit: how many sides has a triangle?",
+          "accepted": ["3"]
+        }
+      ]
+    }
+  ]
+}

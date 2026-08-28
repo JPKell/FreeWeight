@@ -228,6 +228,10 @@ def run_calibration_endpoint(
         allow_remote_provider=settings.providers.allow_remote,
         anchors=anchors_for(database, goal),
         seed=settings.calibration.partition_seed,
+        # Served under `[runtime]`, not under whatever the provider picks. A juror left to its
+        # advertised context is the exact path that allocated 21.9 GiB of KV cache on a 30 GiB
+        # machine and took the display driver down with it (PHASE10_ISSUES.md).
+        runtime_profile=settings.runtime.to_profile(),
     )
     outcome = run_calibration(
         database,

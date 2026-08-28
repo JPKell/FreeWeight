@@ -1,0 +1,21 @@
+{#
+  The seven-step progress indicator.
+
+  A real <ol> with the current step marked by aria-current, so the position is available to a
+  screen reader and not only to the eye (UI standards §7). Completed steps are links; the ones
+  ahead are not, because a step the draft has not reached yet has nothing to show.
+#}
+<nav aria-label="Wizard progress">
+  <ol style="display: flex; flex-wrap: wrap; gap: var(--mw-space-3); list-style: none; padding: 0;">
+    {% for item in steps %}
+    <li>
+      <span class="unit">{{ loop.index }}.</span>
+      {% if step and item == step %}
+      <strong aria-current="step">{{ item.heading }}</strong>
+      {% else %}
+      <span class="muted">{{ item.heading }}</span>
+      {% endif %}
+    </li>
+    {% endfor %}
+  </ol>
+</nav>

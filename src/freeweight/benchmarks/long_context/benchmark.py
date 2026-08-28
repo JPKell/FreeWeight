@@ -24,8 +24,11 @@ is for, and the sweep is data — a longer one is a case-file edit and a suite v
 
 from __future__ import annotations
 
+from dataclasses import replace
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
+
+from baseaicore import canonical_json, sha256_of
 
 from freeweight.benchmarks.corpora import corpus_hash, load
 from freeweight.benchmarks.loading import (
@@ -46,7 +49,18 @@ if TYPE_CHECKING:
     from freeweight.domain.benchmark import BenchmarkManifest
     from freeweight.services.prompts import PromptLibrary
 
-__all__ = ["CORPUS_NAME", "PROMPT_ID", "build", "load_suite_manifest"]
+__all__ = [
+    "CORPUS_NAME",
+    "LADDER_DATASET_KEY",
+    "PROMPT_ID",
+    "build",
+    "ladder_hash",
+    "load_suite_manifest",
+    "sweep_ladder",
+]
+
+LADDER_DATASET_KEY = "context_ladder"
+"""``dataset_hashes`` key for the effective sweep ladder, which the ceiling can change."""
 
 _MANIFEST_PATH = Path(__file__).parent / "manifest.json"
 _CASES_PATH = Path(__file__).parent / "cases.json"
@@ -84,7 +98,59 @@ def _case_body(
     }
 
 
-def _cases(cases: Mapping[str, Any]) -> dict[str, Any]:  # noqa: PLR0912 — one branch per sweep
+def sweep_ladder(declared: Sequence[int], *, ceiling: int) -> tuple[int, ...]:
+    """Fit a declared context ladder to the machine's ceiling.
+
+    The shipped ladder doubles. Below the ceiling it is truncated; above it, it keeps doubling
+    from its own top rung until the next one would exceed the ceiling, and the ceiling itself is
+    the final rung whenever a doubling does not land on it exactly. The first rung always
+    survives, even on a ceiling below it: a sweep with no rungs measures nothing, and a suite that
+    silently became empty would report an absent effective context as a model property.
+
+    Args:
+        declared: The ladder ``cases.json`` ships, ascending.
+        ceiling: ``benchmarks.long_context_max_tokens``.
+
+    Returns:
+        The ladder this machine will actually sweep, ascending and without duplicates.
+    """
+    rungs = [value for value in declared if value <= ceiling]
+    if not rungs:
+        return (declared[0],) if declared else ()
+    top = rungs[-1]
+    while top * 2 <= ceiling:
+        top *= 2
+        rungs.append(top)
+    if rungs[-1] < ceiling:
+        rungs.append(ceiling)
+    return tuple(rungs)
+
+
+def ladder_hash(cases: Mapping[str, Any]) -> str:
+    """Hash the effective ladder of every sweep in ``cases``.
+
+    Recorded in the built manifest's ``dataset_hashes`` so that a run at one ceiling and a run at
+    another are **separated rather than averaged**. A sweep that stopped at 32 000 tokens reports a
+    smaller ``effective_context_tokens`` than one that went to 128 000 for reasons that have
+    nothing to do with the model, and a comparison across the two would attribute the difference
+    to the model.
+
+    Args:
+        cases: The built case document, each test carrying its resolved ``context_lengths``.
+
+    Returns:
+        ``sha256:…`` over the ladders, keyed by test.
+    """
+    ladders = {
+        str(test["key"]): [int(value) for value in test["context_lengths"]]
+        for test in cases["tests"]
+    }
+    return f"sha256:{sha256_of(canonical_json(ladders))}"
+
+
+def _cases(  # noqa: PLR0912 — one branch per sweep
+    cases: Mapping[str, Any], *, ceiling: int = 32_000
+) -> dict[str, Any]:
     """Expand each declared sweep into cases, building one document per point.
 
     Args:
@@ -106,7 +172,15 @@ def _cases(cases: Mapping[str, Any]) -> dict[str, Any]:  # noqa: PLR0912 — one
 
     for index, test in enumerate(cases["tests"]):
         shape = str(test["shape"])
-        lengths = [int(value) for value in test["context_lengths"]]
+        # Only the depth sweep is a *ladder*; the other three hold context constant on purpose and
+        # vary position, distractors or fact separation instead. Stretching those to the ceiling
+        # would change what they measure rather than how far they reach.
+        declared_lengths = [int(value) for value in test["context_lengths"]]
+        lengths = (
+            list(sweep_ladder(declared_lengths, ceiling=ceiling))
+            if shape == "depth"
+            else declared_lengths
+        )
         # One needle for the whole sweep. A sweep that rotated needles would vary two things at
         # once, and a dip at 16 000 tokens would be indistinguishable from a fact the model
         # happens to find harder to quote. Each *test* uses a different needle, which is a
@@ -201,7 +275,7 @@ def _cases(cases: Mapping[str, Any]) -> dict[str, Any]:  # noqa: PLR0912 — one
                 raise ValueError(
                     f"Long-context test {test['key']!r} declares unknown sweep shape {shape!r}."
                 )
-        built.append({**dict(test), "cases": declared})
+        built.append({**dict(test), "context_lengths": lengths, "cases": declared})
     return {"tests": built}
 
 
@@ -210,11 +284,16 @@ def load_suite_manifest() -> BenchmarkManifest:
     return load_manifest(_MANIFEST_PATH)
 
 
-def build(library: PromptLibrary | None = None) -> SuiteBenchmark:
+def build(
+    library: PromptLibrary | None = None, *, max_context_tokens: int = 32_000
+) -> SuiteBenchmark:
     """Build the suite, verifying the manifest against the installed pack and corpus.
 
     Args:
         library: The loaded pack, or ``None`` to load the shipped one.
+        max_context_tokens: ``benchmarks.long_context_max_tokens`` — the ceiling the depth sweep's
+            ladder is fitted to. The effective ladder is hashed into the built manifest's
+            ``dataset_hashes``, so a run at one ceiling never averages with a run at another.
 
     Returns:
         The benchmark.
@@ -235,11 +314,20 @@ def build(library: PromptLibrary | None = None) -> SuiteBenchmark:
             f"the installed corpus hashes to {actual!r}. Rebuild the manifest and bump the suite "
             "version — the corpus this suite measures has changed, which separates its results."
         )
+    cases = _cases(load_cases(_CASES_PATH), ceiling=max_context_tokens)
+    # The ladder is configuration, so it cannot be declared in the shipped manifest — but it does
+    # change what the suite measures, so it has to reach the reproducibility fingerprint. Adding it
+    # to the *built* manifest's dataset hashes puts it exactly where every other content-identity
+    # fact already lives, and separation follows without a second mechanism.
+    resolved = replace(
+        manifest,
+        dataset_hashes={**manifest.dataset_hashes, LADDER_DATASET_KEY: ladder_hash(cases)},
+    )
     return SuiteBenchmark(
-        manifest=manifest,
+        manifest=resolved,
         tests=build_tests(
-            manifest=manifest,
-            cases=_cases(load_cases(_CASES_PATH)),
+            manifest=resolved,
+            cases=cases,
             pack=pack,
             prompt_id=PROMPT_ID,
             scorer_for=lambda _body: LongContextScorer(),

@@ -37,6 +37,7 @@ from freeweight.infrastructure.db.errors import DatabaseUnavailable
 from freeweight.infrastructure.db.repositories.runs import RunRepository
 from freeweight.services.events import RunEventPublisher
 from freeweight.services.runs import build_registry, execute_run
+from freeweight.services.settings import apply_stored
 
 if TYPE_CHECKING:
     from baseaicore.timeutil import Clock
@@ -271,11 +272,40 @@ class RunScheduler:
             run_id,
             collector=self._collector,
             telemetry=self._telemetry,
-            settings=self._settings,
+            settings=self._current_settings(),
             clock=self._clock,
         )
         logger.info("run.finished", extra={"run_id": run_id, "status": status.value})
         return run_id
+
+    def _current_settings(self) -> Settings | None:
+        """Re-read stored settings before executing a run.
+
+        **Between runs only, and that is what makes it safe.** A run's effective configuration is
+        frozen at creation and recorded on the run, so re-reading here cannot change a measurement
+        underneath itself — the next run gets the new value, the one being measured keeps the one
+        it recorded. It is also what the settings page already promises: "applies to work started
+        from now on" means the next run, not the next restart.
+
+        The telemetry sampler is deliberately **not** re-intervalled: its interval is recorded on
+        every run as a measurement condition, so changing it mid-flight would make a run's own
+        record ambiguous about the conditions it was taken under.
+
+        Returns:
+            The settings with stored overrides folded in, or ``None`` when this scheduler was
+            constructed without any — a test driving :meth:`run_once` directly, which must not
+            acquire a database read it did not ask for.
+        """
+        if self._settings is None:
+            return None
+        try:
+            return apply_stored(self._database, self._settings)
+        except SuiteError:
+            # A settings read that fails must not stop the queue: the run proceeds under the
+            # configuration this process started with, which is what it would have used anyway
+            # before this method existed.
+            logger.warning("scheduler.settings_reread_failed", exc_info=True)
+            return self._settings
 
     def _loop(self) -> None:
         """Claim and execute until stopped; wait only when the queue is empty.

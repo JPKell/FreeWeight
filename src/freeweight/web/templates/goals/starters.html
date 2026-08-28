@@ -1,0 +1,108 @@
+{% extends "base.html" %}
+{% block title %}Starter packs — FreeWeight{% endblock %}
+{% block content %}
+<h2>Starter packs</h2>
+<p class="muted">
+  Four goals ship with FreeWeight, complete with tasks, criteria, proposed rules and a worked set
+  of graded calibration samples. They are here to be <em>read</em>: down this page, the share of
+  weight scored deterministically rises from 40 % to 90 %, and that is the single most useful
+  thing to internalise about writing a measurable rubric — the better you understand what you
+  want, the less of it needs a judge.
+</p>
+<div class="warning-state">
+  <strong>They are starters, not defaults.</strong> A goal whose criteria and tasks you have not
+  edited is badged <code>unforked</code> in the UI, in its results and in its exports. A voice
+  measured on somebody else's prompts is not your voice.
+</div>
+
+{% if error %}
+<div class="error-state" role="alert"><p>{{ error }}</p></div>
+{% endif %}
+
+{% for pack, calibration in starters %}
+<h3 id="{{ pack.key }}">{{ pack.reading_position }}. {{ pack.name }}</h3>
+<p class="muted">{{ pack.intent }}</p>
+<dl class="card-grid">
+  <div class="card">
+    <dt>Scored by rules</dt>
+    <dd>{{ '%.0f' % (pack.deterministic_weight * 100) }}%</dd>
+    <p class="card-note">Free, exact, and never disagrees with you.</p>
+  </div>
+  <div class="card">
+    <dt>Scored by a jury</dt>
+    <dd>{{ '%.0f' % (pack.judged_weight * 100) }}%</dd>
+    <p class="card-note">This is what calibration has to measure.</p>
+  </div>
+  <div class="card">
+    <dt>Criteria</dt>
+    <dd>{{ pack.criteria_count }}</dd>
+    <p class="card-note">{{ pack.task_count }} starter tasks, all replaceable.</p>
+  </div>
+  {% if calibration %}
+  <div class="card">
+    <dt>Worked calibration</dt>
+    <dd>{{ calibration.samples | length }}</dd>
+    <p class="card-note">
+      graded samples, reproducing
+      &kappa;<sub>w</sub> {{ '%.2f' % calibration.summary.weighted_kappa_w }} ·
+      validity {{ '%.2f' % calibration.summary.judge_validity_factor }}
+    </p>
+  </div>
+  {% endif %}
+</dl>
+<p>{{ pack.carries }}</p>
+{% if calibration %}
+<details>
+  <summary>What this pack's worked calibration reproduces</summary>
+  <div class="table-scroll">
+    <table>
+      <caption>
+        Under the pack's own partition seed and the reference jury described in the pack.
+        Every coefficient carries its <code>n_holdout</code>: a &kappa;<sub>w</sub> without its n
+        is a number pretending to be a fact.
+      </caption>
+      <thead>
+        <tr>
+          <th scope="col">Criterion</th>
+          <th scope="col" class="numeric">&kappa;<sub>w</sub></th>
+          <th scope="col" class="numeric">&rho;</th>
+          <th scope="col" class="numeric">MAE</th>
+          <th scope="col" class="numeric">Bias</th>
+          <th scope="col" class="numeric">n<sub>holdout</sub></th>
+          <th scope="col">Band</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for criterion, figures in calibration.expected | dictsort %}
+        <tr>
+          <td>{{ criterion }}</td>
+          <td class="numeric">{{ '%.3f' % figures['kappa_w'] }}</td>
+          <td class="numeric">{{ '%.3f' % figures['rho'] }}</td>
+          <td class="numeric">{{ '%.2f' % figures['mae'] }}</td>
+          <td class="numeric">{{ '%+.2f' % figures['bias'] }}</td>
+          <td class="numeric">{{ figures['n_holdout'] }}</td>
+          <td>{{ figures['band'] | replace('_', ' ') }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</details>
+{% endif %}
+<form method="post" action="/goals/starters/{{ pack.key }}/fork">
+  <div class="field">
+    <label for="slug-{{ pack.key }}">Name it (optional)</label>
+    <input id="slug-{{ pack.key }}" name="slug" placeholder="{{ pack.key }}">
+  </div>
+  <p>
+    <button type="submit">Fork unedited</button>
+  </p>
+</form>
+<form method="post" action="/goals/starters/{{ pack.key }}/customise">
+  <p>
+    <button type="submit" data-variant="primary">Customise in the wizard</button>
+    <span class="unit">Opens step 2 with these criteria, so the badge comes off in one sitting.</span>
+  </p>
+</form>
+{% endfor %}
+{% endblock %}

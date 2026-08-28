@@ -1,0 +1,37 @@
+{
+  "prompt_id": "goals.technical_explanation.cursor",
+  "version": "1.0.0",
+  "schema_version": "1.0",
+  "purpose": "A starter explanation prompt. Replace it with something from your own domain.",
+  "task": "goal.technical_explanation",
+  "capability": "reasoning",
+  "system": null,
+  "template": "Explain to a working developer why cursor pagination is preferred over offset pagination for a table that is being written to while it is read, and what a cursor has to contain to be correct. Use headings and at least one short code example.",
+  "variables": {},
+  "response": {
+    "format": "text",
+    "json_schema_ref": null,
+    "expectations": []
+  },
+  "model_requirements": {
+    "min_context_tokens": 4096,
+    "requires_capabilities": [],
+    "recommended_temperature": 0.3
+  },
+  "metadata": {
+    "author": "freeweight",
+    "created_at": "2026-08-28T00:00:00Z",
+    "changed_at": "2026-08-28T00:00:00Z",
+    "change_reason": "Shipped starter task.",
+    "supersedes": null,
+    "tags": [
+      "goal",
+      "starter"
+    ],
+    "goal_task": {
+      "key": "cursor_pagination",
+      "name": "Explain cursor pagination",
+      "is_starter": true
+    }
+  }
+}

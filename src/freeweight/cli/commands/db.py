@@ -90,7 +90,11 @@ def upgrade(
         bool, typer.Option("--json", help="Print JSON instead of text.")
     ] = False,
 ) -> None:
-    """Migrate the database to REVISION. Mode: local. A no-op at the target revision (exit 0)."""
+    """Migrate the database to REVISION. Mode: local. A no-op at the target revision (exit 0).
+
+    Example:
+        freeweight db upgrade
+    """
     from freeweight.infrastructure.db.errors import DatabaseError
     from freeweight.services.database import upgrade as upgrade_database
 
@@ -132,7 +136,11 @@ def status(
         bool, typer.Option("--json", help="Print JSON instead of a table.")
     ] = False,
 ) -> None:
-    """Report revision, table row counts and integrity status. Mode: local."""
+    """Report revision, table row counts and integrity status. Mode: local.
+
+    Example:
+        freeweight db status --json
+    """
     from freeweight.infrastructure.db.errors import DatabaseError
     from freeweight.services.database import get_status
 
@@ -181,7 +189,11 @@ def backup(
         bool, typer.Option("--json", help="Print JSON instead of text.")
     ] = False,
 ) -> None:
-    """Take a consistent backup of the database. Mode: local."""
+    """Take a consistent backup of the database. Mode: local.
+
+    Example:
+        freeweight db backup --output ./freeweight-before-upgrade.sqlite3
+    """
     from freeweight.infrastructure.db.errors import DatabaseError
     from freeweight.services.database_admin import backup_database
 
@@ -223,6 +235,9 @@ def restore(
 
     Requires ``--yes``: there is no interactive prompt (CLI standards §5), and refusing without it
     is exit 2 naming the flag that would have answered it.
+
+    Example:
+        freeweight db restore ./backups/freeweight-0006-20260828T090000Z.sqlite3 --yes
     """
     from freeweight.infrastructure.db.errors import DatabaseError
     from freeweight.services.database_admin import restore_database
@@ -250,7 +265,11 @@ def vacuum(
         bool, typer.Option("--json", help="Print JSON instead of text.")
     ] = False,
 ) -> None:
-    """Reclaim free space in the database file. Mode: local."""
+    """Reclaim free space in the database file. Mode: local.
+
+    Example:
+        freeweight db vacuum
+    """
     from freeweight.infrastructure.db.errors import DatabaseError
     from freeweight.services.database_admin import vacuum_database
 

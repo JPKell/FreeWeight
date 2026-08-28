@@ -1,0 +1,71 @@
+{% extends "base.html" %}
+{% block title %}Tasks — FreeWeight{% endblock %}
+{% block content %}
+<h2>{{ draft.name }}</h2>
+{% include "partials/_wizard_steps.html" %}
+<h3>4. {{ step.heading }}</h3>
+<p class="muted">
+  Prompts from your real work. Starter tasks are offered and are explicitly there to be replaced:
+  a voice measured on someone else's prompts is not your voice, and a goal still running entirely
+  on unedited starter tasks is badged <code>unforked</code> wherever its results appear.
+</p>
+
+{% if error %}
+<div class="error-state" role="alert"><p>{{ error }}</p></div>
+{% endif %}
+
+{% if draft.tasks %}
+<div class="table-scroll">
+  <table data-table="draft-tasks">
+    <caption>{{ draft.tasks | length }} tasks.</caption>
+    <thead>
+      <tr><th scope="col">Task</th><th scope="col">Prompt</th><th scope="col">Source</th></tr>
+    </thead>
+    <tbody>
+      {% for task in draft.tasks %}
+      <tr>
+        <td><strong>{{ task.name }}</strong><br><span class="unit mono">{{ task.key }}</span></td>
+        <td><pre>{{ task.prompt_text }}</pre></td>
+        <td>
+          {% if task.is_starter %}
+          <span class="status status-interrupted">starter</span>
+          <br><span class="unit">Replace it with your own.</span>
+          {% else %}
+          <span class="status status-completed">yours</span>
+          {% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% else %}
+<div class="empty-state">
+  <p>No tasks yet. A goal with no task has nothing for a model to answer.</p>
+</div>
+{% endif %}
+
+<h3>Add a task</h3>
+<form method="post" action="/goals/new/{{ draft.draft_id }}/tasks">
+  <input type="hidden" name="action" value="add">
+  <div class="field">
+    <label for="t-name">Name</label>
+    <input id="t-name" name="name" required placeholder="The night the inventory did not add up">
+  </div>
+  <div class="field">
+    <label for="t-prompt">The prompt, exactly as you would give it</label>
+    <textarea id="t-prompt" name="prompt_text" rows="5" cols="80" required></textarea>
+  </div>
+  <p><button type="submit">Add task</button></p>
+</form>
+
+<div class="warning-state">
+  <h3>Before you go further</h3>
+  <p>{{ cost }}</p>
+</div>
+
+<form method="post" action="/goals/new/{{ draft.draft_id }}/tasks">
+  <input type="hidden" name="action" value="next">
+  <p><button type="submit" data-variant="primary">Next: save the pack</button></p>
+</form>
+{% endblock %}

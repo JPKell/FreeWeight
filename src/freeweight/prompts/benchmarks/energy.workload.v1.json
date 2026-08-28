@@ -1,0 +1,42 @@
+{
+  "prompt_id": "benchmarks.energy.workload",
+  "version": "1.0.0",
+  "schema_version": "1.0",
+  "purpose": "Drive a steady, repeatable generation long enough for the power sampler to take several readings, so a run's energy estimate integrates over real work rather than over idle.",
+  "task": "benchmark.energy",
+  "capability": "energy_efficiency",
+  "system": null,
+  "template": "{{ passage }}\n\n{{ instruction }}",
+  "variables": {
+    "passage": {
+      "type": "string",
+      "required": true,
+      "description": "Filler text sized to the prompt length under test, so prompt evaluation and decode both draw power."
+    },
+    "instruction": {
+      "type": "string",
+      "required": true,
+      "description": "What to generate, including the requested output length that keeps the device busy for a measurable interval."
+    }
+  },
+  "response": {
+    "format": "text",
+    "json_schema_ref": null,
+    "expectations": [
+      "Any text. This prompt measures what the work cost in joules, never whether the answer is right."
+    ]
+  },
+  "model_requirements": {
+    "min_context_tokens": 1024,
+    "requires_capabilities": [],
+    "recommended_temperature": 0.0
+  },
+  "metadata": {
+    "author": "suite",
+    "created_at": "2026-08-27T00:00:00Z",
+    "changed_at": "2026-08-27T00:00:00Z",
+    "change_reason": "First version: native.energy needs a workload of its own so the integrated estimate describes a known amount of work.",
+    "supersedes": null,
+    "tags": ["benchmark", "energy"]
+  }
+}

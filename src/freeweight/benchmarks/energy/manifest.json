@@ -1,0 +1,111 @@
+{
+  "key": "native.energy",
+  "name": "Native Energy (telemetry-derived estimate)",
+  "version": "1.0.0",
+  "category": "energy",
+  "runner": "native",
+  "headline_metric": "output_tokens_per_joule",
+  "scorer": "response_arrived",
+  "capabilities": [
+    "energy_efficiency"
+  ],
+  "requires": {
+    "provider_capabilities": [
+      "token_counts"
+    ],
+    "sandbox": false,
+    "network": false
+  },
+  "dataset_hashes": {},
+  "prompt_ids": [
+    {
+      "prompt_id": "benchmarks.energy.workload",
+      "version": "1.0.0",
+      "sha256": "sha256:cc0722a3e33ac0d3c09f2027c146c44f08e9f93983754a866cb5fedae77e81e7"
+    }
+  ],
+  "prompt_subset_hash": "sha256:31098cb22bfb4b780272cbdf266228e0eaad9ffbecc9c41bfee9bd5cce62392e",
+  "target_device": "gpu",
+  "metrics": [
+    {
+      "key": "output_tokens",
+      "unit": "count",
+      "higher_is_better": true,
+      "aggregation": "mean"
+    },
+    {
+      "key": "decode_ms",
+      "unit": "ms",
+      "higher_is_better": false,
+      "aggregation": "mean"
+    },
+    {
+      "key": "gpu_energy_joules",
+      "unit": "J",
+      "higher_is_better": false,
+      "aggregation": "sum"
+    },
+    {
+      "key": "joules_per_request",
+      "unit": "J",
+      "higher_is_better": false,
+      "aggregation": "mean"
+    },
+    {
+      "key": "joules_per_output_token",
+      "unit": "J",
+      "higher_is_better": false,
+      "aggregation": "mean"
+    },
+    {
+      "key": "joules_per_successful_task",
+      "unit": "J",
+      "higher_is_better": false,
+      "aggregation": "mean"
+    },
+    {
+      "key": "output_tokens_per_joule",
+      "unit": "tokens/J",
+      "higher_is_better": true,
+      "aggregation": "mean"
+    },
+    {
+      "key": "successful_tasks_per_kwh",
+      "unit": "tasks/kWh",
+      "higher_is_better": true,
+      "aggregation": "mean"
+    },
+    {
+      "key": "mean_gpu_power_watts",
+      "unit": "W",
+      "higher_is_better": false,
+      "aggregation": "mean"
+    },
+    {
+      "key": "peak_gpu_power_watts",
+      "unit": "W",
+      "higher_is_better": false,
+      "aggregation": "max"
+    },
+    {
+      "key": "max_gpu_temperature_c",
+      "unit": "°C",
+      "higher_is_better": false,
+      "aggregation": "max"
+    },
+    {
+      "key": "max_cpu_temperature_c",
+      "unit": "°C",
+      "higher_is_better": false,
+      "aggregation": "max"
+    },
+    {
+      "key": "throttling_suspected",
+      "unit": "ratio",
+      "higher_is_better": false,
+      "aggregation": "max"
+    }
+  ],
+  "license": "project",
+  "description": "A telemetry-derived estimate of what the work cost in energy, integrated from real power-sample timestamps and never from the sampler's nominal interval. Always labelled an estimate, never instrumentation; unsupported rather than zero when no power readings exist. Per-device only: there is no machine-wide GPU energy figure, and none is assembled here."
+}

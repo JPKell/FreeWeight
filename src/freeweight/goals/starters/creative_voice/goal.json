@@ -1,0 +1,122 @@
+{
+  "slug": "creative_voice",
+  "name": "Creative non-fiction voice",
+  "goal_pack_version": "1.0.0",
+  "schema_version": "1.0",
+  "intent": "Essays that sound like a person rather than a content system: dry, concrete, unhurried. Not LinkedIn, not a manual. This is the hardest of the four, and it is here to show that even 'voice' partly mechanises.",
+  "contributes_to": "creative_writing",
+  "created_by": "freeweight",
+  "criteria": [
+    {
+      "key": "no_llm_tells",
+      "name": "No LLM tells",
+      "intent": "The vocabulary half of 'not LinkedIn'. A blacklist, because these are words, and a word is exactly the kind of thing a rule checks better than a judge does.",
+      "rung": "rule",
+      "weight": 0.15,
+      "gate": false,
+      "rule": {
+        "type": "forbidden_phrases",
+        "case_sensitive": false,
+        "phrases": [
+          "delve",
+          "leverage",
+          "in today's landscape",
+          "it's worth noting",
+          "navigate the complexities",
+          "tapestry",
+          "unlock the potential",
+          "at the end of the day",
+          "game changer",
+          "double down",
+          "circle back",
+          "moving forward",
+          "robust solution",
+          "seamless experience"
+        ],
+        "max_hits": 4
+      }
+    },
+    {
+      "key": "sentence_rhythm",
+      "name": "Varied sentence rhythm",
+      "intent": "Unhurried prose varies its sentence length. Flat prose does not. Both are measurable.",
+      "rung": "rule",
+      "weight": 0.15,
+      "rule": {
+        "type": "sentence_length_distribution",
+        "mean_words": {
+          "min": 11,
+          "max": 24
+        },
+        "cv": {
+          "min": 0.4
+        }
+      }
+    },
+    {
+      "key": "restrained_punctuation",
+      "name": "Restrained punctuation",
+      "intent": "The register half of 'not LinkedIn'. Exclamation marks and rhetorical questions are the tell, and they are countable.",
+      "rung": "rule",
+      "weight": 0.1,
+      "rule": {
+        "type": "punctuation_profile",
+        "exclamation_per_1000_words": {
+          "max": 1.0
+        },
+        "em_dash_per_1000_words": {
+          "max": 12.0
+        }
+      }
+    },
+    {
+      "key": "dry_wit",
+      "name": "Dry wit, never winking",
+      "intent": "The joke is in the observation, not in an announcement that a joke has occurred.",
+      "rung": "judge",
+      "weight": 0.35,
+      "scale": {
+        "points": 5,
+        "descriptors": {
+          "5": "Wry and understated throughout. The humour is in what is noticed, never in a nudge to the reader.",
+          "4": "Mostly understated, with one or two moments that reach for the laugh.",
+          "3": "Occasional flashes of wit over mostly flat reportage.",
+          "2": "Earnest with an occasional joke that is announced before it lands.",
+          "1": "Earnest throughout, or nudging the reader to notice it was funny."
+        }
+      }
+    },
+    {
+      "key": "concrete_over_abstract",
+      "name": "Concrete over abstract",
+      "intent": "Claims anchored to a number, an object, an incident — something you could photograph.",
+      "rung": "judge",
+      "weight": 0.25,
+      "scale": {
+        "points": 5,
+        "descriptors": {
+          "5": "Every claim is anchored to something specific: a number, an object, an incident.",
+          "4": "Mostly anchored; one or two passages float free.",
+          "3": "Mixed; abstractions carry about half the argument.",
+          "2": "Mostly abstract, with a specific detail used as decoration.",
+          "1": "Abstraction throughout; nothing you could photograph."
+        }
+      }
+    }
+  ],
+  "judge": {
+    "jury_size": 3,
+    "models": [],
+    "repetitions": 3,
+    "randomize_order": true,
+    "allow_remote": false,
+    "temperature": 0.0
+  },
+  "calibration": {
+    "target_samples": 12,
+    "min_samples": 8,
+    "holdout_fraction": 0.4,
+    "partition_seed": 20260828,
+    "min_agreement": 0.4
+  }
+}

@@ -33,7 +33,7 @@ from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 
 from freeweight.benchmarks.loading import SuiteBenchmark, SuiteTest
 from freeweight.domain.benchmark import BenchmarkCase, BenchmarkManifest, MetricDefinition
-from freeweight.domain.goals.composite import composite_score
+from freeweight.domain.goals.composite import composite_score, outcome_detail
 from freeweight.domain.goals.criteria import (
     DEFAULT_RULE_TIMEOUT_MS,
     CriterionOutcome,
@@ -55,6 +55,7 @@ __all__ = [
     "CATEGORY",
     "GOAL_TEST_KEY",
     "GoalScorer",
+    "finish_deferred",
     "JudgeCollaborator",
     "build_goal_benchmark",
     "goal_suite_key",
@@ -72,6 +73,13 @@ tests would give each of them its own aggregate rows and no goal-level number �
 opposite of what a composite is for."""
 
 ERROR_NO_CRITERION_SCORED = "GOAL_UNMEASURED"
+
+ERROR_JUDGEMENT_DEFERRED = "GOAL_AWAITING_JUDGEMENT"
+"""This sample generated and its rules scored; its jury has not run yet.
+
+Not a failure, and the run engine does not treat it as one: it stores the sample as
+``awaiting_judgement`` and comes back for it in the judging phase, once the candidate has been
+evicted and the jurors can have the machine to themselves."""
 """Every criterion was skipped or errored, so this sample carries no measurement."""
 
 _HASH_PREFIX = len("sha256:")
@@ -242,6 +250,7 @@ class GoalScorer:
     rule_timeout_ms: int = DEFAULT_RULE_TIMEOUT_MS
     judge: JudgeCollaborator | None = None
     judge_validity_factor: float = 1.0
+    defer_judging: bool = False
     key: str = "goal_composite"
     method: ScoreMethod = ScoreMethod.RULE
 
@@ -257,6 +266,13 @@ class GoalScorer:
             that fired, the applied and declared weights, and ``score_method_mix``.
             ``score=None`` with :data:`ERROR_NO_CRITERION_SCORED` when nothing could be measured —
             an unmeasured sample, not a bad one.
+
+            With :attr:`defer_judging`, a goal that has judged criteria returns ``score=None`` with
+            :data:`ERROR_JUDGEMENT_DEFERRED` and no composite at all. **Not a partial composite**:
+            one computed over the rules alone would be a real number with a real
+            ``applied_weight_share``, indistinguishable from a goal whose judged criteria genuinely
+            could not be measured. The rule outcomes are carried in ``detail`` so the judging phase
+            can finish the sample without re-running them.
         """
         source = case.metadata.get("goal_source")
         outcomes: list[CriterionOutcome] = []
@@ -273,9 +289,31 @@ class GoalScorer:
                 )
             elif criterion.rung is Rung.JUDGE:
                 judged.append(criterion)
-                outcomes.append(_unscored(criterion, SkipReason.JUDGE_UNAVAILABLE))
+                outcomes.append(
+                    _unscored(
+                        criterion,
+                        SkipReason.JUDGE_DEFERRED
+                        if self.defer_judging
+                        else SkipReason.JUDGE_UNAVAILABLE,
+                    )
+                )
             else:
                 outcomes.append(_unscored(criterion, SkipReason.HUMAN_GRADE_PENDING))
+        if judged and self.defer_judging:
+            return ScoreResult(
+                score=None,
+                method=self.method,
+                detail={
+                    "case": case.case_id,
+                    "criteria": [outcome_detail(outcome) for outcome in outcomes],
+                    "judge_validity_factor": self.judge_validity_factor,
+                },
+                error_code=ERROR_JUDGEMENT_DEFERRED,
+                error_text=(
+                    f"Goal {self.pack.slug!r} has {len(judged)} judged criteria; they are scored "
+                    "in the judging phase, after the candidate has been evicted."
+                ),
+            )
         if judged and self.judge is not None:
             scored = {
                 outcome.criterion_key: outcome
@@ -285,43 +323,132 @@ class GoalScorer:
             }
             outcomes = [scored.get(outcome.criterion_key, outcome) for outcome in outcomes]
 
-        composite = composite_score(outcomes)
-        detail: dict[str, Any] = {
-            "case": case.case_id,
-            **composite.as_detail(),
-            "gated_sample_rate": 1.0 if composite.gated_by is not None else 0.0,
-            "applied_weight_share": (
-                composite.applied_weight / composite.declared_weight
-                if composite.declared_weight
-                else 0.0
-            ),
-            "judge_validity_factor": self.judge_validity_factor,
-            **{
-                f"score_method_mix_{rung}": share
-                for rung, share in composite.score_method_mix.items()
-            },
-            **{
-                f"criterion.{outcome.criterion_key}": float(outcome.raw_score)
-                for outcome in outcomes
-                if outcome.raw_score is not None
-            },
-        }
-        if composite.composite is None:
-            return ScoreResult(
-                score=None,
-                method=self.method,
-                detail=detail,
-                error_code=ERROR_NO_CRITERION_SCORED,
-                error_text=(
-                    f"No criterion of goal {self.pack.slug!r} could be measured on case "
-                    f"{case.case_id!r}; every one was skipped or errored."
-                ),
-            )
+        return _combine(self, case, outcomes)
+
+
+def _combine(
+    scorer: GoalScorer, case: BenchmarkCase, outcomes: Sequence[CriterionOutcome]
+) -> ScoreResult:
+    """Combine one sample's criterion outcomes into the verdict the run engine stores.
+
+    Shared by the single-phase path and the deferred one, so a goal judged in two phases produces
+    a byte-identical ``result_json`` to the same goal judged in one. Two spellings of this would be
+    a way for the phases to disagree about what a composite means.
+
+    Args:
+        scorer: The goal's scorer, for its pack, method and validity factor.
+        case: The case being scored.
+        outcomes: Every criterion's outcome, in the goal's declaration order.
+
+    Returns:
+        The verdict. ``score=None`` with :data:`ERROR_NO_CRITERION_SCORED` when nothing
+        contributed — an unmeasured sample, not a bad one.
+    """
+    composite = composite_score(outcomes)
+    detail: dict[str, Any] = {
+        "case": case.case_id,
+        **composite.as_detail(),
+        "gated_sample_rate": 1.0 if composite.gated_by is not None else 0.0,
+        "applied_weight_share": (
+            composite.applied_weight / composite.declared_weight
+            if composite.declared_weight
+            else 0.0
+        ),
+        "judge_validity_factor": scorer.judge_validity_factor,
+        **{f"score_method_mix_{rung}": share for rung, share in composite.score_method_mix.items()},
+        **{
+            f"criterion.{outcome.criterion_key}": float(outcome.raw_score)
+            for outcome in outcomes
+            if outcome.raw_score is not None
+        },
+    }
+    if composite.composite is None:
         return ScoreResult(
-            score=composite.composite,
-            method=_dominant_method(composite.score_method_mix),
+            score=None,
+            method=scorer.method,
             detail=detail,
+            error_code=ERROR_NO_CRITERION_SCORED,
+            error_text=(
+                f"No criterion of goal {scorer.pack.slug!r} could be measured on case "
+                f"{case.case_id!r}; every one was skipped or errored."
+            ),
         )
+    return ScoreResult(
+        score=composite.composite,
+        method=_dominant_method(composite.score_method_mix),
+        detail=detail,
+    )
+
+
+def finish_deferred(
+    scorer: GoalScorer,
+    *,
+    case: BenchmarkCase,
+    response_text: str,
+    stored_detail: Mapping[str, Any],
+) -> ScoreResult:
+    """Complete a sample whose judging was deferred, using its stored rule outcomes.
+
+    The other half of :meth:`GoalScorer.score` under :attr:`~GoalScorer.defer_judging`. The
+    deterministic criteria are **read back**, not recomputed: they were measured against this same
+    text by these same criteria during generation, and running them twice invites two answers to
+    one question — a rule with any time dependence would give it.
+
+    Args:
+        scorer: The goal's scorer, with its jury bound.
+        case: The case this sample answered.
+        response_text: The stored response the jury grades.
+        stored_detail: The sample's ``result_json`` from the generation phase, carrying
+            ``criteria``.
+
+    Returns:
+        The finished verdict, identical in shape to a single-phase one. A jury that cannot be
+        reached leaves its criteria ``judge_unavailable``, which is a degradation of this sample
+        rather than a failure of the run.
+    """
+    stored = stored_detail.get("criteria")
+    by_key = {
+        str(entry["key"]): entry
+        for entry in (stored if isinstance(stored, list) else [])
+        if isinstance(entry, dict) and entry.get("key") is not None
+    }
+    outcomes: list[CriterionOutcome] = []
+    judged: list[Criterion] = []
+    for criterion in scorer.pack.criteria:
+        if criterion.rung is Rung.JUDGE:
+            judged.append(criterion)
+            outcomes.append(_unscored(criterion, SkipReason.JUDGE_UNAVAILABLE))
+        elif criterion.key in by_key:
+            outcomes.append(_outcome_from_detail(criterion, by_key[criterion.key]))
+        elif criterion.rung.is_deterministic:  # pragma: no cover — generation writes every rule
+            outcomes.append(_unscored(criterion, SkipReason.UNSUPPORTED))
+        else:
+            outcomes.append(_unscored(criterion, SkipReason.HUMAN_GRADE_PENDING))
+
+    if judged and scorer.judge is not None:
+        scored = {
+            outcome.criterion_key: outcome
+            for outcome in scorer.judge.score_judged(
+                criteria=judged, response_text=response_text, case=case
+            )
+        }
+        outcomes = [scored.get(outcome.criterion_key, outcome) for outcome in outcomes]
+    return _combine(scorer, case, outcomes)
+
+
+def _outcome_from_detail(criterion: Criterion, entry: Mapping[str, Any]) -> CriterionOutcome:
+    """Rebuild one criterion outcome from the entry a sample stored for it."""
+    raw = entry.get("raw_score")
+    return CriterionOutcome(
+        criterion_key=criterion.key,
+        rung=criterion.rung,
+        weight=float(entry.get("weight", criterion.weight)),
+        raw_score=None if raw is None else float(raw),
+        status=CriterionStatus(str(entry.get("status", CriterionStatus.SKIPPED.value))),
+        gated=bool(entry.get("gated", False)),
+        skip_reason=entry.get("skip_reason"),
+        detail=dict(entry.get("detail") or {}),
+    )
 
 
 def _unscored(criterion: Criterion, reason: SkipReason) -> CriterionOutcome:

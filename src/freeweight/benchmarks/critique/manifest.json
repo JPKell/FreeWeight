@@ -4,6 +4,7 @@
   "version": "1.0.0",
   "category": "critiquing",
   "runner": "native",
+  "headline_metric": "post_correction_accuracy",
   "scorer": "critique",
   "capabilities": [
     "critiquing"

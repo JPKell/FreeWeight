@@ -1,0 +1,115 @@
+{
+  "schema_version": "1.0",
+  "description": "A worked calibration set: twelve candidate outputs and the grades a careful author gave them, spanning the scale. Grading twelve samples is a real sitting, and this set exists so a fresh install can show the whole calibration path without one.",
+  "samples": [
+    "## Automatic backups before every migration\n\nEvery schema migration now takes a backup first. You do not need to do anything.\n\n- The backup is written next to your database.\n- We keep the last five and rotate the rest.\n- If a migration fails, we restore from it and tell you.\n\nIf a restore does not work, the support team and the documentation both cover what to do next.",
+    "## Backups now run automatically\n\nWe take a backup before each migration.\n\n- Written beside your database.\n- Five kept by default.\n- Restores are verified before they replace anything.\n\nSee the documentation, or contact support if a restore refuses.",
+    "## Backup improvements\n\nWe have made some improvements to how backups work. Migrations now take a backup automatically.\n\n- Backups happen\n- Retention is configurable\n\nCheck the documentation or reach out to support with questions.",
+    "## Introducing effortless backups!\n\nWe are incredibly excited to announce a game changer for your data. Simply migrate and we will handle the rest.\n\n- Amazing peace of mind\n- Seamless experience\n\nOur world-class support team and documentation are here for you.",
+    "## Pre-migration backups\n\nA backup is taken before every migration and kept with the last five.\n\n- On SQLite, a failed migration restores the original file byte for byte.\n- On PostgreSQL we report the revision reached and name the backup.\n\nThe documentation explains both, and support can walk you through a restore.",
+    "## Backups\n\nBackups are taken.\n\n- Before migrations\n- Kept for a while\n\nDocumentation. Support.",
+    "## Your data, protected\n\nWe know how much your measurement history matters, so we now take a backup before every migration.\n\n- Automatic, with no configuration\n- The last five are kept\n- Restores are verified first\n\nThe documentation covers the details, and support is there if you need a hand.",
+    "## Migration safety\n\nEvery migration is now preceded by a backup.\n\n- Location: beside the database file\n- Retention: five, configurable\n- Verification: the backup is opened and integrity-checked before a restore replaces anything\n\nRefer to the documentation; contact support for a restore you are unsure about.",
+    "## Backup before migrate\n\nFrom this release, a backup is taken before each migration.\n\n- Kept beside your database\n- Five retained by default\n\nSee the documentation for retention settings, or ask support.",
+    "## We heard you!\n\nYou asked for safer migrations and we listened. Backups now happen automatically, obviously.\n\n- Literally zero effort\n- Just works\n\nOur documentation and support have you covered.",
+    "## Automatic pre-migration backup\n\nA backup runs before every schema migration.\n\n- Written with restrictive permissions inside your data directory\n- Never sent anywhere\n- The last five are kept\n\nThe documentation covers restoring one; support can help if it refuses.",
+    "## Changes to backup behaviour\n\nThis release changes backup behaviour. Migrations create backups.\n\n- Behaviour changed\n- See settings\n\nDocumentation exists. Support exists."
+  ],
+  "grades": [
+    {
+      "sample": 0,
+      "criterion": "tone_fit",
+      "grade": 5,
+      "note": "Direct, plain, no hype, and it answers the reader's actual question."
+    },
+    {
+      "sample": 1,
+      "criterion": "tone_fit",
+      "grade": 5,
+      "note": "Ideal length and register."
+    },
+    {
+      "sample": 2,
+      "criterion": "tone_fit",
+      "grade": 3,
+      "note": "On persona but vague; 'some improvements' says nothing."
+    },
+    {
+      "sample": 3,
+      "criterion": "tone_fit",
+      "grade": 1,
+      "note": "Hype throughout. Would not ship."
+    },
+    {
+      "sample": 4,
+      "criterion": "tone_fit",
+      "grade": 5,
+      "note": "Specific about the difference, which is the house style at its best."
+    },
+    {
+      "sample": 5,
+      "criterion": "tone_fit",
+      "grade": 2,
+      "note": "Terse to the point of unhelpful. Not the persona, just short."
+    },
+    {
+      "sample": 6,
+      "criterion": "tone_fit",
+      "grade": 4,
+      "note": "Warm and clear, one sentence drifts slightly marketing."
+    },
+    {
+      "sample": 7,
+      "criterion": "tone_fit",
+      "grade": 4,
+      "note": "Slightly stiff, but plain and correct."
+    },
+    {
+      "sample": 8,
+      "criterion": "tone_fit",
+      "grade": 5,
+      "note": "Exactly right."
+    },
+    {
+      "sample": 9,
+      "criterion": "tone_fit",
+      "grade": 2,
+      "note": "Chatty and hyped. Two banned register words."
+    },
+    {
+      "sample": 10,
+      "criterion": "tone_fit",
+      "grade": 5,
+      "note": "The privacy sentence is the house voice."
+    },
+    {
+      "sample": 11,
+      "criterion": "tone_fit",
+      "grade": 2,
+      "note": "Reads as a changelog stub, not as us."
+    }
+  ],
+  "expected": {
+    "tone_fit": {
+      "kappa_w": 0.666667,
+      "rho": 0.888889,
+      "mae": 0.75,
+      "bias": -0.25,
+      "n_holdout": 4,
+      "band": "good"
+    }
+  },
+  "expected_summary": {
+    "judge_validity_factor": 0.826491,
+    "weighted_kappa_w": 0.666667,
+    "calibration_state": "calibrated",
+    "n_holdout": 4,
+    "n_anchor": 8,
+    "reference_jury": {
+      "bias": 0,
+      "scatter": 1,
+      "jurors": 3,
+      "description": "A deterministic jury that reproduces the author's own grade with an alternating one-point scatter. It is not a model; it exists so a shipped calibration set has a figure that can be reproduced exactly on any machine, with no GPU and no network."
+    }
+  }
+}

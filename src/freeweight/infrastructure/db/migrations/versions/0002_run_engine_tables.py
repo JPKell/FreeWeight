@@ -264,13 +264,24 @@ def upgrade() -> None:
         sa.Column("result_json", freeweight.infrastructure.db.types.PortableJSON(), nullable=True),
         sa.Column("error_code", sa.String(), nullable=True),
         sa.Column("error_text", sa.Text(), nullable=True),
+        # When the request went out. `created_at` is written when it comes *back*, so without this
+        # a sample's window has to be reconstructed as `created_at - client_wall_ms` — an
+        # approximation that can attribute a telemetry reading to the wrong request whenever the
+        # sampler interval is close to the request duration (ADR-0034's inputs are only as good as
+        # the windows they slice).
+        sa.Column("started_at", freeweight.infrastructure.db.types.UtcDateTime(), nullable=True),
         sa.Column("created_at", freeweight.infrastructure.db.types.UtcDateTime(), nullable=False),
+        sa.CheckConstraint(
+            "started_at IS NULL OR started_at <= created_at",
+            name=op.f("ck_samples_started_at_before_created_at"),
+        ),
         sa.CheckConstraint(
             "status = 'completed' OR score IS NULL",
             name=op.f("ck_samples_score_null_unless_completed"),
         ),
         sa.CheckConstraint(
-            "status IN ('completed', 'failed', 'timeout', 'cancelled', 'skipped')",
+            "status IN ('completed', 'awaiting_judgement', 'failed', 'timeout', 'cancelled', "
+            "'skipped')",
             name=op.f("ck_samples_status"),
         ),
         sa.ForeignKeyConstraint(

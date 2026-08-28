@@ -1,0 +1,115 @@
+{
+  "schema_version": "1.0",
+  "description": "A worked calibration set: twelve candidate outputs and the grades a careful author gave them, spanning the scale. Grading twelve samples is a real sitting, and this set exists so a fresh install can show the whole calibration path without one.",
+  "samples": [
+    "In March 2026 the Halden works swapped an overnight batch reconciliation for an incremental one. The old run took 4 hours 20 minutes and finished at 06:10, twenty minutes into the first shift; the new one takes 38 minutes. Ingrid Sorensen, who had run the old process for eleven years, wrote the replacement in a fortnight. In its first month it flagged 213 discrepancies, nine of which were genuine stock errors.",
+    "Halden replaced overnight batch reconciliation with an incremental process in March 2026. Runtime fell from 4 hours 20 minutes to 38 minutes. Ingrid Sorensen wrote it. It found 213 discrepancies in the first month, nine of them real.",
+    "Halden. March 2026. Batch to incremental. 4h20 to 38 min. Sorensen, 11 years, wrote it in a fortnight. 213 discrepancies, 9 genuine.",
+    "The Halden works modernised its reconciliation in March 2026, replacing a four-hour overnight batch with a 38-minute incremental run. The change was written by Ingrid Sorensen over a fortnight, drawing on eleven years of running the process she replaced. The new run surfaced 213 discrepancies in its first month; nine were genuine stock errors and the rest were artefacts of the system it retired.",
+    "In March 2026 Halden switched to incremental reconciliation, cutting the run from 4 hours 20 minutes to 38 minutes, and saving the company roughly 400,000 euros a year.",
+    "Reconciliation at Halden used to run overnight and finish late. Now it does not. Ingrid Sorensen rewrote it. There were 213 discrepancies and most were not real.",
+    "The Halden works replaced its overnight reconciliation in March 2026. The old process ran 4 hours 20 minutes; the new one runs 38 minutes. Ingrid Sorensen wrote the replacement over a fortnight after eleven years running the old one. First-month output: 213 discrepancies, nine genuine stock errors, the remainder timing artefacts.",
+    "Halden's reconciliation process was changed. The change made it faster. A person wrote it. Some discrepancies were found.",
+    "In March 2026, the Halden works moved from an overnight batch reconciliation to an incremental one, reducing a 4-hour-20-minute run that finished at 06:10 to a 38-minute one. Ingrid Sorensen, an eleven-year veteran of the old process, wrote the replacement in a fortnight. Of the 213 discrepancies it flagged in its first month, nine were genuine.",
+    "- Halden works, March 2026\n- Batch replaced by incremental\n- 4h20 to 38 minutes\n- Ingrid Sorensen, fortnight\n- 213 discrepancies, 9 genuine",
+    "The reconciliation at the Halden works now runs incrementally rather than overnight, a change made in March 2026 by Ingrid Sorensen. It finishes in 38 minutes rather than 4 hours 20, and in its first month it found 213 discrepancies of which nine mattered.",
+    "Halden changed how it reconciles stock, which is faster now, and the person who did it had done the old one for a long time, and there were a lot of discrepancies but not many real ones."
+  ],
+  "grades": [
+    {
+      "sample": 0,
+      "criterion": "readable_prose",
+      "grade": 5,
+      "note": "Connected prose, complete, nothing invented."
+    },
+    {
+      "sample": 1,
+      "criterion": "readable_prose",
+      "grade": 4,
+      "note": "Complete and readable; a little clipped."
+    },
+    {
+      "sample": 2,
+      "criterion": "readable_prose",
+      "grade": 1,
+      "note": "Notes. Accurate notes, but notes."
+    },
+    {
+      "sample": 3,
+      "criterion": "readable_prose",
+      "grade": 5,
+      "note": "The best of the set: it has a shape of its own."
+    },
+    {
+      "sample": 4,
+      "criterion": "readable_prose",
+      "grade": 4,
+      "note": "Reads well but invents a figure the source never gives."
+    },
+    {
+      "sample": 5,
+      "criterion": "readable_prose",
+      "grade": 3,
+      "note": "Half prose, half fragments, and vague about the numbers."
+    },
+    {
+      "sample": 6,
+      "criterion": "readable_prose",
+      "grade": 4,
+      "note": "Good, though the last sentence is a header masquerading as prose."
+    },
+    {
+      "sample": 7,
+      "criterion": "readable_prose",
+      "grade": 3,
+      "note": "Prose, but it has removed everything worth summarising."
+    },
+    {
+      "sample": 8,
+      "criterion": "readable_prose",
+      "grade": 5,
+      "note": "Complete, connected, faithful."
+    },
+    {
+      "sample": 9,
+      "criterion": "readable_prose",
+      "grade": 1,
+      "note": "A bulleted list, which is not a summary."
+    },
+    {
+      "sample": 10,
+      "criterion": "readable_prose",
+      "grade": 5,
+      "note": "Clean, and 'of which nine mattered' is a real sentence."
+    },
+    {
+      "sample": 11,
+      "criterion": "readable_prose",
+      "grade": 2,
+      "note": "One run-on sentence; every number lost."
+    }
+  ],
+  "expected": {
+    "readable_prose": {
+      "kappa_w": 0.787234,
+      "rho": 0.947368,
+      "mae": 0.8,
+      "bias": -0.4,
+      "n_holdout": 5,
+      "band": "strong"
+    }
+  },
+  "expected_summary": {
+    "judge_validity_factor": 0.955666,
+    "weighted_kappa_w": 0.787234,
+    "calibration_state": "calibrated",
+    "n_holdout": 5,
+    "n_anchor": 7,
+    "reference_jury": {
+      "bias": 0,
+      "scatter": 1,
+      "jurors": 3,
+      "description": "A deterministic jury that reproduces the author's own grade with an alternating one-point scatter. It is not a model; it exists so a shipped calibration set has a figure that can be reproduced exactly on any machine, with no GPU and no network."
+    }
+  }
+}

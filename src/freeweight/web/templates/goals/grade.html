@@ -1,0 +1,120 @@
+{% extends "base.html" %}
+{% block title %}Grade — FreeWeight{% endblock %}
+{% block content %}
+<h2>{{ goal.pack.name }}</h2>
+{% include "partials/_wizard_steps.html" %}
+<h3>5. {{ step.heading }}</h3>
+<p class="muted">
+  Blinded and shuffled: which model wrote which of these is not shown and is not fetched, and the
+  order is not the order they were produced in. Every grade is saved the moment you submit it, so
+  you can stop, refresh, restart the server and come back — nothing here is held in the page.
+</p>
+
+{% if error %}
+<div class="error-state" role="alert"><p>{{ error }}</p></div>
+{% endif %}
+
+<dl class="card-grid">
+  <div class="card">
+    <dt>Graded</dt>
+    <dd>{{ progress.recorded }} / {{ progress.expected }}</dd>
+    <p class="card-note">{{ progress.samples }} samples × {{ progress.judged_criteria }} judged criteria.</p>
+  </div>
+  <div class="card">
+    <dt>Minimum samples</dt>
+    <dd>{{ progress.min_samples }}</dd>
+    <p class="card-note">Below this the answer is "not enough grades", not "poor agreement".</p>
+  </div>
+  <div class="card">
+    <dt>Complete</dt>
+    <dd style="font-size: 18px;">{{ 'yes' if progress.complete else 'not yet' }}</dd>
+    <p class="card-note">
+      {% if progress.complete %}
+      Run the calibration to see the agreement.
+      {% else %}
+      Keep going — or stop, and come back to exactly here.
+      {% endif %}
+    </p>
+  </div>
+</dl>
+
+{% if progress.complete %}
+<p><a href="/goals/{{ goal.slug }}/report"><button type="button" data-variant="primary">See the agreement</button></a></p>
+{% endif %}
+
+{% if samples %}
+{% for sample in samples %}
+<h3 id="sample-{{ loop.index }}">Sample {{ loop.index }} of {{ samples | length }}</h3>
+<pre>{{ sample.content }}</pre>
+<div class="table-scroll">
+  <table>
+    <caption>Grade this sample on each of your judged criteria. Notes are what the disagreement
+      diagnostics quote back to you, so they are worth writing.</caption>
+    <thead>
+      <tr>
+        <th scope="col">Criterion</th>
+        <th scope="col">Your grade</th>
+        <th scope="col">Note</th>
+        <th scope="col">Save</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for criterion in criteria %}
+      {% set existing = sample.grades.get(criterion.key) %}
+      <tr>
+        <td>
+          <strong>{{ criterion.name }}</strong>
+          {% if criterion.scale %}
+          <details>
+            <summary class="unit">what the points mean</summary>
+            <dl>
+              {% for point, text in criterion.scale.descriptors | dictsort(reverse=true) %}
+              <dt>{{ point }}</dt><dd>{{ text }}</dd>
+              {% endfor %}
+            </dl>
+          </details>
+          {% endif %}
+        </td>
+        <td colspan="3">
+          <form method="post" action="/goals/{{ goal.slug }}/grade">
+            <input type="hidden" name="sample_id" value="{{ sample.id }}">
+            <input type="hidden" name="criterion" value="{{ criterion.key }}">
+            <fieldset style="border: 0; padding: 0;">
+              <legend class="unit">Grade</legend>
+              {% for point in range(1, (criterion.scale.points if criterion.scale else 5) + 1) %}
+              <label for="g-{{ sample.id }}-{{ criterion.key }}-{{ point }}">
+                <input type="radio" id="g-{{ sample.id }}-{{ criterion.key }}-{{ point }}"
+                       name="grade" value="{{ point }}"
+                       {% if existing and existing.grade == point %}checked{% endif %}>
+                {{ point }}
+              </label>
+              {% endfor %}
+            </fieldset>
+            <div class="field">
+              <label for="n-{{ sample.id }}-{{ criterion.key }}">Note</label>
+              <input id="n-{{ sample.id }}-{{ criterion.key }}" name="note"
+                     value="{{ existing.note if existing else '' }}">
+            </div>
+            <button type="submit">{{ 'Update grade' if existing else 'Save grade' }}</button>
+            {% if existing %}
+            <span class="status status-completed">graded {{ existing.grade }}</span>
+            {% endif %}
+          </form>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endfor %}
+{% else %}
+<div class="empty-state">
+  <h3>Nothing to grade yet</h3>
+  <p>This goal has no calibration samples. Add some — run a spread of models over your tasks, or
+    paste in text you already have:</p>
+  <pre>freeweight goals calibrate {{ goal.slug }} --generate</pre>
+  <p>A calibration set that is all excellent or all terrible cannot produce a meaningful agreement
+    figure. There has to be something to disagree about.</p>
+</div>
+{% endif %}
+{% endblock %}

@@ -1,0 +1,133 @@
+{% extends "base.html" %}
+{% block title %}Results — FreeWeight{% endblock %}
+{% block content %}
+<h2>Results</h2>
+<p class="muted">
+  Every stored metric, newest run first. Completed runs only unless you ask otherwise: a metric
+  from a run that stopped halfway measured a different set of cases than the row beside it.
+</p>
+
+<form class="filter-bar" method="get" action="/results" aria-label="Result filters">
+  <div class="field">
+    <label for="f-model">Model</label>
+    <input id="f-model" name="model" value="{{ filters.model }}" placeholder="ollama/qwen3.5:9b">
+  </div>
+  <div class="field">
+    <label for="f-suite">Suite</label>
+    <input id="f-suite" name="suite" value="{{ filters.suite }}" placeholder="native.performance">
+  </div>
+  <div class="field">
+    <label for="f-metric">Metric key</label>
+    <input id="f-metric" name="metric_key" value="{{ filters.metric_key }}" placeholder="task_success">
+  </div>
+  <div class="field">
+    <label for="f-machine">Machine fingerprint</label>
+    <input id="f-machine" name="machine" value="{{ filters.machine }}">
+  </div>
+  <div class="field">
+    <label for="f-since">Since (RFC 3339)</label>
+    <input id="f-since" name="since" value="{{ filters.since }}" placeholder="2026-01-01T00:00:00Z">
+  </div>
+  <div class="field">
+    <label for="f-status">Run status</label>
+    <select id="f-status" name="status">
+      <option value="completed" {% if filters.status == 'completed' %}selected{% endif %}>completed</option>
+      <option value="failed" {% if filters.status == 'failed' %}selected{% endif %}>failed</option>
+      <option value="interrupted" {% if filters.status == 'interrupted' %}selected{% endif %}>interrupted</option>
+      <option value="any" {% if filters.status == 'any' %}selected{% endif %}>any</option>
+    </select>
+  </div>
+  <button type="submit" data-variant="primary">Apply filters</button>
+  <a href="/results">Clear</a>
+</form>
+
+{% if error %}
+<div class="error-state" role="alert">
+  <h3>That query could not be answered</h3>
+  <p>{{ error }}</p>
+  <p>Check the model reference and the timestamps, then try again.</p>
+</div>
+{% elif results is none or results.rows | length == 0 %}
+<div class="empty-state">
+  <h3>No results match</h3>
+  <p>Nothing has been measured under these filters yet. Clear them, or
+    <a href="/runs">start a run</a>.</p>
+</div>
+{% else %}
+<p class="row-count">
+  {{ results.rows | length }} rows{% if results.has_more %}, more available{% endif %}.
+  <a href="/api/v1/results/export?scope=all&amp;format=csv">Export all as CSV</a> ·
+  <a href="/api/v1/results/export?scope=all&amp;format=json">Export all as JSON</a>
+</p>
+<div class="table-scroll">
+  <table data-table="results" data-sortable="true"
+         data-complete="{{ 'false' if results.has_more else 'true' }}">
+    <caption>
+      Stored metrics.
+      {% if results.has_more %}
+      More rows match than fit on this page, so column sorting is off: sorting a page would sort
+      the wrong dataset. Narrow the filters, or follow the next-page link.
+      {% else %}
+      This page holds every row the query matched, so sorting a column sorts the whole result.
+      {% endif %}
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col" data-column="metric_key">Metric</th>
+        <th scope="col" class="numeric" data-column="value">Value</th>
+        <th scope="col" data-column="unit">Unit</th>
+        <th scope="col" class="numeric" data-column="sample_count">n</th>
+        <th scope="col" class="numeric" data-column="excluded_count">Excluded</th>
+        <th scope="col" class="numeric" data-column="stddev">Stddev</th>
+        <th scope="col" class="numeric" data-column="cv">CV</th>
+        <th scope="col" data-column="model">Model</th>
+        <th scope="col" data-column="suite">Suite</th>
+        <th scope="col" data-column="suite_version">Suite version</th>
+        <th scope="col" data-column="test">Test</th>
+        <th scope="col" data-column="machine">Machine</th>
+        <th scope="col" data-column="profile">Runtime profile</th>
+        <th scope="col" data-column="status">Run status</th>
+        <th scope="col" data-column="created_at">Created</th>
+        <th scope="col" data-column="source">Raw source</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for row in results.rows %}
+      <tr>
+        <td>{{ row.metric_key }}</td>
+        <td class="numeric">
+          {% if row.numeric_value is none %}
+          <span class="muted" title="Unsupported: {{ row.unavailable_reason }}">—</span>
+          {% else %}{{ '%.6g' % row.numeric_value }}{% endif %}
+        </td>
+        <td class="unit">{{ row.unit }}</td>
+        <td class="numeric">{{ row.sample_count }}</td>
+        <td class="numeric">{{ row.excluded_count }}</td>
+        <td class="numeric">{% if row.stddev is none %}<span class="muted">—</span>{% else %}{{ '%.4g' % row.stddev }}{% endif %}</td>
+        <td class="numeric">{% if row.coefficient_of_variation is none %}<span class="muted">—</span>{% else %}{{ '%.3g' % row.coefficient_of_variation }}{% endif %}</td>
+        <td class="mono">{{ row.model_canonical_id }}</td>
+        <td>{{ row.suite_key }}</td>
+        <td>{{ row.suite_version }}</td>
+        <td>{{ row.run_test_key or '—' }}</td>
+        <td class="mono" title="{{ row.machine_fingerprint }}">{{ row.machine_fingerprint[:12] }}…</td>
+        <td class="mono" title="{{ row.runtime_profile_hash }}">{{ row.runtime_profile_hash[:12] }}…</td>
+        <td><span class="status status-{{ row.run_status }}">{{ row.run_status }}</span></td>
+        <td class="mono">{{ row.run_created_at | timestamp }}</td>
+        <td>
+          <a href="/runs/{{ row.run_id }}{% if row.run_test_id %}/tests/{{ row.run_test_id }}{% endif %}">
+            {{ row.run_id[:8] }}
+          </a>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% if results.next_cursor %}
+<p><a href="/results?cursor={{ results.next_cursor }}{% if filters.model %}&amp;model={{ filters.model }}{% endif %}{% if filters.suite %}&amp;suite={{ filters.suite }}{% endif %}{% if filters.metric_key %}&amp;metric_key={{ filters.metric_key }}{% endif %}">Next page</a></p>
+{% endif %}
+{% endif %}
+{% endblock %}
+{% block scripts %}
+<script src="/static/js/table.js" defer></script>
+{% endblock %}

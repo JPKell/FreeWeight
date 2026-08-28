@@ -71,6 +71,9 @@ def list_judges(
 
     Each entry links to that model's own ``native.judge`` results, which is how "how trustworthy is
     this instrument" is answered in one interaction (benchmark catalog §1).
+
+    Example:
+        freeweight judges list --candidate ollama/qwen3.5:9b
     """
     from freeweight.domain.judging import JUDGE_SUITE_KEY, eligible_jurors
 
@@ -130,6 +133,9 @@ def validate(
 
     Exits ``5`` when no model is eligible at all, which is the state in which judged criteria
     would skip and only the rule criteria would score.
+
+    Example:
+        freeweight judges validate --goal my_voice
     """
     from freeweight.domain.jury import assemble_jury
     from freeweight.services.goals import get_goal

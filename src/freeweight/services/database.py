@@ -36,6 +36,29 @@ from freeweight.infrastructure.db.models import (
     RuntimeProfile,
     Setting,
 )
+from freeweight.infrastructure.db.models_goals import (
+    CalibrationGrade,
+    CalibrationReport,
+    CalibrationSample,
+    CriterionScore,
+    Goal,
+    GoalCriterion,
+    GoalTaskRow,
+    JudgeVerdict,
+)
+from freeweight.infrastructure.db.models_runs import (
+    Artifact,
+    BenchmarkSuite,
+    BenchmarkTestRow,
+    MetricValue,
+    Run,
+    RunEvent,
+    RunTest,
+    Sample,
+    TelemetryGpuSample,
+    TelemetrySample,
+    ToolCall,
+)
 from freeweight.infrastructure.db.session import session_factory, session_scope
 from freeweight.services.health import HealthComponent
 
@@ -57,7 +80,39 @@ MIGRATIONS_LOCATION = str(
 
 _APPLICATION_NAME = "freeweight"
 
-_ROW_COUNT_MODELS = (Machine, Model, ModelDescriptor, RuntimeProfile, Setting, ApiToken)
+_ROW_COUNT_MODELS = (
+    # Identity and configuration.
+    Machine,
+    Model,
+    ModelDescriptor,
+    RuntimeProfile,
+    Setting,
+    ApiToken,
+    # Benchmarks and their runs. Added at Phase 10: database standards §7 lists row counts as part
+    # of `db status`, and a report that omitted `runs`, `samples` and `metric_values` omitted every
+    # table a user's disk usage and every table a deletion actually touches — which is precisely
+    # what the database page has to show before it offers to remove any of them.
+    BenchmarkSuite,
+    BenchmarkTestRow,
+    Run,
+    RunTest,
+    Sample,
+    ToolCall,
+    MetricValue,
+    RunEvent,
+    Artifact,
+    TelemetrySample,
+    TelemetryGpuSample,
+    # Goals and calibration.
+    Goal,
+    GoalCriterion,
+    GoalTaskRow,
+    CriterionScore,
+    CalibrationSample,
+    CalibrationGrade,
+    CalibrationReport,
+    JudgeVerdict,
+)
 
 
 def build_engine(

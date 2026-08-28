@@ -31,7 +31,11 @@ def show(
         bool, typer.Option("--json", help="Print JSON instead of a table.")
     ] = False,
 ) -> None:
-    """Print the effective configuration, with the source of every value."""
+    """Print the effective configuration, with the source of every value.
+
+    Example:
+        freeweight config show --json
+    """
     from freeweight.config import ConfigurationError, load_settings
 
     try:
@@ -70,7 +74,11 @@ def validate(
         str | None, typer.Option("--config", help="Path to a config.toml file.")
     ] = None,
 ) -> None:
-    """Validate configuration without starting the service. Exit 0 or 3."""
+    """Validate configuration without starting the service. Exit 0 or 3.
+
+    Example:
+        freeweight config validate --config ./config.toml
+    """
     from freeweight.config import ConfigurationError, load_settings
 
     try:
@@ -87,7 +95,11 @@ def path(
         str | None, typer.Option("--config", help="Path to a config.toml file.")
     ] = None,
 ) -> None:
-    """Print the resolved configuration file location."""
+    """Print the resolved configuration file location.
+
+    Example:
+        freeweight config path
+    """
     from freeweight.config import resolve_config_path
 
     typer.echo(str(resolve_config_path(config)))
@@ -100,7 +112,11 @@ def init(
     ] = None,
     force: Annotated[bool, typer.Option("--force", help="Overwrite an existing file.")] = False,
 ) -> None:
-    """Write a fully commented example configuration file."""
+    """Write a fully commented example configuration file.
+
+    Example:
+        freeweight config init --force
+    """
     from freeweight.config import EXAMPLE_CONFIG_TOML, resolve_config_path
 
     target = resolve_config_path(config)

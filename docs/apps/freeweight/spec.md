@@ -1,9 +1,11 @@
 # FreeWeight — Specification
 
 **Type:** Application · **Import/distribution name:** `freeweight` · **Default port:** 8765 · **Env prefix:** `FREEWEIGHT_`
-**Status:** Specified, not implemented. Extended 2026-08-26 with user-defined goal benchmarks
-(ADR-0031, ADR-0032).
-**Related:** [Subjective Goals](subjective-goals.md) · [API](api.md) · [Development Plan](development-plan.md)
+**Status:** Specified, not implemented. Corrected 2026-08-21 by the
+final architecture audit (ADR-0022, ADR-0024, ADR-0026–0028).
+Extended 2026-08-26 with user-defined goal benchmarks (ADR-0031,
+ADR-0032).
+**Related:** [Benchmark Catalog](benchmark-catalog.md) · [Subjective Goals](subjective-goals.md) · [API](api.md) · [Data Model](data-model.md) · [Development Plan](development-plan.md) · [Risks](risks.md)
 
 ---
 
@@ -135,6 +137,19 @@ GET    /api/v1/goals/starters                POST   /api/v1/goals/starters/{key}
 GET    /api/v1/judges                        POST   /api/v1/judges/validate
 ```
 
+**Every path above is routable, and a test asserts it.**
+`tests/contract/test_declared_surface.py` reads this section out of this document — not a list
+maintained beside it, which would drift the same way — and fails when a declared path is not
+served. A path a later phase owns is named in that test's `SCHEDULED` map with the phase that owns
+it, so "not built yet" stays a decision with an owner rather than an absence nobody notices.
+
+It was written because six paths had been declared and unbuilt since Phase 1: nothing in Phases
+1–10A needed the API form of the models or benchmarks surfaces, so no test ever asked for one, and
+the gap surfaced when a live end-to-end journey got a 404 at Phase 10A. **The test found three more
+than that audit had** — the whole machines API, and `POST /runs/{id}/repeat`, which had a service
+function and a CLI command and no route at all. That is the argument for asserting a specification
+against its build rather than reading both and comparing them by eye.
+
 ### 7.2 CLI
 
 ```text
@@ -142,24 +157,75 @@ freeweight serve | health | doctor | version
 freeweight config show|validate|init|path
 freeweight db upgrade|status|backup|restore|vacuum
 freeweight models list|show|refresh
-freeweight benchmarks list|show
+freeweight benchmarks list|show                                      (Phase 12)
 freeweight run start|list|show|cancel|wait|repeat
 freeweight results list|show|compare|export
-freeweight evidence show|export
-freeweight external list|install|verify
+freeweight evidence show|export                                      (Phase 11)
+freeweight external list|install|verify                              (Phase 13)
 freeweight goals list|show|init|edit|validate|suggest-rules
 freeweight goals calibrate|calibration show|grade|report
 freeweight goals export|import|fork-starter|starters
 freeweight judges list|validate
 freeweight prompts list|show|build
-freeweight token create|list|revoke
+freeweight token create|list|revoke                                  (waits on ADR-0014)
 ```
+
+`run start` takes `--context-size` to override `[runtime]` for one run
+(ADR-0023 §3). A group marked with a phase is
+scheduled and deliberately absent until then — a verb that exists and does nothing is worse than one
+that does not, because `--help` advertises it. `benchmarks list|show` goes to Phase 12 with the
+rest of the CLI surface work; its HTTP form ships now, so the data is reachable in the meantime.
 
 ### 7.3 Exports
 
 `benchmark.result`, `benchmark.run_summary`, `capability.evidence`, `benchmark.evidence_bundle`,
 `benchmark.goal_pack`, `benchmark.calibration_report` (all SetSpec-versioned), plus flattened CSV
-for spreadsheet use.
+for spreadsheet use, plus `freeweight.export` — the result export, which is FreeWeight's own
+document rather than a shared contract
+(ADR-0035).
+
+**Two different artifacts carry a goal pack, and they are not interchangeable:**
+
+| Artifact | Produced by | Contains | Read by |
+|---|---|---|---|
+| `benchmark.goal_pack` | `GET /api/v1/goals/{slug}/export` | One SetSpec envelope: the pack's *definition* — identity, criteria, weights, judge config, gate, hashes | Anything that wants to read what a goal measures |
+| **Goal pack bundle** | `freeweight goals export` | Every file of the pack directory, hash-pinned — `goal.json`, `tasks/`, `prompts/`, `pack.json`, and the user's calibration samples and grades where present | `freeweight goals import` and `POST /api/v1/goals/import` |
+
+The envelope is a description; the bundle is the pack itself, and only the bundle round-trips
+(ADR-0031 §6). Its format is described in
+[Subjective Goals §2.3](subjective-goals.md).
+
+### 7.4 A goal run has two phases
+
+A goal run **generates every sample first, then judges them all**, rather than judging each answer
+as it arrives.
+
+| Phase | Resident | Does |
+|---|---|---|
+| Generation | The candidate | Answers every task; scores every rung 1–3 criterion; stores each sample as `awaiting_judgement` |
+| — | *nothing* | The candidate is evicted (`provider.unload`) |
+| Judging | The jurors | Grades the judged criteria from the **stored response text**, combines both halves into the composite, finishes each sample |
+
+**Nothing about the measurement depends on the two being adjacent.** A jury grades text — the
+collaborator's own signature takes a string — so *when* it reads changes nothing about what it
+reads, and a two-phase run produces a verdict identical to a one-phase one, asserted directly
+rather than assumed.
+
+What the split buys is two things the interleaved form could not give:
+
+* **Peak memory is the larger of the two models, not their sum.** Interleaved, with the provider's
+  default `keep_alive`, the candidate stayed resident while each juror loaded — a jury of three
+  meant four models at once, on a machine chosen because it had room for one. It also loaded and
+  evicted `2N` times for `N` cases instead of `1 + jury_size` times.
+* **Telemetry describes the candidate.** The recording window closes and residency is observed
+  *before* any juror loads, so a goal run's peak VRAM and energy total are the candidate's rather
+  than whichever model happened to be larger.
+
+The judging phase contains its own failures: a jury that cannot be reached fails **that sample**,
+with the reason, and the rest of the run proceeds. Aborting would discard a whole run's generation
+over one unjudgeable answer. A run interrupted between phases resumes into the judging phase
+without regenerating anything — the answers are already stored, which is why goal runs force
+response storage on (§12).
 
 ## 8. Inputs
 
@@ -190,7 +256,7 @@ model_descriptors, runtime_profiles, benchmark_suites, benchmark_tests, runs, ru
 metric_values, tool_calls, telemetry_samples, run_events, artifacts, capability_evidence, settings,
 goals, goal_criteria, goal_tasks, calibration_samples, calibration_grades, calibration_reports,
 judge_verdicts.
-See Data Model.
+See [Data Model](data-model.md).
 
 Owns its artifact directory and its exports directory. Reads nothing belonging to another
 application.
@@ -232,11 +298,14 @@ Configuration Standards. Principal sections:
               allowed_hosts = []     # required when host is not loopback (ADR-0026)
 [storage]     database_url = "sqlite:///<data>/freeweight.sqlite3"
               auto_migrate = true on SQLite, false on PostgreSQL (database standards §5.1, §7)
-              artifact_dir = "<data>/artifacts"   retention_days = 0     # 0 = keep everything
+              artifact_dir = "<data>/artifacts"
               backup_retention = 5   # automatic pre-migration backups kept (§7)
               statement_timeout_ms = unset          # PostgreSQL only; also sets lock_timeout
 [provider]    kind = "ollama"      base_url = "http://127.0.0.1:11434"  timeout_seconds = 300
 [providers]   allow_remote = false
+[runtime]     context_size = unset                 # tokens; unset = let the provider choose
+              gpu_layers = unset   threads = unset   batch_size = unset   keep_alive = unset
+[benchmarks]  long_context_max_tokens = 32000       # ceiling of native.long_context's depth sweep
 [telemetry]   interval_ms = 1000   persist_during_runs = true   calibrate_overhead = true
 [execution]   warmup_repetitions = 1   measured_repetitions = 3   cooldown_seconds = 5
               test_timeout_seconds = 600   run_timeout_seconds = 86400
@@ -268,6 +337,57 @@ Goal runs store full response text by default (`store_prompts`/`store_responses`
 judged score that cannot be re-read by the person who defined the rubric is not auditable, which
 defeats the purpose. The privacy default in `[logging]` is unchanged for every other suite.
 
+**There is no time-based retention, deliberately.** A measurement does not expire: a result taken
+six months ago is exactly as true as one taken today. What invalidates it is the model leaving the
+machine or the hardware changing — and a clock can detect neither. A `retention_days` setting
+therefore measures the wrong thing, and re-running a suite because a timer fired would burn GPU
+hours to reproduce a number that was already correct.
+
+The deletion a user actually needs is **by model**: `DELETE /api/v1/database/results` with
+`scope=model` removes every run of a model that is no longer installed, previewed and confirmed
+like every other destructive operation (database standards
+§8). `scope=before` remains for a user who wants an age
+cut-off, applied deliberately rather than on a schedule. `storage.backup_retention` is unrelated and
+unchanged: it rotates automatic pre-migration *backups*, not results.
+
+**`[runtime]` is the default runtime profile, and it is sent to the provider — not merely
+recorded.** Every field it sets is hashed into `runtime_profile_hash` and therefore separates
+results (ADR-0023); a field left unset is *not*
+sent, and the served value is then resolved from what the provider reports or, failing that,
+assumed. `freeweight run start --context-size` overrides it per run, and `POST /api/v1/runs` takes
+the same shape as a `runtime` block. A repeat reuses the original run's stored profile rather than
+re-resolving from current configuration, for the same reason it reuses the frozen `ExecutionConfig`.
+
+`context_size` is the one that matters most on a memory-constrained machine, because the provider's
+own default may be the model's advertised maximum: a 15.7B model asked for a 112 K slot allocates a
+KV cache and compute buffers far larger than the weights, spills to host memory, and measures the
+spill rather than the model.
+
+Fields the provider configures at **server startup** rather than per request — Ollama's KV cache
+precision and flash-attention setting among them — are deliberately **not** in `[runtime]`. A
+configuration key that silently does nothing is worse than an absent one.
+
+**`[benchmarks]` holds limits a machine decides, not a suite author.** A shipped suite's content is
+fixed and hashed — that is what makes two runs of it comparable — but how far a sweep can reach
+before the machine cannot serve the context is a property of the hardware.
+`long_context_max_tokens` fits `native.long_context`'s doubling ladder to the ceiling: truncated
+below it, extended by doubling above it, with the ceiling itself as the final rung. Raising it on a
+machine that can serve more turns `effective_context_tokens` from a floor into a measurement;
+lowering it on a small card keeps the suite runnable instead of failing every rung.
+
+**It separates results**, and structurally: the effective ladder is hashed into that suite's own
+`dataset_hashes`, so it reaches the reproducibility fingerprint by the same path every other
+content-identity fact does. A 32 000-token sweep and a 128 000-token sweep are two measurements and
+are never averaged — a sweep that stopped earlier reports a smaller effective context for reasons
+that have nothing to do with the model.
+
+**The generated configuration reference is owed.** Configuration Standards
+§8 requires a `docs/configuration.md` per application,
+generated from the settings model so it cannot drift, with a CI test that fails on divergence. This
+section is the current authority and is hand-maintained; the sections added since it was written
+(`[goals]`, `[judge]`, `[calibration]`, `[runtime]`) are exactly the ones a generator would have
+kept current for free.
+
 Benchmark **execution parameters** additionally resolve through the second precedence chain
 (application → suite → test → saved settings → run overrides), and the resolved values are frozen
 into every run record.
@@ -284,9 +404,24 @@ CONTEXT_LIMIT_EXCEEDED    DATASET_HASH_MISMATCH     SANDBOX_UNAVAILABLE
 CAPABILITY_UNSUPPORTED    EXTERNAL_BENCHMARK_FAILED SCHEMA_VERSION_UNSUPPORTED
 INSUFFICIENT_RESOURCES    PROMPT_INVALID            MIGRATION_REQUIRED
 GOAL_NOT_FOUND            GOAL_INVALID              GOAL_PACK_INCOMPATIBLE
+GOAL_PATH_UNSAFE          GOAL_HASH_MISMATCH        PROMPT_OVERRIDE_REFUSED
 CALIBRATION_REQUIRED      CALIBRATION_INSUFFICIENT  JUDGE_UNAVAILABLE
 JUDGE_SELF_JUDGING_REFUSED                          REMOTE_JUDGE_NOT_PERMITTED
+COMPARISON_SUBJECT_NOT_FOUND                        COMPARISON_REFUSED
 ```
+
+Five of these name refusals that the shared set cannot describe usefully, and each exists because
+its remedy is specific:
+
+| Code | Raised when | Why not a shared code |
+|---|---|---|
+| `GOAL_PATH_UNSAFE` | An imported pack contains a path that escapes its own directory | `VALIDATION_ERROR` would not tell the user their file is hostile |
+| `GOAL_HASH_MISMATCH` | A pack's declared hash does not match its contents | Distinct from a malformed pack: this one was *modified* |
+| `PROMPT_OVERRIDE_REFUSED` | A run would render an overridden prompt without `--allow-prompt-override` | The remedy is a flag; `CONFLICT` cannot suggest one |
+| `COMPARISON_SUBJECT_NOT_FOUND` | A named comparison subject resolves to nothing | Names *which* subject, of several |
+| `COMPARISON_REFUSED` | The subjects are separated by a fingerprint boundary | Not a missing thing — a comparison that must not be averaged |
+
+Their HTTP statuses are in [API §11](api.md).
 
 Behavioural rules:
 * A failed sample never becomes a zero score; it is stored with its error and excluded from
@@ -311,12 +446,25 @@ Behavioural rules:
   badged `uncalibrated` and emits no evidence. `CALIBRATION_INSUFFICIENT` is raised only when fewer
   than `calibration.min_samples` grades exist — that is, when the user has not yet done the work,
   as distinct from having done it and learned the rubric is not measurable.
-* `CALIBRATION_REQUIRED` is raised at run start when a goal has rung-5 criteria and no calibration
-  record at all; the error names the number of samples still to grade.
+* **An uncalibrated judged goal runs; it does not refuse.** A goal with rung-5 criteria and no
+  calibration record at all executes normally, emits **no** evidence, and reports
+  `judge_validity_factor` and the grading progress so the author can see what is missing. This
+  supersedes an earlier reading of this section, which raised `CALIBRATION_REQUIRED` at run start.
+  ADR-0032 §3's argument — that
+  the diagnostic data is exactly what the user needs to fix the rubric, and it costs one GPU-bound
+  run to obtain — applies *more* strongly before the first calibration than after a failed gate:
+  the author has nothing at all to look at, and refusing denies them the only thing that would tell
+  them what to fix. `CALIBRATION_REQUIRED` is therefore reserved for a caller that explicitly asks
+  for evidence from an ungraded goal; it is not a run-start refusal.
 * A jury that cannot be assembled (fewer than `judge.jury_size` eligible models, or the only
   eligible juror is the candidate itself) degrades to the largest eligible jury and records
   `jury_reduced` with the reason. A jury of zero is `JUDGE_UNAVAILABLE`; judged criteria are
   `skipped`, rule criteria still score, and the partial result says so.
+* **A jury that fails during the judging phase fails that sample, not the run.** The sample is
+  finished as `failed` with the reason and the phase continues: judging runs after every answer has
+  been generated (§7.4), so aborting would discard a whole run's work over one unjudgeable answer.
+  `judge_deferred` — the marker a criterion carries *between* the phases — is transient and never
+  survives a completed run; it is a different fact from `judge_unavailable`, which is permanent.
 * Rule criteria never depend on a provider. A goal whose criteria are entirely rungs 1–3 runs with
   no model judging at all, and is fully available when the provider is down.
 * Cancellation is honoured at every phase and leaves consistent data.
@@ -346,9 +494,15 @@ Behavioural rules:
 * Artifact paths are containment-checked; artifact files are `0600`.
 * **User-authored goal content is untrusted input to FreeWeight's own renderer.** Goal templates
   render through the same `setspec.prompts` loader with `StrictUndefined` and no filesystem or
-  network access in the Jinja2 environment; user regex runs under `rule_timeout_ms` with a linted
-  dialect (no backreferences, bounded repetition) so a catastrophic-backtracking pattern fails the
-  criterion rather than the process.
+  network access in the Jinja2 environment. **User regex is guarded by the dialect, not by the
+  timeout.** A pattern is linted at pack-load time — no backreferences, no unbounded repetition of a
+  group — and a pattern that fails the lint is refused before it ever runs, so a
+  catastrophic-backtracking pattern fails *validation* rather than the criterion. `rule_timeout_ms`
+  remains as the backstop for every rule that yields, which is every rule in the library. The order
+  matters, because CPython cannot deliver the other one: the regex engine holds the GIL for the
+  whole match, so a worker thread running a pathological pattern cannot be interrupted by a timeout
+  in the same process — measured at 3.1 s against a 50 ms budget. A specification that promised the
+  timeout would catch it would be promising something no implementation can deliver.
 * Imported goal packs are size-capped, path-containment-checked, schema-validated and hash-verified
   before a single file is written; an import never overwrites an existing goal in place.
 * A goal pack carries the grader's identity as free text the user supplied, never a system account

@@ -1,0 +1,41 @@
+# Testing Standards §10: the default suite runs on every push and must stay under three minutes,
+# so the two suites that cannot be fast run here instead — `live` needs real weights and `performance`
+# needs a machine whose timings mean something.
+#
+# On a GitHub-hosted runner the live suite **skips itself**: its provider fixture calls
+# `OllamaProvider.health()` and skips when nothing answers on 127.0.0.1:11434. That is deliberate
+# and is not a silent pass — the job prints the skip reasons with `-rs`, so "no Ollama here" is
+# visible rather than indistinguishable from "everything passed". Point a self-hosted runner with a
+# GPU at this workflow and the same job measures a real model.
+#
+# `performance` runs everywhere: its budgets are generous precisely so that shared CI hardware
+# produces information rather than flakes, and the query-plan assertions beside them are
+# hardware-independent.
+name: Nightly
+
+on:
+  schedule:
+    # 03:00 UTC — after any working day's pushes, before any working morning.
+    - cron: "0 3 * * *"
+  workflow_dispatch:
+
+jobs:
+  performance:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12" }
+      - run: pip install -e ".[dev]"
+      - run: pytest -m performance -rs
+
+  live:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12" }
+      - run: pip install -e ".[dev]"
+      # `-rs` reports every skip with its reason: a live suite that skipped because nothing was
+      # serving must not look like a live suite that passed.
+      - run: pytest -m live -rs

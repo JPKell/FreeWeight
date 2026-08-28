@@ -4,6 +4,7 @@
   "version": "1.0.0",
   "category": "auditing",
   "runner": "native",
+  "headline_metric": "defect_detection_score",
   "scorer": "audit",
   "capabilities": [
     "auditing",

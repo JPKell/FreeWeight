@@ -46,11 +46,12 @@ from __future__ import annotations
 import dataclasses
 import json
 import logging
+import math
 import random
 import time
 from contextlib import contextmanager
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timedelta
 from functools import lru_cache
 from typing import TYPE_CHECKING, Any, ClassVar
 
@@ -73,6 +74,7 @@ from baseaicore import (
 )
 from modelrack import GenerationRequest, Message, Role, SamplingParameters
 from modelrack.errors import ProviderError
+from modelrack.residency import find_resident
 from modelrack.streaming import StreamCompleted, StreamFailed, ThinkingDelta, TokenDelta
 
 from freeweight.__about__ import __version__
@@ -80,17 +82,28 @@ from freeweight.benchmarks.agent import benchmark as agent_benchmark
 from freeweight.benchmarks.audit import benchmark as audit_benchmark
 from freeweight.benchmarks.critique import benchmark as critique_benchmark
 from freeweight.benchmarks.echo import benchmark as echo_benchmark
-from freeweight.benchmarks.goal.runner import build_goal_benchmark
+from freeweight.benchmarks.energy import benchmark as energy_benchmark
+from freeweight.benchmarks.energy.energy import PowerSample
+from freeweight.benchmarks.goal.runner import ERROR_JUDGEMENT_DEFERRED, build_goal_benchmark
 from freeweight.benchmarks.instruction_following import benchmark as instruction_following_benchmark
 from freeweight.benchmarks.judge import benchmark as judge_benchmark
 from freeweight.benchmarks.long_context import benchmark as long_context_benchmark
+from freeweight.benchmarks.memory_kv import benchmark as memory_kv_benchmark
+from freeweight.benchmarks.memory_kv.benchmark import (
+    CONTEXT_TOKENS_DETAIL_KEY,
+    SampleWindow,
+    stabilized_vram,
+)
+from freeweight.benchmarks.memory_kv.kv import ContextObservation, KvArchitecture
 from freeweight.benchmarks.performance import benchmark as performance_benchmark
+from freeweight.benchmarks.reliability import benchmark as reliability_benchmark
+from freeweight.benchmarks.reliability.reliability import CaseAttempts
 from freeweight.benchmarks.structured_output import benchmark as structured_output_benchmark
 from freeweight.benchmarks.token_economy import benchmark as token_economy_benchmark
 from freeweight.benchmarks.tool_recovery import benchmark as tool_recovery_benchmark
 from freeweight.benchmarks.tool_use import benchmark as tool_use_benchmark
-from freeweight.config import Settings, prompt_override_dir
-from freeweight.domain.aggregation import SampleGroup, aggregate_run
+from freeweight.config import BenchmarkSettings, Settings, prompt_override_dir
+from freeweight.domain.aggregation import AggregatedMetric, SampleGroup, aggregate_run
 from freeweight.domain.benchmark import Benchmark, BenchmarkRegistry, BenchmarkTest
 from freeweight.domain.goals.criteria import DEFAULT_RULE_TIMEOUT_MS
 from freeweight.domain.metrics import MeasurementClass, SampleFacts
@@ -132,6 +145,7 @@ from freeweight.infrastructure.db.repositories.runs import (
     SampleRepository,
     ToolCallRepository,
 )
+from freeweight.infrastructure.db.repositories.telemetry import TelemetryRepository
 from freeweight.services.events import RunEventPublisher
 from freeweight.services.goals import LoadedGoal
 from freeweight.services.machine import profile_machine
@@ -139,6 +153,7 @@ from freeweight.services.prompts import PromptLibrary, load_pack
 from freeweight.services.telemetry_recording import (
     TelemetryRecorder,
     calibrate_sampling_overhead,
+    load_series,
     load_window,
     summarize_gpu_telemetry,
     wait_for_idle,
@@ -582,18 +597,24 @@ def active_prompt_library() -> PromptLibrary:
     return load_pack(override_root=prompt_override_dir())
 
 
+_DEFAULT_LONG_CONTEXT_MAX_TOKENS: int = BenchmarkSettings().long_context_max_tokens
+"""The shipped ceiling, read from the settings model so the default lives in exactly one place."""
+
+
 def build_registry(
     library: PromptLibrary | None = None,
     goals: Sequence[LoadedGoal] = (),
     *,
     rule_timeout_ms: int = DEFAULT_RULE_TIMEOUT_MS,
+    long_context_max_tokens: int = _DEFAULT_LONG_CONTEXT_MAX_TOKENS,
 ) -> BenchmarkRegistry:
     """Build the registry of benchmarks this build can run.
 
     The one list. A suite that is not named here cannot be run, which is the point: benchmark
     availability is a deliberate, reviewable fact rather than a consequence of which modules
-    happened to be imported. Phase 7's five quality suites and Phase 8's four judgement-dependent
-    ones are on this list, which is the whole of what "adding a suite" means.
+    happened to be imported. Phase 7's five quality suites, Phase 8's four judgement-dependent
+    ones and Phase 9's three resource suites are on this list, which is the whole of what "adding
+    a suite" means.
 
     Goal suites are the exception to "the one list", and deliberately so: they are authored by
     the user, so the list of them is whatever is installed under ``goals.root`` rather than
@@ -606,6 +627,10 @@ def build_registry(
             the user's overrides applied. Every suite gets the *same* library instance, so two
             suites can never disagree about a prompt's hash.
         goals: The loaded goal packs, or none. Each becomes one ``goal.<slug>`` suite.
+        rule_timeout_ms: The per-rule, per-sample budget a goal's rule criteria run under.
+        long_context_max_tokens: The ceiling ``native.long_context``'s depth sweep is fitted to.
+            It reaches the run record through that suite's own ``dataset_hashes``, so two ceilings
+            separate results rather than averaging into one.
 
     Returns:
         The registry.
@@ -629,7 +654,10 @@ def build_registry(
             audit_benchmark.build(pack),
             critique_benchmark.build(pack),
             judge_benchmark.build(pack),
-            long_context_benchmark.build(pack),
+            long_context_benchmark.build(pack, max_context_tokens=long_context_max_tokens),
+            memory_kv_benchmark.build(pack),
+            energy_benchmark.build(pack),
+            reliability_benchmark.build(pack),
             *(build_goal_benchmark(goal, rule_timeout_ms=rule_timeout_ms) for goal in goals),
         ]
     )
@@ -664,7 +692,11 @@ def build_registry_for(settings: Settings, *, strict: bool = False) -> Benchmark
 
     root = settings.goals.root_path
     goals = load_goals(root) if strict else list_goals(root)
-    return build_registry(goals=goals, rule_timeout_ms=settings.goals.rule_timeout_ms)
+    return build_registry(
+        goals=goals,
+        rule_timeout_ms=settings.goals.rule_timeout_ms,
+        long_context_max_tokens=settings.benchmarks.long_context_max_tokens,
+    )
 
 
 def _check_declared_capabilities(registry: BenchmarkRegistry) -> None:
@@ -861,6 +893,7 @@ def create_run(
     model_ref: str,
     suite_key: str,
     execution: ExecutionConfig,
+    runtime_profile: RuntimeProfile | None = None,
     label: str | None = None,
     extra_degradations: Sequence[Degradation] | None = None,
     allow_prompt_override: bool = False,
@@ -886,6 +919,12 @@ def create_run(
         model_ref: A stored ULID or prefix, a canonical ID, or the exact provider model name.
         suite_key: The suite to run, e.g. ``"native.echo"``.
         execution: The resolved execution parameters.
+        runtime_profile: How the model should be loaded and served (ADR-0023). ``None`` means
+            provider defaults — a legal, hashable profile, and the one every run used before this
+            was settable. Passing a profile with a ``context_size`` is what lets two runs of one
+            model at two contexts be two subjects rather than two indistinguishable runs; it also
+            moves the run's ``served_context_source`` from ``assumed`` to ``configured``, because
+            the context is then a fact rather than the descriptor's advertised maximum.
         label: The user's label for this run.
         extra_degradations: Conditions to record on the run before it starts — in practice the
             divergences a ``--force``d repeat chose to proceed past, so the new run's provenance
@@ -949,7 +988,10 @@ def create_run(
                 details={"model": model.canonical_id},
             )
         machine = _machine_row(session, machine_profile.machine_fingerprint)
-        runtime_profile = RuntimeProfile()
+        # `None` is the caller saying "provider defaults", which ADR-0023 §1 makes a real,
+        # hashable profile rather than an absence. Resolved once here so every use below — the
+        # stored row, the served-context resolution and the fingerprint — sees the same object.
+        runtime_profile = runtime_profile if runtime_profile is not None else RuntimeProfile()
         profile_row = RuntimeProfileRepository().get_or_create(
             session,
             profile_hash=runtime_profile.profile_hash,
@@ -1581,7 +1623,36 @@ class _RunContext:
     served_context: int | None
     gpu_index: int
     multi_gpu_visible: bool
+    runtime_profile: RuntimeProfile = field(default_factory=RuntimeProfile)
+    """The profile this run was created under, read back from its stored row.
+
+    Carried here because it has to reach :func:`_build_request`: a profile that is stored, hashed
+    into the fingerprint and never sent to the provider describes a run that did not happen. It is
+    read from the row rather than re-resolved from configuration so that a resumed run resumes
+    under the profile it started with."""
+
     criterion_ids: Mapping[str, str] = field(default_factory=dict)
+    model_vram_bytes: Measurement = UNSUPPORTED
+    """Device memory this model occupies at this run's served context, as the *provider* reports
+    it for this model — not the device total.
+
+    The figure a scheduler needs and the one ADR-0027 §3 and ``PHASE9_ISSUES.md`` §2 both ask for:
+    device-wide VRAM includes every other process, so a slope fitted against it is contaminated by
+    whatever else was resident. ``UNSUPPORTED`` when the provider cannot report per-model
+    residency, which is a fact about the provider and never a zero."""
+
+    model_total_bytes: Measurement = UNSUPPORTED
+    """Total memory this model occupies, device and host together, as the provider reports it."""
+
+    observed_context: Measurement = UNSUPPORTED
+    """The context the provider says it is **actually** serving this model at.
+
+    Distinct from the run's recorded ``served_context``, which is frozen into the fingerprint at
+    creation and — when nothing requested a context — is the descriptor's *advertised* maximum
+    flagged ``assumed`` (ADR-0023 §4). This is the observation that says whether that assumption
+    was right. It is recorded as a metric and, where it disagrees, as a degradation; the frozen
+    document is never rewritten, because provenance that changes after the fact is not
+    provenance."""
     """``{criterion_key: goal_criteria row id}`` for a goal run; empty for every other suite.
 
     Resolved once, here, rather than per sample: a goal's criteria do not change during a run —
@@ -1620,6 +1691,7 @@ def _read_context(database: Database, run_id: str) -> _RunContext:
             served_context=run.served_context,
             gpu_index=run.gpu_index if run.gpu_index is not None else 0,
             multi_gpu_visible=bool(run.multi_gpu_visible),
+            runtime_profile=_stored_runtime_profile(session, run.runtime_profile_id),
             criterion_ids=criterion_ids,
         )
 
@@ -1780,6 +1852,10 @@ def _bind_goal_jury(
         anchors=anchors_for_slug(database, scorer.pack),
         seed=context.config.seed,
         remote=remote,
+        # The same profile the candidate is served under: a juror graded at a
+        # different context than the answers were generated at would be a second, unrecorded
+        # variable in the measurement — and, left unset, is served at its advertised maximum.
+        runtime_profile=context.runtime_profile,
     )
     # The jury this run will actually be measured by, recorded on the run itself. Self-judging is
     # refused and **recorded**, not silently discounted (ADR-0031 §4), and a jury smaller than the
@@ -1816,6 +1892,12 @@ def _bind_goal_jury(
         scorer,
         judge=jury,
         judge_validity_factor=validity_factor_for_slug(database, scorer.pack),
+        # The jury is bound now and called later. Generation defers every judged criterion, so the
+        # candidate has the machine to itself for the whole of it; the jurors get it to themselves
+        # afterwards (:func:`_judge_pending`). Interleaved, the two phases held the candidate and
+        # every juror resident at once, which on a memory-constrained machine is the difference
+        # between running and thrashing.
+        defer_judging=True,
     )
     # ``SuiteBenchmark`` and ``SuiteTest`` are the concrete types a goal benchmark is built from;
     # ``Benchmark`` and ``BenchmarkTest`` are the protocols the run engine consumes. Rebinding is
@@ -1886,7 +1968,7 @@ def _execute_run_inner(  # noqa: PLR0913 — mirrors execute_run's collaborators
         # --- warm ----------------------------------------------------------------------------
         _check_cancelled(database, run_id)
         _transition(database, run_id, RunStatus.WARMING)
-        _warm(provider, context.identity, benchmark, config)
+        _warm(provider, context.identity, benchmark, config, context.runtime_profile)
 
         # --- execute -------------------------------------------------------------------------
         _check_cancelled(database, run_id)
@@ -1928,11 +2010,300 @@ def _execute_run_inner(  # noqa: PLR0913 — mirrors execute_run's collaborators
 
     # --- aggregate ---------------------------------------------------------------------------
     _check_cancelled(database, run_id)
+    # After execution, not after warming: with `warmup_repetitions = 0` the warm step is a no-op
+    # and the model is not loaded until the first measured call, so an observation taken earlier
+    # either sees nothing or — worse — sees the *previous* run's instance still resident and
+    # records its footprint against this run. The provider may evict between the last generation
+    # and here, which yields UNSUPPORTED and therefore no row, which is the honest outcome.
+    context = _observe_residency(provider, context)
+    _record_degradations(database, run_id, _context_divergence(context))
+
+    # --- judge ---------------------------------------------------------------------------------
+    # After the telemetry recorder stopped and after residency was observed, both deliberately.
+    # A juror is a *different model*: readings taken while one is resident describe it rather than
+    # the candidate, so judging inside the recorded window would put whichever model happened to be
+    # larger into this run's peak VRAM and its energy total. This is the second half of the reason
+    # the phases are split — the first is that the candidate is evicted before a juror loads, so
+    # the two are never resident together.
+    _judge_pending(
+        database, provider, publisher, benchmark, run_id=run_id, context=context, clock=clock
+    )
+
     _aggregate_run(database, run_id, benchmark, run_test_ids, context=context, clock=clock)
 
     # --- complete ----------------------------------------------------------------------------
     _finish(database, publisher, run_id, RunStatus.COMPLETED, clock=clock)
     return RunStatus.COMPLETED
+
+
+def _observe_residency(provider: Provider, context: _RunContext) -> _RunContext:
+    """Record what this model occupies, from the provider's own per-model report.
+
+    ``list_resident`` is live state and a provider is free not to offer it, so every failure path
+    here yields ``UNSUPPORTED`` rather than a number: "this provider does not report residency" and
+    "this model occupies no memory" are different facts, and only one of them is true
+    (ADR-0016 §4).
+
+    Paired with the run's ``served_context``, this is the pair a scheduler needs to decide whether
+    a model fits: two runs of one model at two contexts give the bytes-per-token slope exactly,
+    without fitting anything against device-wide telemetry that other processes also move.
+    """
+    from dataclasses import replace as _replace
+
+    try:
+        resident = find_resident(provider.list_resident(), context.identity)
+    except Exception:  # noqa: BLE001 — provenance about a run must not be able to fail the run
+        logger.warning("run.residency_unavailable", extra={"run_id": context.run_id})
+        return context
+    if resident is None:
+        return context
+    logger.info(
+        "run.residency_observed",
+        extra={
+            "run_id": context.run_id,
+            "vram_bytes": resident.vram_bytes,
+            "served_context": context.served_context,
+        },
+    )
+    return _replace(
+        context,
+        model_vram_bytes=resident.vram_bytes,
+        model_total_bytes=resident.total_bytes,
+        observed_context=getattr(resident, "context_length", UNSUPPORTED),
+    )
+
+
+def _evict_candidate(provider: Provider, context: _RunContext) -> bool:
+    """Ask the provider to unload the candidate before the jury loads.
+
+    The point of the two-phase split: with the candidate evicted, a juror has the machine to
+    itself, so the peak footprint of a goal run is the larger of the two models rather than their
+    sum. On a memory-constrained card that is the difference between running and spilling the KV
+    cache to host memory.
+
+    Best-effort by design. A provider that cannot be asked (no ``force_unload``) or fails the
+    request is not a run failure — the jury will simply load alongside a candidate the provider
+    evicts on its own schedule, which is what happened before this phase existed.
+
+    Args:
+        provider: The provider serving both models.
+        context: The run's frozen inputs, naming the candidate.
+
+    Returns:
+        ``True`` when the candidate is known to be gone.
+    """
+    try:
+        evicted = provider.unload(context.identity)
+    except Exception:  # noqa: BLE001 — an eviction that fails must not fail the run
+        logger.info("run.candidate_not_evicted", extra={"run_id": context.run_id})
+        return False
+    logger.info("run.candidate_evicted", extra={"run_id": context.run_id, "was_resident": evicted})
+    return True
+
+
+def _judge_pending(  # noqa: PLR0913 — the judging phase needs the run's whole context
+    database: Database,
+    provider: Provider,
+    publisher: RunEventPublisher,
+    benchmark: Benchmark,
+    *,
+    run_id: str,
+    context: _RunContext,
+    clock: Clock,
+) -> int:
+    """Score every sample this run left awaiting judgement, with the candidate evicted.
+
+    The second half of a goal run. Generation scored the deterministic criteria and stored each
+    sample as ``awaiting_judgement``; this reads those samples back, runs the jury over the
+    **stored response text**, recombines the two halves into the composite, and finishes the
+    sample.
+
+    **Nothing about the measurement depends on the two phases being adjacent.** The jury reads
+    text, not a live model — :meth:`JudgeCollaborator.score_judged` takes a ``str`` — so *when* it
+    reads changes nothing about what it reads. What the split buys is that the candidate and the
+    jurors are never resident together, and that the telemetry window closed before any juror
+    loaded, so a goal run's memory and power figures describe the candidate rather than whichever
+    model happened to be larger.
+
+    A sample whose jury fails is finished as ``failed`` with the reason, not left pending: a run
+    that completed with samples still awaiting judgement would be a run whose own status lied.
+
+    Args:
+        database: The application's database handle.
+        provider: The provider serving the jurors.
+        publisher: The run's event publisher.
+        benchmark: The suite, whose scorer carries the bound jury.
+        run_id: The run being judged.
+        context: The run's frozen inputs.
+        clock: The injected clock.
+
+    Returns:
+        How many samples were judged. ``0`` for every run that is not a goal run with judged
+        criteria, which is most of them.
+    """
+    from freeweight.benchmarks.goal.runner import GoalScorer
+    from freeweight.infrastructure.db.models_runs import Sample as SampleRow
+
+    tests = list(benchmark.tests)
+    scorer = tests[0].scorer if tests else None
+    if not isinstance(scorer, GoalScorer) or scorer.judge is None or not scorer.defer_judging:
+        return 0
+
+    with database.read() as session:
+        pending = SampleRepository().list_awaiting_judgement(session, run_id)
+    if not pending:
+        return 0
+
+    _evict_candidate(provider, context)
+    publisher.publish(
+        run_id,
+        "test.progress",
+        message=f"Judging {len(pending)} samples with the configured jury.",
+        data={"phase": "judging", "pending": len(pending)},
+    )
+
+    cases_by_id = {case.case_id: case for test in tests for case in test.cases()}
+    judged = 0
+    for position, row in enumerate(pending, start=1):
+        _check_cancelled(database, run_id)
+        case = cases_by_id.get(row.case_id)
+        if case is None:  # pragma: no cover — the case set is this run's own suite
+            continue
+        try:
+            verdict = _judge_one(scorer, case, row)
+        except Exception as exc:  # noqa: BLE001 — one sample's jury must not fail the run
+            # The same containment the generation phase gives a scorer defect (spec §13: a failed
+            # test never fails the run). It matters more here: this phase runs after every sample
+            # has been generated, so aborting would throw away a whole run's worth of work over one
+            # unjudgeable answer.
+            logger.warning("judging.failed", extra={"sample_id": row.id}, exc_info=exc)
+            verdict = None
+            error: tuple[str, str] | None = ("JUDGE_ERROR", str(exc))
+        else:
+            error = None
+        status = "failed" if verdict is None else _scored_status(verdict)
+        now = clock()
+        with database.write() as session:
+            sample = session.get(SampleRow, row.id)
+            if sample is None:  # pragma: no cover — read moments ago in this process
+                continue
+            sample.status = status
+            sample.score = None if verdict is None else verdict.score
+            if verdict is not None:
+                sample.score_method = verdict.method.value
+                sample.result_json = _json_safe(dict(verdict.detail))
+            sample.error_code = error[0] if error else (verdict.error_code if verdict else None)
+            sample.error_text = error[1] if error else (verdict.error_text if verdict else None)
+            _store_criterion_scores(session, sample.id, verdict, context, now=now)
+        judged += 1
+        publisher.publish(
+            run_id,
+            _sample_event_type(status),
+            message=f"Judged {row.case_id} ({position}/{len(pending)}).",
+            progress=(position, len(pending)),
+            data={"phase": "judging", "case": row.case_id, "sample_id": row.id},
+        )
+    logger.info("run.judging_finished", extra={"run_id": run_id, "judged": judged})
+    return judged
+
+
+def _judge_one(scorer: Any, case: Any, row: Any) -> ScoreResult:  # noqa: ANN401 — see below
+    """Score one stored sample's judged criteria and recombine it with its stored rules.
+
+    The rule outcomes are read back from the sample rather than recomputed: they were measured
+    against the same text by the same criteria, and running them twice invites two answers to one
+    question. Only the judged criteria are new work.
+
+    Args:
+        scorer: The goal's :class:`~freeweight.benchmarks.goal.runner.GoalScorer`, jury bound.
+        case: The case this sample answered.
+        row: The stored ``samples`` row.
+
+    Returns:
+        The finished verdict — or one carrying ``JUDGE_UNAVAILABLE`` when the jury could not be
+        reached, which is a degradation of this sample rather than a failure of the run.
+    """
+    from freeweight.benchmarks.goal.runner import finish_deferred
+
+    return finish_deferred(
+        scorer,
+        case=case,
+        response_text=row.response_text or "",
+        stored_detail=row.result_json if isinstance(row.result_json, dict) else {},
+    )
+
+
+def _context_divergence(context: _RunContext) -> list[Degradation]:
+    """Record it when the context this run *assumed* is not the one it got.
+
+    A run that names no ``context_size`` records the descriptor's advertised maximum, flagged
+    ``assumed`` — and the provider frequently serves something else entirely. The frozen
+    fingerprint is never rewritten (provenance that changes after the fact is not provenance), so
+    the disagreement is surfaced the way every other "the conditions were not what the record
+    implies" fact is: as a degradation carrying both numbers, which a reader sees beside the
+    results rather than discovering months later as unexplained dispersion.
+
+    Silent when the run configured its own context, because then there is nothing to assume.
+    """
+    if not is_supported(context.observed_context):
+        return []
+    recorded = context.served_context
+    observed = int(float(context.observed_context))
+    if recorded is None or recorded == observed:
+        return []
+    return [
+        Degradation(
+            kind="served_context_assumed_incorrectly",
+            detail={
+                "recorded_served_context": recorded,
+                "observed_served_context": observed,
+                "explanation": (
+                    f"This run's record says it was served {recorded} tokens of context, which "
+                    "was assumed from the model's advertised maximum because nothing requested "
+                    f"one. The provider reports it actually served {observed}. Set "
+                    "[runtime].context_size, or pass --context-size, to make the recorded number "
+                    "a fact."
+                ),
+            },
+        )
+    ]
+
+
+def _residency_rows(context: _RunContext, *, run_id: str, now: datetime) -> list[dict[str, Any]]:
+    """Build the run-level rows for what the model occupied while it was measured.
+
+    **Only what was actually observed**, exactly as :func:`_telemetry_rows` emits nothing when no
+    telemetry was recorded. A provider that does not report per-model residency produces no row
+    rather than a row saying "unsupported": every other run-level metric in this application is one
+    a suite declared, and inventing two undeclared keys on every run of every suite would be metric
+    sprawl that ``tests/integration/test_quality_suites.py`` refuses on purpose. The run still
+    records ``provider_kind``, so a consumer can tell which providers can answer this at all.
+    """
+    return [
+        {
+            "run_id": run_id,
+            "run_test_id": None,
+            "sample_id": None,
+            "metric_key": key,
+            "numeric_value": float(value),
+            "unavailable_reason": None,
+            "gpu_index": None,
+            "unit": unit,
+            "aggregation": "single",
+            "higher_is_better": False,
+            "sample_count": 1,
+            "excluded_count": 0,
+            "stddev": None,
+            "coefficient_of_variation": None,
+            "created_at": now,
+        }
+        for key, value, unit in (
+            ("model_vram_bytes", context.model_vram_bytes, "bytes"),
+            ("model_total_bytes", context.model_total_bytes, "bytes"),
+            ("served_context_observed", context.observed_context, "tokens"),
+        )
+        if is_supported(value)
+    ]
 
 
 def _cooldown(config: ExecutionConfig) -> None:
@@ -2040,12 +2411,16 @@ def _warm(
     identity: ModelIdentity,
     benchmark: Benchmark,
     config: ExecutionConfig,
+    runtime_profile: RuntimeProfile,
 ) -> None:
     """Run the configured warm-up generations, discarding their results.
 
-    Warm-up exists so that first-call model loading is not counted as inference time. Its output
-    is deliberately thrown away — a warm-up sample stored beside measured ones would be exactly
-    the cold/warm mixing benchmark catalog §3.1 forbids.
+    Warm-up exists so that first-call model loading is not counted as inference time, and it warms
+    under the **same runtime profile** the measured calls use — warming at one context and
+    measuring at another would force the provider to reload between them, which is precisely the
+    cost warm-up exists to move outside the measurement. Its output is deliberately thrown away —
+    a warm-up sample stored beside measured ones would be exactly the cold/warm mixing benchmark
+    catalog §3.1 forbids.
 
     A warm-up failure is *not* a run failure: the provider is about to be asked the same thing
     again for real, and the real attempt records a real error. Swallowing it here keeps a
@@ -2058,20 +2433,28 @@ def _warm(
         return
     for _ in range(config.warmup_repetitions):
         try:
-            provider.generate(_build_request(identity, first_case, config))
+            provider.generate(_build_request(identity, first_case, config, runtime_profile))
         except ProviderError as exc:
             logger.warning("run.warmup_failed", extra={"code": exc.code})
             return
 
 
 def _build_request(
-    identity: ModelIdentity, case: Any, config: ExecutionConfig
-) -> GenerationRequest:  # noqa: ANN401 — a BenchmarkCase
-    """Build one provider request from a case and the run's frozen execution config.
+    identity: ModelIdentity,
+    case: Any,  # noqa: ANN401 — a BenchmarkCase
+    config: ExecutionConfig,
+    runtime_profile: RuntimeProfile | None = None,
+) -> GenerationRequest:
+    """Build one provider request from a case, the run's execution config and its runtime profile.
 
     A case's system turn, where it has one, becomes a leading ``SYSTEM`` message rather than being
     prepended to the user text: a provider applies its own template to the two roles differently,
     and merging them would measure a prompt nobody wrote.
+
+    **The runtime profile is sent, not merely stored.** It is what carries ``context_size`` to the
+    provider as ``num_ctx`` (ADR-0023 §4). Omitting it — which this function did until the profile
+    became settable — meant every run was served at whatever the provider chose while its record
+    claimed a profile it had never been asked for.
     """
     messages = []
     if getattr(case, "system_prompt", None):
@@ -2080,6 +2463,7 @@ def _build_request(
     return GenerationRequest(
         identity=identity,
         messages=tuple(messages),
+        runtime_profile=runtime_profile if runtime_profile is not None else RuntimeProfile(),
         sampling=SamplingParameters(
             temperature=config.temperature,
             top_p=config.top_p,
@@ -2423,7 +2807,26 @@ def _sample_event_type(status: str) -> str:
     return {
         "completed": "sample.completed",
         "skipped": "test.progress",
+        # Generated, rules scored, jury still to come. `test.progress` for the same reason a skip
+        # uses it: the sample is not finished, so announcing `sample.completed` would be a lie to
+        # anything counting completions, and the vocabulary gains no frame-shaped addition.
+        "awaiting_judgement": "test.progress",
     }.get(status, "sample.failed")
+
+
+def _scored_status(verdict: ScoreResult | None) -> str:
+    """The sample status a scorer's verdict implies.
+
+    ``awaiting_judgement`` when the scorer deferred its judged criteria to the judging phase: the
+    model answered and the rules scored, so calling it ``failed`` would blame the generation for
+    work that has not been attempted yet, and calling it ``completed`` would publish a composite
+    computed over the rules alone.
+    """
+    if verdict is None:
+        return "failed"
+    if verdict.error_code == ERROR_JUDGEMENT_DEFERRED:
+        return "awaiting_judgement"
+    return "completed" if verdict.score is not None else "failed"
 
 
 def _store_skipped(
@@ -2506,7 +2909,11 @@ def _run_one_case(  # noqa: PLR0913 — one sample needs its whole context
             clock=clock,
             interaction=interaction,
         )
-    request = _build_request(context.identity, case, config)
+    request = _build_request(context.identity, case, config, context.runtime_profile)
+    # Both clocks, deliberately: the monotonic one measures the request, the wall-clock one places
+    # it on the same timeline as the telemetry samples so a window can be intersected rather than
+    # reconstructed.
+    started_at = clock()
     started_ns = monotonic_ns()
     result: Any = None
     error_code: str | None = None
@@ -2546,6 +2953,7 @@ def _run_one_case(  # noqa: PLR0913 — one sample needs its whole context
             error_code=error_code,
             error_text=error_text,
             now=clock(),
+            started_at=started_at,
             extra_detail=stream_detail,
         )
     else:
@@ -2568,6 +2976,7 @@ def _run_one_case(  # noqa: PLR0913 — one sample needs its whole context
                 error_code=error_code,
                 error_text=error_text,
                 now=clock(),
+                started_at=started_at,
                 extra_detail=stream_detail,
             )
         else:
@@ -2575,7 +2984,7 @@ def _run_one_case(  # noqa: PLR0913 — one sample needs its whole context
                 run_test_id=run_test_id,
                 case=case,
                 repetition=repetition,
-                status="completed" if verdict.score is not None else "failed",
+                status=_scored_status(verdict),
                 result=result,
                 score=verdict,
                 wall_ms=wall_ms,
@@ -2583,6 +2992,7 @@ def _run_one_case(  # noqa: PLR0913 — one sample needs its whole context
                 error_code=verdict.error_code,
                 error_text=verdict.error_text,
                 now=clock(),
+                started_at=started_at,
                 extra_detail=stream_detail,
             )
         if values["client_ttft_ms"] is None and is_supported(observed_ttft):
@@ -2656,6 +3066,8 @@ def _run_interactive_case(  # noqa: PLR0913 — one sample needs its whole conte
         results.append(result)
         return result
 
+    # An interaction's window spans every turn it made, so it opens before the first one.
+    started_at = clock()
     started_ns = monotonic_ns()
     error_code: str | None = None
     error_text: str | None = None
@@ -2681,7 +3093,7 @@ def _run_interactive_case(  # noqa: PLR0913 — one sample needs its whole conte
                 logger.warning("sample.scorer_error", extra={"test": test.key}, exc_info=exc)
                 error_code, error_text = "SCORER_ERROR", str(exc)
 
-    status = "completed" if (verdict is not None and verdict.score is not None) else "failed"
+    status = _scored_status(verdict)
     if last is None:
         status = "timeout" if error_code == "PROVIDER_TIMEOUT" else "failed"
     values = _sample_values(
@@ -2696,6 +3108,7 @@ def _run_interactive_case(  # noqa: PLR0913 — one sample needs its whole conte
         error_code=error_code if verdict is None else verdict.error_code or error_code,
         error_text=error_text if verdict is None else verdict.error_text or error_text,
         now=clock(),
+        started_at=started_at,
         extra_detail=detail,
         text=outcome.text if outcome is not None else "",
     )
@@ -2727,7 +3140,9 @@ def _store_criterion_scores(
     entitled to its evidence on the record even when its scorer refused to produce a number.
 
     In the **same transaction as the sample**, so a composite can never be read back with fewer
-    criteria than the sample it belongs to.
+    criteria than the sample it belongs to. A sample whose judging was deferred gets **no rows
+    until the judging phase finishes it**, for the same reason: half a criterion set is exactly
+    the partial read this rule exists to prevent.
 
     A skipped or errored criterion is written with ``raw_score = NULL``; the check constraint
     ``ck_criterion_scores_score_null_unless_scored`` makes that structural rather than a
@@ -2746,6 +3161,14 @@ def _store_criterion_scores(
         now: The sample's own timestamp.
     """
     if not context.criterion_ids or verdict is None:
+        return
+    if verdict.error_code == ERROR_JUDGEMENT_DEFERRED:
+        # A deferred sample has no complete criterion set yet, so it gets no rows at all. Writing
+        # the rule outcomes now and the judged ones later would break this function's own
+        # invariant — that a composite can never be read back with fewer criteria than the sample
+        # it belongs to — in the window between the phases, and would collide with the judging
+        # phase's insert besides. The rule outcomes are not lost: they are carried in the sample's
+        # `result_json` and read back by `finish_deferred`.
         return
     declared = verdict.detail.get("criteria")
     if not isinstance(declared, list) or not declared:
@@ -2936,6 +3359,7 @@ def _sample_values(  # noqa: PLR0913 — this *is* the column set
     error_code: str | None,
     error_text: str | None,
     now: datetime,
+    started_at: datetime | None = None,
     extra_detail: Mapping[str, Any] | None = None,
     text: str | None = None,
 ) -> dict[str, Any]:
@@ -2950,6 +3374,11 @@ def _sample_values(  # noqa: PLR0913 — this *is* the column set
     prompt record that produced it and re-render it (prompt standards §4). ``extra_detail`` is
     merged into ``result_json`` beneath the scorer's own evidence — that is where a streamed
     sample's inter-chunk series and its ``token_level_chunks`` claim live.
+
+    ``started_at`` is the wall-clock instant the request went out, recorded so a sample's telemetry
+    window is a *fact* rather than the ``now - client_wall_ms`` reconstruction it used to be. It is
+    ``None`` for a sample that was never sent — a skip has no window, and a zero-length one is the
+    honest answer for it.
     """
     # ``text`` is supplied by a multi-turn interaction, whose answer is not necessarily its last
     # turn's text — a trajectory that ran out of steps ended on a tool request, and hashing that
@@ -2981,6 +3410,7 @@ def _sample_values(  # noqa: PLR0913 — this *is* the column set
         "result_json": _json_safe(detail) if detail else None,
         "error_code": error_code,
         "error_text": error_text,
+        "started_at": started_at,
         "created_at": now,
     }
     if result is not None:
@@ -3048,6 +3478,12 @@ def _aggregate_run(  # noqa: PLR0913 — aggregation needs the run, its suite an
     The arithmetic itself is :func:`freeweight.domain.aggregation.aggregate_run`'s, which is where
     the cold/warm separation lives. The telemetry summary is appended as run-level rows carrying
     their ``gpu_index``, because there is no machine-wide GPU figure (ADR-0027 §5).
+
+    Three suites produce figures no scorer can see — a KV slope needs the descriptor and the
+    device's memory readings, an energy estimate needs the power series, a ``pass@k`` needs every
+    repetition of every case. :func:`_suite_derived_metrics` is the one seam that hands those
+    suites what they need; the arithmetic stays in each benchmark package, where it is testable
+    without a database (Phase 9).
     """
     now = clock()
     with database.read() as session:
@@ -3088,8 +3524,303 @@ def _aggregate_run(  # noqa: PLR0913 — aggregation needs the run, its suite an
         for metric in aggregate_run(groups)
     ]
     rows.extend(_telemetry_rows(database, run_id, context=context, now=now))
+    rows.extend(_residency_rows(context, run_id=run_id, now=now))
+    rows.extend(
+        _metric_row(metric, run_id=run_id, now=now)
+        for metric in _suite_derived_metrics(database, run_id, benchmark, run_test_ids, context)
+    )
     with database.write() as session:
         MetricValueRepository().replace_for_run(session, run_id, rows=rows)
+
+
+_SUITES_WITH_DERIVED_METRICS: frozenset[str] = frozenset(
+    {"native.memory_kv", "native.energy", "native.reliability"}
+)
+"""Suites whose run-level metrics cannot be computed from a sample alone.
+
+A short, explicit list rather than a hook every benchmark may implement: three suites need the
+descriptor, the telemetry series or every stored repetition, and a general extension point would
+invite the fourth to reach for the database from inside a scorer."""
+
+
+def _metric_row(metric: AggregatedMetric, *, run_id: str, now: datetime) -> dict[str, Any]:
+    """Render one aggregate into the ``metric_values`` row shape."""
+    return {
+        "run_id": run_id,
+        "run_test_id": metric.run_test_id,
+        "sample_id": None,
+        "metric_key": metric.metric_key,
+        "numeric_value": metric.numeric_value,
+        "unavailable_reason": metric.unavailable_reason,
+        "gpu_index": metric.gpu_index,
+        "unit": metric.unit,
+        "aggregation": metric.aggregation,
+        "higher_is_better": metric.higher_is_better,
+        "sample_count": metric.sample_count,
+        "excluded_count": metric.excluded_count,
+        "stddev": metric.stddev,
+        "coefficient_of_variation": metric.coefficient_of_variation,
+        "created_at": now,
+    }
+
+
+@dataclass(frozen=True, slots=True)
+class _StoredSample:
+    """One stored sample, in the shape the Phase 9 derivations read it in.
+
+    Deliberately not :class:`~freeweight.domain.metrics.SampleFacts`: these derivations need the
+    two things ``SampleFacts`` drops because no per-sample formula needs them — *when* the sample
+    ran, so a telemetry reading can be attributed to it, and the response hash, so two repetitions
+    can be compared without either storing its response text (spec §14).
+    """
+
+    case_id: str
+    status: str
+    score: float | None
+    response_hash: str | None
+    started_at: datetime
+    ended_at: datetime
+    prompt_eval_ms: float | None
+    output_tokens: int | None
+    detail: Mapping[str, Any]
+
+
+def _stored_samples(session: Session, run_test_id: str) -> list[_StoredSample]:
+    """Read one test's samples in the shape the derivations need.
+
+    A sample's window is ``[started_at, created_at]`` — both recorded, the first when the request
+    went out and the second when it came back. It decides which telemetry observations fell inside
+    a request, which is what makes energy attributable to work rather than to a run's whole
+    wall-clock span.
+
+    A row written before ``started_at`` existed, or a sample that was never sent, falls back to the
+    old reconstruction ``created_at - client_wall_ms``, and a row with neither collapses to a
+    zero-length window that no observation falls inside — an absent window, not a guessed one.
+    """
+    rows = SampleRepository().list_for_run_test(session, run_test_id, limit=100_000)
+    samples: list[_StoredSample] = []
+    for row in rows:
+        ended = row.created_at
+        if row.started_at is not None:
+            began = row.started_at
+        else:
+            wall_ms = float(row.client_wall_ms) if row.client_wall_ms is not None else 0.0
+            began = ended - timedelta(milliseconds=wall_ms)
+        samples.append(
+            _StoredSample(
+                case_id=row.case_id,
+                status=row.status,
+                score=row.score,
+                response_hash=row.response_hash,
+                started_at=began,
+                ended_at=ended,
+                prompt_eval_ms=row.backend_prompt_eval_ms,
+                output_tokens=row.output_tokens,
+                detail=row.result_json if isinstance(row.result_json, dict) else {},
+            )
+        )
+    return samples
+
+
+def _kv_architecture(session: Session, run: Any) -> KvArchitecture:  # noqa: ANN401 — a runs row
+    """Read the descriptor snapshot and runtime profile this run was measured against.
+
+    The snapshot the run recorded, never the latest one: a descriptor refreshed since the run
+    describes a model this run did not measure.
+    """
+    from freeweight.infrastructure.db.models import ModelDescriptor, RuntimeProfile
+
+    descriptor = session.get(ModelDescriptor, run.model_descriptor_id)
+    profile = session.get(RuntimeProfile, run.runtime_profile_id)
+
+    def measured(value: int | None) -> Measurement:
+        return UNSUPPORTED if value is None else float(value)
+
+    return KvArchitecture(
+        layers=measured(descriptor.layers) if descriptor is not None else UNSUPPORTED,
+        kv_heads=measured(descriptor.kv_heads) if descriptor is not None else UNSUPPORTED,
+        head_dim=measured(descriptor.head_dim) if descriptor is not None else UNSUPPORTED,
+        architecture=descriptor.architecture if descriptor is not None else None,
+        kv_cache_precision=profile.kv_cache_precision if profile is not None else None,
+    )
+
+
+def _mean_prompt_eval_ms(samples: Sequence[_StoredSample]) -> Measurement:
+    """Mean provider-reported prompt-evaluation time over the completed samples of one test."""
+    reported = [
+        sample.prompt_eval_ms
+        for sample in samples
+        if sample.status == "completed" and sample.prompt_eval_ms is not None
+    ]
+    return math.fsum(reported) / len(reported) if reported else UNSUPPORTED
+
+
+def _memory_kv_metrics(
+    database: Database,
+    run: Any,  # noqa: ANN401 — a runs row
+    by_test: Mapping[str, list[_StoredSample]],
+    architecture: KvArchitecture,
+    context: _RunContext,
+) -> tuple[AggregatedMetric, ...]:
+    """Derive ``native.memory_kv``'s run-level figures from the descriptor and the telemetry."""
+    series = load_series(database, run.id)
+    device = next((item for item in series.gpus if item.gpu_index == context.gpu_index), None)
+    observations: list[ContextObservation] = []
+    if device is not None:
+        for sample in by_test.get("memory_kv.context_slope", []):
+            if sample.status != "completed":
+                continue
+            tokens = sample.detail.get(CONTEXT_TOKENS_DETAIL_KEY)
+            if isinstance(tokens, bool) or not isinstance(tokens, int):
+                continue
+            vram = stabilized_vram(
+                SampleWindow(
+                    context_tokens=tokens,
+                    started_at=sample.started_at,
+                    ended_at=sample.ended_at,
+                    succeeded=True,
+                ),
+                series.timestamps,
+                device.vram_used_bytes,
+            )
+            if is_supported(vram):
+                observations.append(
+                    ContextObservation(context_tokens=tokens, vram_used_bytes=float(vram))
+                )
+    attempts = [
+        (int(sample.detail.get(CONTEXT_TOKENS_DETAIL_KEY, 0)), sample.status == "completed")
+        for sample in by_test.get("memory_kv.max_context_fit", [])
+        if isinstance(sample.detail.get(CONTEXT_TOKENS_DETAIL_KEY), int)
+    ]
+    return memory_kv_benchmark.derive(
+        architecture=architecture,
+        observations=observations,
+        attempts=attempts,
+        cold_prefill_ms=_mean_prompt_eval_ms(by_test.get("memory_kv.prefix_first_pass", [])),
+        warm_prefill_ms=_mean_prompt_eval_ms(by_test.get("memory_kv.prefix_reuse", [])),
+        gpu_index=context.gpu_index,
+        multi_gpu_visible=context.multi_gpu_visible,
+        placement_known=False,
+        configured_limit=context.served_context,
+    )
+
+
+def _energy_metrics(
+    database: Database,
+    run: Any,  # noqa: ANN401 — a runs row
+    by_test: Mapping[str, list[_StoredSample]],
+    context: _RunContext,
+) -> tuple[AggregatedMetric, ...]:
+    """Derive ``native.energy``'s run-level figures from the run's persisted power series."""
+    series = load_series(database, run.id)
+    device = next((item for item in series.gpus if item.gpu_index == context.gpu_index), None)
+    power = (
+        [
+            PowerSample(
+                timestamp=stamp,
+                power_watts=UNSUPPORTED if watts is None else float(watts),
+            )
+            for stamp, watts in zip(series.timestamps, device.power_watts, strict=True)
+        ]
+        if device is not None
+        else []
+    )
+    with database.read() as session:
+        temperatures = [
+            row.cpu_temperature_c
+            for row in TelemetryRepository().list_for_run(session, run.id)
+            if row.cpu_temperature_c is not None
+        ]
+    samples = [sample for group in by_test.values() for sample in group]
+    completed = [sample for sample in samples if sample.status == "completed"]
+    tokens = [sample.output_tokens for sample in completed if sample.output_tokens is not None]
+    window = load_window(database, run.id)
+    verdict = window.suspected_throttling(context.gpu_index) if window.sample_count() else None
+    # Only the samples that were actually sent carry a window. A skip has none, and giving it a
+    # zero-length one would be indistinguishable from a request that took no time.
+    request_windows = [
+        (sample.started_at, sample.ended_at)
+        for sample in samples
+        if sample.status != "skipped" and sample.ended_at > sample.started_at
+    ]
+    return energy_benchmark.derive(
+        power,
+        requests=len(samples),
+        successes=sum(1 for sample in completed if (sample.score or 0.0) > 0.0),
+        output_tokens=float(sum(tokens)) if tokens else UNSUPPORTED,
+        max_cpu_temperature_c=max(temperatures) if temperatures else UNSUPPORTED,
+        throttling_suspected=verdict.suspected if verdict is not None else None,
+        gpu_index=context.gpu_index,
+        multi_gpu_visible=context.multi_gpu_visible,
+        placement_known=False,
+        request_windows=request_windows,
+    )
+
+
+def _reliability_metrics(
+    by_test: Mapping[str, list[_StoredSample]],
+) -> tuple[AggregatedMetric, ...]:
+    """Derive ``native.reliability``'s run-level figures from every stored repetition."""
+    attempts: dict[str, list[_StoredSample]] = {}
+    for samples in by_test.values():
+        for sample in samples:
+            attempts.setdefault(sample.case_id, []).append(sample)
+    cases = [
+        CaseAttempts(
+            case_id=case_id,
+            scores=tuple(
+                UNSUPPORTED if sample.score is None else float(sample.score) for sample in group
+            ),
+            answer_labels=tuple(sample.response_hash for sample in group),
+        )
+        for case_id, group in sorted(attempts.items())
+    ]
+    return reliability_benchmark.derive(cases)
+
+
+def _suite_derived_metrics(
+    database: Database,
+    run_id: str,
+    benchmark: Benchmark,
+    run_test_ids: Mapping[str, str],
+    context: _RunContext,
+) -> tuple[AggregatedMetric, ...]:
+    """Compute the run-level metrics the Phase 9 suites cannot derive from a sample alone.
+
+    The seam is deliberately narrow and deliberately explicit: three named suites, one dispatch,
+    and every formula behind it living in the benchmark package that owns it. Nothing here decides
+    what a number means; it reads the descriptor, the telemetry and the stored repetitions, hands
+    them over, and turns what comes back into rows.
+
+    Args:
+        database: The application's database handle.
+        run_id: The run being aggregated.
+        benchmark: The suite that ran.
+        run_test_ids: ``{test_key: run_tests row id}`` for this run.
+        context: The run's frozen inputs — the target device and whether more than one was visible.
+
+    Returns:
+        The derived rows, or empty for any suite that is not one of the three. Empty is the normal
+        answer, not a failure: twelve of the fifteen shipped suites derive nothing here.
+    """
+    suite_key = benchmark.manifest.key
+    if suite_key not in _SUITES_WITH_DERIVED_METRICS:
+        return ()
+    with database.read() as session:
+        run = RunRepository().get_by_id(session, run_id)
+        if run is None:  # pragma: no cover — the caller is holding this run
+            return ()
+        by_test = {
+            test.key: _stored_samples(session, run_test_ids[test.key])
+            for test in benchmark.tests
+            if test.key in run_test_ids
+        }
+        architecture = _kv_architecture(session, run)
+    if suite_key == "native.memory_kv":
+        return _memory_kv_metrics(database, run, by_test, architecture, context)
+    if suite_key == "native.energy":
+        return _energy_metrics(database, run, by_test, context)
+    return _reliability_metrics(by_test)
 
 
 def _telemetry_rows(
@@ -3201,9 +3932,23 @@ def repeat_run(  # noqa: PLR0913 — a repeat takes everything a fresh run does,
         # thing a repeat has to notice (ADR-0008, ADR-0024).
         model_ref = model.provider_model_name if model is not None else ""
         original_id = original.id
+        # The *original's* runtime profile, not the current configuration's. A repeat that
+        # re-resolved the profile would silently repeat a different measurement the moment
+        # `[runtime]` changed — the same reason the frozen ExecutionConfig is reused verbatim
+        # rather than re-resolved. ADR-0017 makes a differing profile a hard separation, so a
+        # "repeat" under a new one would not be a repeat at all.
+        original_profile = _stored_runtime_profile(session, original.runtime_profile_id)
 
     observed = _observed_document(
-        database, provider, collector, registry, suite_key, model_ref, config, clock=clock
+        database,
+        provider,
+        collector,
+        registry,
+        suite_key,
+        model_ref,
+        config,
+        runtime_profile=original_profile,
+        clock=clock,
     )
     blockers = check_repeatable(recorded, observed)
     if blockers and not force:
@@ -3219,6 +3964,7 @@ def repeat_run(  # noqa: PLR0913 — a repeat takes everything a fresh run does,
         provider,
         collector,
         registry,
+        runtime_profile=original_profile,
         model_ref=model_ref,
         suite_key=suite_key,
         execution=config,
@@ -3226,6 +3972,31 @@ def repeat_run(  # noqa: PLR0913 — a repeat takes everything a fresh run does,
         extra_degradations=degradations,
         allow_prompt_override=allow_prompt_override,
         clock=clock,
+    )
+
+
+def _stored_runtime_profile(session: Session, profile_id: str) -> RuntimeProfile:
+    """Rebuild the :class:`~baseaicore.RuntimeProfile` a stored run was measured under.
+
+    Read back from the row rather than re-resolved from configuration, so a repeat repeats the
+    profile as well as the execution parameters. A row that has gone missing yields provider
+    defaults, which is the same profile every run used before ``[runtime]`` existed.
+    """
+    from freeweight.infrastructure.db.models import RuntimeProfile as RuntimeProfileRow
+
+    row = session.get(RuntimeProfileRow, profile_id)
+    if row is None:  # pragma: no cover — a run cannot outlive its profile row (RESTRICT)
+        return RuntimeProfile()
+    options = row.provider_options_json if isinstance(row.provider_options_json, dict) else {}
+    return RuntimeProfile(
+        context_size=row.context_size,
+        kv_cache_precision=row.kv_cache_precision,
+        gpu_layers=row.gpu_layers,
+        flash_attention=row.flash_attention,
+        threads=row.threads,
+        batch_size=row.batch_size,
+        keep_alive=row.keep_alive,
+        provider_options=dict(options),
     )
 
 
@@ -3238,6 +4009,7 @@ def _observed_document(  # noqa: PLR0913 — mirrors the inputs create_run resol
     model_ref: str,
     config: ExecutionConfig,
     *,
+    runtime_profile: RuntimeProfile,
     clock: Clock,
 ) -> dict[str, Any]:
     """Build the fingerprint document this environment would produce for the same request.
@@ -3272,7 +4044,6 @@ def _observed_document(  # noqa: PLR0913 — mirrors the inputs create_run resol
                 f"Model {model_ref!r} has no descriptor snapshot; run `freeweight models refresh`.",
                 details={"model": model_ref},
             )
-        runtime_profile = RuntimeProfile()
         served = resolve_served_context(
             requested_context=runtime_profile.context_size,
             context_configurable=capabilities.context_configurable,

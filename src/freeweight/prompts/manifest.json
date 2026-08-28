@@ -20,6 +20,11 @@
       "sha256": "sha256:f8cee9d21d3076f143ee84afeb0023313b02e5acaaba4001ffd299e73cc5dd61"
     },
     {
+      "prompt_id": "benchmarks.energy.workload",
+      "version": "1.0.0",
+      "sha256": "sha256:cc0722a3e33ac0d3c09f2027c146c44f08e9f93983754a866cb5fedae77e81e7"
+    },
+    {
       "prompt_id": "benchmarks.instruction_following.constrained",
       "version": "1.0.0",
       "sha256": "sha256:9432aced57043c1f8bff0139177f9739f8e38c3b9df11c4121c5722ad477d8a9"
@@ -40,9 +45,19 @@
       "sha256": "sha256:f97a5bc119ee53ced1a26ef2e27d584e81c618d75a62343ffef7d9625aa13c47"
     },
     {
+      "prompt_id": "benchmarks.memory_kv.context_probe",
+      "version": "1.0.0",
+      "sha256": "sha256:82d957afbc871d295e32b2de85c207bd01267b126b12e412879a128b017daaf3"
+    },
+    {
       "prompt_id": "benchmarks.performance.probe",
       "version": "1.0.0",
       "sha256": "sha256:0e822daccf68b87d2444b88901a8944478bdaadf53bf7c323cb4af9b1be73a81"
+    },
+    {
+      "prompt_id": "benchmarks.reliability.probe",
+      "version": "1.0.0",
+      "sha256": "sha256:2884990903adc69fdd7bc87f56c6795654069695cde6d06f7b36229959740ec3"
     },
     {
       "prompt_id": "benchmarks.structured_output.repair",
@@ -80,5 +95,5 @@
       "sha256": "sha256:8aeb2f27038e46c3e04aadb14e373b382231ce5f7a199770b96180463a4d86e3"
     }
   ],
-  "pack_sha256": "sha256:3afc6733aa783d7b70e71bc62c62cb1ba450856d7af9e6b99cf2293048725b4d"
+  "pack_sha256": "sha256:b1b0ffd0a5941fee5e0013d2a826732ea02a285b229bdc006ebd6dd25ff4ceb4"
 }

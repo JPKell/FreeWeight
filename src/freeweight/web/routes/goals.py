@@ -28,7 +28,7 @@ from typing import TYPE_CHECKING, Any
 from fastapi import APIRouter, Request, status
 from fastapi.responses import JSONResponse, Response
 from pydantic import BaseModel, ConfigDict, Field
-from setspec.envelope import GeneratorInfo, SchemaVersion, dump_envelope
+from setspec.envelope import GeneratorInfo, SchemaVersion
 
 from freeweight.__about__ import __version__
 from freeweight.config import Settings
@@ -173,6 +173,62 @@ def create_goal_endpoint(request: Request, body: GoalPackBody) -> JSONResponse:
     return JSONResponse(_goal_json(goal), status_code=status.HTTP_201_CREATED)
 
 
+# ---------------------------------------------------------------------------
+# Starter packs (Phase 10A)
+#
+# Spec §7.1's `GET /goals/starters` and `POST /goals/starters/{key}/fork`. A starter is not a
+# goal: nothing here is runnable until a user forks it into their own goals root, and a fork
+# carries `unforked` until they have edited its criteria or its tasks.
+# ---------------------------------------------------------------------------
+
+
+class ForkBody(BaseModel):
+    """What to call the forked goal."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    slug: str | None = None
+
+
+@api_router.get("/goals/starters", summary="The starter packs that ship with the application")
+def list_starters_endpoint() -> dict[str, Any]:
+    """Return the four shipped starters, in the order they are meant to be read.
+
+    The order is the pedagogy (Subjective Goals §8): read down the list and the share of weight
+    scored deterministically rises, which is the single most useful thing a user can internalize
+    about writing a measurable rubric.
+    """
+    from freeweight.goals.starters import READING_ORDER, list_starters
+
+    return {
+        "items": [starter.as_json() for starter in list_starters()],
+        "reading_order": list(READING_ORDER),
+    }
+
+
+@api_router.post(
+    "/goals/starters/{key}/fork",
+    status_code=status.HTTP_201_CREATED,
+    summary="Copy a starter into your own goals",
+)
+def fork_starter_endpoint(request: Request, key: str, body: ForkBody | None = None) -> JSONResponse:
+    """Fork one starter into the user's goals root.
+
+    The copy is an ordinary directory of JSON the user owns: editable in an editor, diffable in
+    git, portable to another machine. It is badged ``unforked`` until its criteria or its tasks
+    are edited — a voice measured on somebody else's prompts is not the user's voice, and the
+    badge is what stops a starter quietly becoming a default.
+
+    Raises:
+        StarterNotFound: No starter has that key.
+        GoalSlugCollision: A goal with that slug already exists.
+    """
+    from freeweight.goals.starters import fork_starter
+
+    goal = fork_starter(_root(request), key, slug=(body.slug if body else None))
+    return JSONResponse(_goal_json(goal), status_code=status.HTTP_201_CREATED)
+
+
 @api_router.get("/goals/{slug}", summary="One goal")
 def get_goal_endpoint(request: Request, slug: str) -> dict[str, Any]:
     """Return one goal as loaded, with its lint findings."""
@@ -265,71 +321,40 @@ def export_goal_endpoint(request: Request, slug: str) -> Response:
     weights, rungs, task prompt identities and hashes — which is what a consumer needs to decide
     comparability. The portable *bundle*, which carries the files an importer would need, is
     ``freeweight goals export`` on the CLI.
+
+    The document itself is :func:`~freeweight.services.export.iter_goal_export`'s, so this
+    endpoint and ``freeweight results export`` cannot come to emit different bytes for one pack.
     """
-    from setspec.goal.v1 import GoalPackOut
+    from freeweight.services.export import iter_goal_export
 
     goal = get_goal(_root(request), slug)
-    payload = GoalPackOut.model_validate(_setspec_payload(goal))
-    body = dump_envelope(
-        payload,
-        schema="benchmark.goal_pack",
-        version=_GOAL_PACK_SCHEMA_VERSION,
-        generator=_GENERATOR,
-    )
+    body = "".join(iter_goal_export(request.app.state.database, goal, document="goal_pack"))
     return Response(content=body, media_type="application/json; charset=utf-8")
 
 
-def _setspec_payload(goal: LoadedGoal) -> dict[str, Any]:
-    """Build the ``benchmark.goal_pack`` payload from a loaded goal."""
-    from baseaicore import utc_now
+@api_router.get(
+    "/goals/{slug}/calibration/report/export",
+    summary="Export as benchmark.calibration_report",
+)
+def export_calibration_report_endpoint(request: Request, slug: str) -> Response:
+    """Return one goal's calibration as a ``benchmark.calibration_report`` SetSpec envelope.
 
-    pack = goal.pack
-    judge_set = None
-    if pack.judge is not None:
-        judge_set = {
-            "jurors": list(pack.judge.models),
-            "prompt_id": pack.judge.prompt_id,
-            "prompt_version": pack.judge.prompt_version,
-            "prompt_sha256": (
-                goal.judge_prompt.sha256 if goal.judge_prompt is not None else "sha256:unresolved"
-            ),
-            "remote": pack.judge.allow_remote,
-        }
-    return {
-        "slug": pack.slug,
-        "name": pack.name,
-        "intent": pack.intent,
-        "goal_pack_version": pack.goal_pack_version,
-        "goal_hash": goal.goal_hash,
-        "contributes_to": pack.contributes_to,
-        "criteria": [
-            {
-                "key": criterion.key,
-                "name": criterion.name,
-                "rung": criterion.rung.value,
-                "weight": criterion.weight,
-                "is_gate": criterion.is_gate,
-                "rule_type": criterion.rule_type,
-                "scale_points": None if criterion.scale is None else criterion.scale.points,
-                "has_scale_descriptors": (criterion.scale is not None and criterion.scale.anchored),
-            }
-            for criterion in pack.criteria
-        ],
-        "tasks": [
-            {
-                "key": task.key,
-                "prompt_id": task.prompt_id,
-                "prompt_version": task.prompt_version,
-                "prompt_sha256": task.prompt_sha256,
-                "is_starter": task.is_starter,
-            }
-            for task in pack.tasks
-        ],
-        "judge_set": judge_set,
-        "unforked": pack.unforked,
-        "created_by": pack.created_by,
-        "created_at": pack.created_at or utc_now(),
-    }
+    The contract form of the report ``GET /goals/{slug}/calibration/report`` returns: the same
+    measurement, in the schema spec §7.3 names, so a consumer can read the agreement figures
+    without knowing FreeWeight's own field names. Every coefficient carries its ``n_holdout``,
+    which SetSpec's own model requires.
+
+    Raises:
+        ExportRefused: The goal has never been calibrated. An uncalibrated goal and an empty
+            report are different things, and this refuses rather than conflating them.
+    """
+    from freeweight.services.export import iter_goal_export
+
+    goal = get_goal(_root(request), slug)
+    body = "".join(
+        iter_goal_export(request.app.state.database, goal, document="calibration_report")
+    )
+    return Response(content=body, media_type="application/json; charset=utf-8")
 
 
 @api_router.post("/goals/import", status_code=status.HTTP_201_CREATED, summary="Import a bundle")

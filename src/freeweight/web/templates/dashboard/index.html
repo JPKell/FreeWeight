@@ -1,0 +1,232 @@
+{% extends "base.html" %}
+{% block title %}Dashboard — FreeWeight{% endblock %}
+{% block content %}
+<h2>Dashboard</h2>
+<p class="muted">
+  Every figure on this page is one stored measurement from one named run — the latest completed
+  run of that suite for that model. Nothing here is averaged across runs, and every number links
+  to the samples that produced it.
+</p>
+
+{% if error %}
+<div class="error-state" role="alert">
+  <h3>The dashboard could not be built</h3>
+  <p>{{ error }}</p>
+  <p>If the database has never been migrated, run <code>freeweight db upgrade</code> and reload.</p>
+</div>
+{% endif %}
+
+{% if dashboard %}
+<form class="filter-bar" method="get" action="/dashboard" aria-label="Dashboard filters">
+  <div class="field">
+    <label for="filter-suite">Suite</label>
+    <select id="filter-suite" name="suite">
+      <option value="">All suites</option>
+      {% for key in dashboard.suites_available %}
+      <option value="{{ key }}" {% if filters.suite == key %}selected{% endif %}>{{ key }}</option>
+      {% endfor %}
+    </select>
+  </div>
+  <div class="field">
+    <label for="filter-model">Model</label>
+    <select id="filter-model" name="model">
+      <option value="">All models</option>
+      {% for key in dashboard.models_available %}
+      <option value="{{ key }}" {% if filters.model == key %}selected{% endif %}>{{ key }}</option>
+      {% endfor %}
+    </select>
+  </div>
+  <div class="field">
+    <label for="filter-machine">Machine</label>
+    <select id="filter-machine" name="machine">
+      <option value="">All machines</option>
+      {% for key in dashboard.machines_available %}
+      <option value="{{ key }}" {% if filters.machine == key %}selected{% endif %}>{{ key[:16] }}</option>
+      {% endfor %}
+    </select>
+  </div>
+  <div class="field">
+    <label for="filter-since">Since (RFC 3339)</label>
+    <input id="filter-since" name="since" value="{{ filters.since }}" placeholder="2026-01-01T00:00:00Z">
+  </div>
+  <button type="submit" data-variant="primary">Apply filters</button>
+  <a href="/dashboard">Clear</a>
+</form>
+
+{% if dashboard.is_empty %}
+<div class="empty-state">
+  <h3>Nothing measured yet</h3>
+  <p>No completed run matches this scope. Start one from the
+    <a href="/runs">Run page</a>, or on the command line:</p>
+  <pre>freeweight run start --model &lt;model&gt; --suite native.echo</pre>
+  <p><code>native.echo</code> is the harness self-test: it proves the machine can run a benchmark
+    at all, in under a minute, before you spend an hour on a real one.</p>
+</div>
+{% else %}
+
+<h3>Summary</h3>
+<dl class="card-grid">
+  <div class="card">
+    <dt>Completed runs</dt>
+    <dd>{{ dashboard.cards.completed_runs }}</dd>
+    <p class="card-note">In this scope.</p>
+  </div>
+  <div class="card">
+    <dt>Models measured</dt>
+    <dd>{{ dashboard.cards.models_measured }}</dd>
+    <p class="card-note">Across {{ dashboard.cards.suites_run }} suites.</p>
+  </div>
+  <div class="card">
+    <dt>Samples stored</dt>
+    <dd>{{ dashboard.cards.samples_stored }}</dd>
+    <p class="card-note">Every figure below drills to one of these.</p>
+  </div>
+  <div class="card">
+    <dt>Unsupported measurements</dt>
+    <dd>{{ dashboard.cards.unsupported_metrics }}</dd>
+    <p class="card-note">Things this machine could not measure. Shown as — everywhere, never 0.</p>
+  </div>
+  <div class="card">
+    <dt>Machines</dt>
+    <dd>{{ dashboard.cards.machines }}</dd>
+    <p class="card-note">
+      {% if dashboard.cards.machines > 1 %}
+      More than one: speed, memory and energy figures below are not comparable across them.
+      {% else %}
+      One machine, so hardware figures are comparable.
+      {% endif %}
+    </p>
+  </div>
+  <div class="card">
+    <dt>Latest run</dt>
+    <dd class="mono" style="font-size: 15px;">{{ dashboard.cards.latest_run_at | timestamp }}</dd>
+    <p class="card-note">Completed.</p>
+  </div>
+</dl>
+
+<h3 id="heatmap">Comparison heatmap</h3>
+<p class="muted">
+  One headline metric per suite, from the latest completed run. An empty cell means that model has
+  never completed that suite — not that it scored zero.
+</p>
+{% if dashboard.heatmap.separated %}
+<div class="warning-state">
+  <strong>Separated:</strong> these cells span more than one machine or more than one version of a
+  suite. Read them down a column, not across a row; FreeWeight will not merge them into one figure.
+</div>
+{% endif %}
+{% if dashboard.heatmap.models %}
+<div class="table-scroll">
+  <table class="heatmap" data-table="heatmap" data-sortable="true" data-complete="true">
+    <caption>{{ dashboard.heatmap.models | length }} models × {{ dashboard.heatmap.suites | length }} suites.</caption>
+    <thead>
+      <tr>
+        <th scope="col">Model</th>
+        {% for suite in dashboard.heatmap.suites %}
+        <th scope="col" class="numeric">
+          {{ suite }}<br><span class="unit">{{ dashboard.heatmap.headline_metric[suite] }}</span>
+        </th>
+        {% endfor %}
+      </tr>
+    </thead>
+    <tbody>
+      {% for model in dashboard.heatmap.models %}
+      <tr>
+        <th scope="row" class="mono">{{ model }}</th>
+        {% for suite in dashboard.heatmap.suites %}
+        {% set cell = dashboard.heatmap.cell(model, suite) %}
+        <td class="cell">
+          {% if cell is none %}
+          <span class="muted" title="This model has never completed {{ suite }}.">—</span>
+          {% elif cell.value is none %}
+          <span class="muted" title="Unsupported: {{ cell.unavailable_reason }}">—</span>
+          <span class="unit">{{ cell.unavailable_reason }}</span>
+          {% else %}
+          <a href="/runs/{{ cell.run_id }}{% if cell.run_test_id %}/tests/{{ cell.run_test_id }}{% endif %}"
+             title="{{ cell.metric_key }} = {{ cell.value }} {{ cell.unit }} from {{ cell.sample_count }} samples ({{ cell.excluded_count }} excluded). Suite {{ cell.suite_version }}.">
+            {{ '%.4g' % cell.value }}
+          </a>
+          <span class="unit">{{ cell.unit }}</span>
+          {% endif %}
+        </td>
+        {% endfor %}
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% else %}
+<div class="empty-state">
+  <p>No suite in this scope has a declared headline metric yet. The panels below still show
+    everything that was measured.</p>
+</div>
+{% endif %}
+
+<h3 id="tradeoffs">Trade-offs</h3>
+{% with points = dashboard.quality_vs_speed, chart_id = 'quality-vs-speed',
+        title = 'Quality against decode speed', x_label = 'decode tokens/s', y_label = 'quality' %}
+{% include "partials/_scatter.html" %}
+{% endwith %}
+{% with points = dashboard.quality_vs_vram, chart_id = 'quality-vs-vram',
+        title = 'Quality against peak VRAM', x_label = 'peak VRAM bytes', y_label = 'quality' %}
+{% include "partials/_scatter.html" %}
+{% endwith %}
+
+{% for panel in dashboard.panels %}
+<h3 id="{{ panel.key }}">{{ panel.title }}</h3>
+<p class="muted">{{ panel.description }}</p>
+{% if panel.is_empty %}
+<div class="empty-state">
+  <p>Nothing measured for this panel in this scope yet.</p>
+</div>
+{% else %}
+<div class="table-scroll">
+  <table data-table="panel-{{ panel.key }}" data-sortable="true" data-complete="true">
+    <caption>{{ panel.rows | length }} figures, each from one completed run.</caption>
+    <thead>
+      <tr>
+        <th scope="col">Model</th>
+        <th scope="col">Suite</th>
+        <th scope="col">Metric</th>
+        <th scope="col" class="numeric">Value</th>
+        <th scope="col">Unit</th>
+        <th scope="col" class="numeric">n</th>
+        <th scope="col" class="numeric">Excluded</th>
+        <th scope="col">Raw source</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for row in panel.rows %}
+      <tr>
+        <td class="mono">{{ row.model_canonical_id }}</td>
+        <td>{{ row.suite_key }}</td>
+        <td>{{ row.metric_key }}</td>
+        <td class="numeric">
+          {% if row.value is none %}
+          <span class="muted" title="Unsupported: {{ row.unavailable_reason }}">—</span>
+          {% else %}{{ '%.6g' % row.value }}{% endif %}
+        </td>
+        <td class="unit">{{ row.unit }}</td>
+        <td class="numeric">{{ row.sample_count }}</td>
+        <td class="numeric">{{ row.excluded_count }}</td>
+        <td>
+          <a href="/runs/{{ row.run_id }}{% if row.run_test_id %}/tests/{{ row.run_test_id }}{% endif %}">
+            {{ row.run_test_key or 'run' }} {{ row.run_id[:8] }}
+          </a>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endif %}
+{% endfor %}
+
+{% endif %}
+{% endif %}
+{% endblock %}
+{% block scripts %}
+<script src="/static/js/charts.js" defer></script>
+<script src="/static/js/table.js" defer></script>
+<script src="/static/js/dashboard.js" defer></script>
+{% endblock %}

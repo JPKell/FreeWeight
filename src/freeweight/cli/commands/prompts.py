@@ -82,7 +82,11 @@ def _record_json(record: PromptRecord) -> dict[str, object]:
 
 @app.command("list")
 def list_prompts(json_output: _JsonOption = False) -> None:
-    """List every prompt record in the installed pack. Mode: local."""
+    """List every prompt record in the installed pack. Mode: local.
+
+    Example:
+        freeweight prompts list --task goal.my_voice
+    """
     library = _load()
     records = library.all_records()
     if json_output:
@@ -111,7 +115,11 @@ def show(
     version: _VersionOption = None,
     json_output: _JsonOption = False,
 ) -> None:
-    """Show one record: its purpose, variables, template and hash. Mode: local."""
+    """Show one record: its purpose, variables, template and hash. Mode: local.
+
+    Example:
+        freeweight prompts show goals.judge.rubric
+    """
     from freeweight.services.prompts import PromptNotFound
 
     library = _load()
@@ -168,6 +176,9 @@ def build(
 
     The shipped pack is rebuilt, never the user's override directory: an override deliberately
     differs from the manifest and is marked on every result that used it (prompt standards §6).
+
+    Example:
+        freeweight prompts build --output ./prompts.lock.json
     """
     from freeweight.services.prompts import (
         PACK_ROOT,

@@ -23,6 +23,7 @@ from freeweight.services.database import Database
 from freeweight.services.goals import LoadedGoal
 from freeweight.services.runs import build_registry, build_registry_for
 from freeweight.services.scheduler import RunScheduler
+from freeweight.services.settings import apply_stored
 from freeweight.services.telemetry import TelemetryService, build_collector
 from freeweight.web.errors import register_exception_handlers
 from freeweight.web.middleware import (
@@ -31,12 +32,19 @@ from freeweight.web.middleware import (
     RequestIdMiddleware,
 )
 from freeweight.web.rendering import render
+from freeweight.web.routes import benchmarks as benchmarks_routes
 from freeweight.web.routes import calibration as calibration_routes
+from freeweight.web.routes import compare as compare_routes
+from freeweight.web.routes import dashboard as dashboard_routes
+from freeweight.web.routes import database as database_routes
 from freeweight.web.routes import goals as goals_routes
 from freeweight.web.routes import machines as machines_routes
 from freeweight.web.routes import models as models_routes
+from freeweight.web.routes import results as results_routes
 from freeweight.web.routes import runs as runs_routes
+from freeweight.web.routes import settings as settings_routes
 from freeweight.web.routes import system as system_routes
+from freeweight.web.routes import wizard as wizard_routes
 
 __all__ = ["create_app"]
 
@@ -91,6 +99,14 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
         database_url, statement_timeout_ms=settings.storage.statement_timeout_ms
     )
     app.state.database = database
+    # Database-backed settings sit *between* the file and the environment
+    # (configuration standards §7), and this is the one place that precedence is applied. It
+    # happens here rather than in `create_app` because it is a read: folding stored values in
+    # requires a database handle, and `create_app` opens nothing. Everything built below —
+    # the telemetry sampler's interval, the scheduler's execution defaults — is therefore built
+    # from what the settings page actually saved.
+    settings = apply_stored(database, settings)
+    app.state.settings = settings
     # Built once for the same reason the database handle is: OllamaProvider owns a pooled
     # httpx.Client, and rebuilding one per request would throw the pool away every time. Nothing
     # here opens a connection — construction only validates the configured URL.
@@ -139,8 +155,9 @@ def create_app(settings: Settings, *, goals: Sequence[LoadedGoal] = ()) -> FastA
     """Build the FastAPI application for the given settings.
 
     Registers, from outermost to innermost: the request-ID middleware, Host-header validation,
-    the request body size limit, the standard error envelope handlers, the ``/api/v1`` system and
-    run routes, static assets, and the HTML pages (the shell, machines, models and runs).
+    the request body size limit, the standard error envelope handlers, the ``/api/v1`` system,
+    run, comparison, results, database and settings routes, static assets, and the HTML pages
+    (the shell, dashboard, machines, models, runs, results, compare, database and settings).
 
     Still a pure function of its arguments — it opens nothing. The database handle is created by
     the lifespan, which runs only when the application is actually served (or when a test enters
@@ -181,9 +198,22 @@ def create_app(settings: Settings, *, goals: Sequence[LoadedGoal] = ()) -> FastA
     app.include_router(runs_routes.api_router, prefix="/api/v1")
     app.include_router(goals_routes.api_router, prefix="/api/v1")
     app.include_router(calibration_routes.api_router, prefix="/api/v1")
+    app.include_router(compare_routes.api_router, prefix="/api/v1")
+    app.include_router(results_routes.api_router, prefix="/api/v1")
+    app.include_router(database_routes.api_router, prefix="/api/v1")
+    app.include_router(settings_routes.api_router, prefix="/api/v1")
+    app.include_router(machines_routes.api_router, prefix="/api/v1")
+    app.include_router(models_routes.api_router, prefix="/api/v1")
+    app.include_router(benchmarks_routes.api_router, prefix="/api/v1")
     app.include_router(machines_routes.router)
     app.include_router(models_routes.router)
     app.include_router(runs_routes.router)
+    app.include_router(compare_routes.router)
+    app.include_router(dashboard_routes.router)
+    app.include_router(results_routes.router)
+    app.include_router(database_routes.router)
+    app.include_router(settings_routes.router)
+    app.include_router(wizard_routes.router)
 
     if _STATIC_DIR.is_dir():
         app.mount("/static", StaticFiles(directory=_STATIC_DIR), name="static")

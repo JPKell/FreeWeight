@@ -1,0 +1,37 @@
+{
+  "prompt_id": "goals.creative_voice.tool",
+  "version": "1.0.0",
+  "schema_version": "1.0",
+  "purpose": "A starter essay prompt. Replace it with a prompt from your own work.",
+  "task": "goal.creative_voice",
+  "capability": "creative_writing",
+  "system": null,
+  "template": "Write three paragraphs of creative non-fiction about a tool you used for years and then stopped using. Say what replaced it and whether that was an improvement.",
+  "variables": {},
+  "response": {
+    "format": "text",
+    "json_schema_ref": null,
+    "expectations": []
+  },
+  "model_requirements": {
+    "min_context_tokens": 4096,
+    "requires_capabilities": [],
+    "recommended_temperature": 0.8
+  },
+  "metadata": {
+    "author": "freeweight",
+    "created_at": "2026-08-28T00:00:00Z",
+    "changed_at": "2026-08-28T00:00:00Z",
+    "change_reason": "Shipped starter task.",
+    "supersedes": null,
+    "tags": [
+      "goal",
+      "starter"
+    ],
+    "goal_task": {
+      "key": "abandoned_tool",
+      "name": "The tool you stopped using",
+      "is_starter": true
+    }
+  }
+}

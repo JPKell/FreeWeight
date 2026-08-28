@@ -119,6 +119,9 @@ def list_goals_command(config: _ConfigOption = None, json_output: _JsonOption = 
 
     A pack that cannot be parsed at all is omitted rather than hiding the ones that can:
     ``freeweight goals validate`` is where a broken pack is explained.
+
+    Example:
+        freeweight goals list --json
     """
     from freeweight.services.goals import list_goals, summarize
 
@@ -148,7 +151,11 @@ def show(
     config: _ConfigOption = None,
     json_output: _JsonOption = False,
 ) -> None:
-    """Show one goal's criteria, tasks and lint findings. Mode: local."""
+    """Show one goal's criteria, tasks and lint findings. Mode: local.
+
+    Example:
+        freeweight goals show creative_voice
+    """
     goal = _load(_goals_root(config), slug)
     if json_output:
         typer.echo(json.dumps(_goal_json(goal)))
@@ -195,6 +202,9 @@ def validate(
 
     Exits ``5`` when any finding is an error, ``0`` otherwise. Warnings do not fail: the lint's
     judgement about a mechanizable criterion is a suggestion, and the user owns the rubric.
+
+    Example:
+        freeweight goals validate creative_voice
     """
     from freeweight.domain.goals.lint import has_errors
 
@@ -229,6 +239,9 @@ def suggest_rules_command(
     Proposals only; nothing is applied. Accepting one moves weight off the judge and onto a rule,
     which raises the goal's ``judge_validity_factor`` arithmetically (ADR-0032 §2) — and rules are
     free, exact, and never disagree with you.
+
+    Example:
+        freeweight goals suggest-rules creative_voice
     """
     from freeweight.services.goals import suggest_rules_for_pack
 
@@ -262,6 +275,9 @@ def export(
     reads. The ``benchmark.goal_pack`` SetSpec envelope — the cross-application contract — is
     served by ``GET /api/v1/goals/{slug}/export`` instead: an envelope names a task's prompt by id
     and hash, which is what a consumer needs and not what an importer could rebuild a pack from.
+
+    Example:
+        freeweight goals export creative_voice --output ./creative_voice.json
     """
     from pathlib import Path as _Path
 
@@ -296,6 +312,9 @@ def import_command(
     in memory; only then is anything written, and it is written to a fresh directory. An import
     never overwrites an existing goal in place — a colliding slug is refused with the existing
     hash named, and ``--slug`` is how you import it alongside.
+
+    Example:
+        freeweight goals import ./creative_voice.json --slug my_voice
     """
     from baseaicore import SuiteError
 
@@ -352,6 +371,9 @@ def edit(
 
     Exits ``2`` when there is no ``$EDITOR`` and stdin is not a terminal — a command that would
     have prompted names the variable that would have answered it (CLI standards §5).
+
+    Example:
+        freeweight goals edit my_voice --file ./goal.json
     """
     import os
     import subprocess  # noqa: S404 — launching the user's own configured editor
@@ -404,6 +426,9 @@ def init(  # noqa: PLR0913 — a goal is authored from exactly these facts
 
     Non-interactive when every option is supplied. When stdin is not a terminal and something is
     missing, it exits ``2`` naming the option that would have answered it (CLI standards §5).
+
+    Example:
+        freeweight goals init --slug my_voice --name 'My essay voice'
     """
     from baseaicore import SuiteError
     from baseaicore.timeutil import to_rfc3339, utc_now
@@ -564,6 +589,9 @@ def calibrate(
     Exits ``5`` when there are too few grades (``CALIBRATION_INSUFFICIENT``) — which is work still
     to do, not a rubric that failed to measure. A rubric that *did* fail to measure exits ``0``
     with an ``uncalibrated`` verdict, because that is a real and useful answer.
+
+    Example:
+        freeweight goals calibrate my_voice
     """
     from baseaicore import SuiteError
 
@@ -594,6 +622,8 @@ def calibrate(
             allow_remote_provider=settings.providers.allow_remote,
             anchors=anchors_for(database, goal),
             seed=settings.calibration.partition_seed,
+            # Served under `[runtime]` for the same reason the HTTP path is.
+            runtime_profile=settings.runtime.to_profile(),
         )
         try:
             outcome = run_calibration(
@@ -631,6 +661,9 @@ def grade(
 
     Idempotent per ``(sample, criterion)``: partial submission is normal, and re-grading a sample
     you changed your mind about replaces the grade rather than adding a second observation of it.
+
+    Example:
+        freeweight goals grade my_voice
     """
     from baseaicore import SuiteError
 
@@ -683,7 +716,11 @@ def calibration_show(
     config: _ConfigOption = None,
     json_output: _JsonOption = False,
 ) -> None:
-    """Show the calibration set and what remains to be graded. Mode: local."""
+    """Show the calibration set and what remains to be graded. Mode: local.
+
+    Example:
+        freeweight goals calibration show my_voice
+    """
     from freeweight.services.calibration import grading_progress
 
     settings, database = _open_backend(config)
@@ -712,6 +749,9 @@ def report(
 
     Every coefficient arrives with the ``n_holdout`` it was computed over, because a coefficient
     without its sample count is a number pretending to be a fact.
+
+    Example:
+        freeweight goals report my_voice --json
     """
     from freeweight.services.calibration import latest_outcome
 
@@ -765,3 +805,94 @@ def _print_outcome(outcome: Any) -> None:  # noqa: ANN401 — a CalibrationOutco
                 typer.echo(f"        the jury:  {divergence.jury_rationale}")
     for warning in outcome.warnings:
         typer.echo(f"  ! {warning}")
+
+
+@app.command("starters")
+def starters(
+    config: _ConfigOption = None,
+    json_output: _JsonOption = False,
+) -> None:
+    """List the starter packs that ship with FreeWeight. Mode: local.
+
+    Printed in the order they are meant to be read. Down the list, the share of weight scored
+    deterministically rises from 40 % to 90 % — which is the lesson: the better you understand
+    what you want, the less of it needs a judge.
+
+    They are starters, not defaults. Forking one and running it unedited is badged ``unforked``
+    wherever its results appear.
+
+    Example:
+        freeweight goals starters --json
+
+    Exit codes: ``0`` printed; ``3`` a configuration error.
+    """
+    import json
+
+    from freeweight.goals.starters import list_starters
+
+    del config
+    packs = list_starters()
+    if json_output:
+        typer.echo(json.dumps({"items": [pack.as_json() for pack in packs]}))
+        return
+    for pack in packs:
+        typer.echo(
+            f"{pack.reading_position}. {pack.key:24} "
+            f"{pack.deterministic_weight:.0%} deterministic / "
+            f"{pack.judged_weight:.0%} judged  "
+            f"({pack.criteria_count} criteria, {pack.task_count} tasks)"
+        )
+        typer.echo(f"     {pack.name}")
+        typer.echo(f"     {pack.carries}")
+        typer.echo("")
+    typer.echo("Fork one with: freeweight goals fork-starter <key>")
+
+
+@app.command("fork-starter")
+def fork_starter_command(
+    key: Annotated[str, typer.Argument(help="Which starter to fork.")],
+    slug: Annotated[
+        str | None, typer.Option("--slug", help="Name the new goal. Defaults to the starter's key.")
+    ] = None,
+    config: _ConfigOption = None,
+    json_output: _JsonOption = False,
+) -> None:
+    """Copy a starter pack into your own goals directory. Mode: local.
+
+    What you get is an ordinary directory of JSON: open it in an editor, diff it in git, carry it
+    to another machine. Nothing about it points back at the installed package.
+
+    It is badged ``unforked`` until you edit its criteria or its tasks, and the badge travels into
+    the UI, the results and the exports. That is deliberate: a voice measured on somebody else's
+    prompts is not your voice.
+
+    Example:
+        freeweight goals fork-starter creative_voice --slug my_essay_voice
+
+    Exit codes: ``0`` forked; ``2`` no such starter, or that slug is taken; ``3`` a configuration
+    error.
+    """
+    import json
+
+    from baseaicore import SuiteError
+
+    from freeweight.goals.starters import fork_starter
+
+    root = _goals_root(config)
+    try:
+        goal = fork_starter(root, key, slug=slug)
+    except SuiteError as exc:
+        typer.echo(f"Error: {exc.message} ({exc.code})", err=True)
+        raise typer.Exit(2) from exc
+
+    if json_output:
+        typer.echo(json.dumps(_goal_json(goal)))
+        return
+    typer.echo(f"Forked {key} to {goal.pack_path}")
+    typer.echo(f"  slug       {goal.slug}")
+    typer.echo(f"  goal_hash  {goal.goal_hash}")
+    typer.echo("")
+    typer.echo(
+        "It is badged 'unforked' until you edit its criteria or its tasks. Open "
+        f"{goal.pack_path / 'goal.json'} and make it yours."
+    )

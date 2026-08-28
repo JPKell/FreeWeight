@@ -1,0 +1,37 @@
+{
+  "prompt_id": "benchmarks.reliability.probe",
+  "version": "1.0.0",
+  "schema_version": "1.0",
+  "purpose": "Ask one question with exactly one correct short answer, so that repeating it measures how much the model moves rather than how hard the question is.",
+  "task": "benchmark.reliability",
+  "capability": "reliability",
+  "system": "Answer with the shortest correct answer and nothing else. Do not explain.",
+  "template": "{{ question }}",
+  "variables": {
+    "question": {
+      "type": "string",
+      "required": true,
+      "description": "A question with a single unambiguous short answer, so a difference between two repetitions is the model moving and not the question being open."
+    }
+  },
+  "response": {
+    "format": "text",
+    "json_schema_ref": null,
+    "expectations": [
+      "The shortest correct answer, with no explanation, so two repetitions can be compared byte for byte."
+    ]
+  },
+  "model_requirements": {
+    "min_context_tokens": 512,
+    "requires_capabilities": [],
+    "recommended_temperature": 0.0
+  },
+  "metadata": {
+    "author": "suite",
+    "created_at": "2026-08-27T00:00:00Z",
+    "changed_at": "2026-08-27T00:00:00Z",
+    "change_reason": "First version: native.reliability repeats one deterministic question so dispersion and answer agreement measure the model rather than the prompt.",
+    "supersedes": null,
+    "tags": ["benchmark", "reliability"]
+  }
+}

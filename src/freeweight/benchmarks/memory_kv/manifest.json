@@ -1,0 +1,99 @@
+{
+  "key": "native.memory_kv",
+  "name": "Native Memory and KV Cache",
+  "version": "1.0.0",
+  "category": "memory",
+  "runner": "native",
+  "headline_metric": "max_successful_context_tokens",
+  "scorer": "response_arrived",
+  "capabilities": [
+    "memory_efficiency"
+  ],
+  "requires": {
+    "provider_capabilities": [
+      "token_counts"
+    ],
+    "sandbox": false,
+    "network": false
+  },
+  "dataset_hashes": {},
+  "prompt_ids": [
+    {
+      "prompt_id": "benchmarks.memory_kv.context_probe",
+      "version": "1.0.0",
+      "sha256": "sha256:82d957afbc871d295e32b2de85c207bd01267b126b12e412879a128b017daaf3"
+    }
+  ],
+  "prompt_subset_hash": "sha256:20b6ddcc573ed4d04be06af7651cc51ea7b0fbc4cad5adc9820edce51185235b",
+  "target_device": "gpu",
+  "metrics": [
+    {
+      "key": "prompt_tokens",
+      "unit": "count",
+      "higher_is_better": true,
+      "aggregation": "mean"
+    },
+    {
+      "key": "prompt_eval_ms",
+      "unit": "ms",
+      "higher_is_better": false,
+      "aggregation": "mean"
+    },
+    {
+      "key": "theoretical_kv_bytes_per_token",
+      "unit": "bytes",
+      "higher_is_better": false,
+      "aggregation": "max"
+    },
+    {
+      "key": "observed_kv_bytes_per_token",
+      "unit": "bytes",
+      "higher_is_better": false,
+      "aggregation": "max"
+    },
+    {
+      "key": "observed_mb_per_1k_context",
+      "unit": "MiB",
+      "higher_is_better": false,
+      "aggregation": "max"
+    },
+    {
+      "key": "kv_slope_fit_r_squared",
+      "unit": "ratio",
+      "higher_is_better": true,
+      "aggregation": "max"
+    },
+    {
+      "key": "kv_overhead_ratio",
+      "unit": "ratio",
+      "higher_is_better": false,
+      "aggregation": "max"
+    },
+    {
+      "key": "max_successful_context_tokens",
+      "unit": "count",
+      "higher_is_better": true,
+      "aggregation": "max"
+    },
+    {
+      "key": "cold_prefill_ms",
+      "unit": "ms",
+      "higher_is_better": false,
+      "aggregation": "mean"
+    },
+    {
+      "key": "warm_prefill_ms",
+      "unit": "ms",
+      "higher_is_better": false,
+      "aggregation": "mean"
+    },
+    {
+      "key": "reuse_speedup",
+      "unit": "ratio",
+      "higher_is_better": true,
+      "aggregation": "max"
+    }
+  ],
+  "license": "project",
+  "description": "What a token of context costs in device memory, and how far the runtime is from the architecture's own arithmetic. The theoretical figure comes from the descriptor and is unsupported rather than approximate when a field is missing; a hybrid or state-space architecture is flagged and excluded from the transformer formula rather than forced through it. Every figure names the device it was measured on, and the whole suite is unavailable where more than one GPU is visible and the provider does not say which holds the model."
+}

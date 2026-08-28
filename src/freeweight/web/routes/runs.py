@@ -174,9 +174,11 @@ def create_run_endpoint(request: Request, body: dict[str, Any]) -> JSONResponse:
     Args:
         request: The incoming request; carries the application's database, provider and telemetry
             collector.
-        body: ``{"model": …, "suites": [key], "execution": {...}, "label": …}``. ``suites`` takes
-            a list for forward compatibility with multi-suite runs; Phase 5 runs the first entry
-            and refuses more than one rather than silently dropping the rest.
+        body: ``{"model": …, "suites": [key], "execution": {...}, "runtime": {...}, "label": …}``.
+            ``suites`` takes a list for forward compatibility with multi-suite runs; Phase 5 runs
+            the first entry and refuses more than one rather than silently dropping the rest.
+            ``runtime`` overrides ``[runtime]`` for this run (ADR-0023) — ``context_size`` in
+            particular, which is how one model is measured at two contexts.
 
     Returns:
         ``201`` with the queued run.
@@ -187,6 +189,8 @@ def create_run_endpoint(request: Request, body: dict[str, Any]) -> JSONResponse:
         ModelNotFound: The model is not stored.
     """
     from baseaicore import ValidationError
+
+    from freeweight.config import RuntimeSettings
 
     model_ref = body.get("model")
     suites = body.get("suites") or ([body["suite"]] if body.get("suite") else [])
@@ -203,7 +207,23 @@ def create_run_endpoint(request: Request, body: dict[str, Any]) -> JSONResponse:
         )
     execution_body = body.get("execution") or {}
     sampling_body = body.get("sampling") or {}
+    runtime_body = body.get("runtime") or {}
     settings = request.app.state.settings
+    # A per-request runtime override on top of `[runtime]`, resolved through the same settings
+    # model so an out-of-range context is refused here rather than reaching the provider
+    # (configuration standards §1.1's execution-parameter chain, applied to the runtime axis).
+    runtime_profile = settings.runtime.model_copy(
+        update={
+            key: value for key, value in runtime_body.items() if key in RuntimeSettings.model_fields
+        }
+    ).to_profile()
+    unknown = sorted(set(runtime_body) - set(RuntimeSettings.model_fields))
+    if unknown:
+        raise ValidationError(
+            f"Unknown runtime settings: {', '.join(unknown)}. This build serves "
+            f"{', '.join(sorted(RuntimeSettings.model_fields))}.",
+            details={"field": "runtime", "unknown": unknown},
+        )
     execution = ExecutionConfig.resolve(
         settings.execution,
         measured_repetitions=execution_body.get("measured_repetitions"),
@@ -220,6 +240,7 @@ def create_run_endpoint(request: Request, body: dict[str, Any]) -> JSONResponse:
         model_ref=str(model_ref),
         suite_key=str(suites[0]),
         execution=execution,
+        runtime_profile=runtime_profile,
         label=body.get("label"),
     )
     return JSONResponse(status_code=status.HTTP_201_CREATED, content=_summary_json(summary))
@@ -261,6 +282,53 @@ def cancel_run_endpoint(request: Request, run_id: str) -> JSONResponse:
     """
     summary = cancel_run(request.app.state.database, _publisher(request), run_id)
     return JSONResponse(status_code=status.HTTP_202_ACCEPTED, content=_summary_json(summary))
+
+
+@api_router.post(
+    "/runs/{run_id}/repeat",
+    status_code=status.HTTP_201_CREATED,
+    summary="Repeat a run with its identical effective configuration",
+)
+def repeat_run_endpoint(
+    request: Request,
+    run_id: str,
+    force: Annotated[bool, Query()] = False,
+    label: Annotated[str | None, Query()] = None,
+) -> JSONResponse:
+    """Queue a new run reusing a recorded run's frozen configuration (api.md §4).
+
+    The original's ``ExecutionConfig`` and runtime profile are reused **verbatim** rather than
+    re-resolved from current configuration: re-resolving would silently repeat a *different* run
+    whenever a default had changed since, which is the one thing a reproduction must not do. The
+    environment is checked against the original's fingerprint before anything is written, and a
+    difference refuses by name unless ``force`` is set — in which case the divergence is recorded
+    on the new run rather than hidden.
+
+    Args:
+        request: The incoming request.
+        run_id: The run to repeat; a full ULID or an unambiguous prefix.
+        force: Proceed past every blocker, recording the divergence.
+        label: A label for the new run; defaults to naming the run it repeats.
+
+    Returns:
+        ``201`` with the queued run.
+
+    Raises:
+        RunNotFound: Nothing matches ``run_id``.
+        ValidationError: The environment cannot satisfy the original and ``force`` is not set.
+    """
+    from freeweight.services.runs import repeat_run
+
+    summary = repeat_run(
+        request.app.state.database,
+        request.app.state.provider,
+        request.app.state.telemetry.collector,
+        request.app.state.registry,
+        run_ref=run_id,
+        force=force,
+        label=label,
+    )
+    return JSONResponse(status_code=status.HTTP_201_CREATED, content=_summary_json(summary))
 
 
 @api_router.get("/runs/{run_id}/tests", summary="One run's tests")

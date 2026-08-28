@@ -1,0 +1,202 @@
+{% extends "base.html" %}
+{% block title %}Database — FreeWeight{% endblock %}
+{% block content %}
+<h2>Database</h2>
+<p class="muted">
+  Your measurement history lives here and nowhere else. Nothing on this page removes anything
+  without first showing you exactly what it would remove, and models and machines are never
+  removed by a result deletion — what exists outlives what was measured.
+</p>
+
+{% if error %}
+<div class="error-state" role="alert">
+  <h3>Something was refused</h3>
+  <p>{{ error }}</p>
+</div>
+{% endif %}
+{% if notice %}
+<div class="notice" role="status">{{ notice }}</div>
+{% endif %}
+
+{% if stats %}
+<h3>Statistics</h3>
+<dl class="card-grid">
+  <div class="card">
+    <dt>Size on disk</dt>
+    <dd>{{ stats.status.size_bytes | bytes }}</dd>
+    <p class="card-note">{{ stats.status.dialect }}</p>
+  </div>
+  <div class="card">
+    <dt>Schema revision</dt>
+    <dd style="font-size: 15px;" class="mono">{{ stats.status.current_revision or '—' }}</dd>
+    <p class="card-note">
+      {% if stats.status.is_at_head %}At head.{% else %}Head is {{ stats.status.head_revision }} — run <code>freeweight db upgrade</code>.{% endif %}
+    </p>
+  </div>
+  <div class="card">
+    <dt>Integrity</dt>
+    <dd style="font-size: 15px;">{{ 'ok' if stats.status.integrity_ok else 'check failed' }}</dd>
+    <p class="card-note">{{ stats.status.integrity_detail }}</p>
+  </div>
+  <div class="card">
+    <dt>Backups</dt>
+    <dd>{{ stats.backup_count }}</dd>
+    <p class="card-note">
+      {% if stats.last_backup_at %}Latest {{ stats.last_backup_at | timestamp }}{% else %}None taken yet{% endif %}
+    </p>
+  </div>
+  <div class="card">
+    <dt>Artifacts</dt>
+    <dd style="font-size: 20px;">{{ stats.artifact_bytes | bytes }}</dd>
+    <p class="card-note">On disk beside the database.</p>
+  </div>
+  <div class="card">
+    <dt>Backups kept</dt>
+    <dd>{{ backup_retention }}</dd>
+    <p class="card-note">
+      Automatic pre-migration backups, oldest rotated away. Results themselves are never deleted on
+      a timer — a measurement does not expire. Remove a model's results when you remove the model.
+      Change it on <a href="/settings">Settings</a>.
+    </p>
+  </div>
+</dl>
+
+<h3>Row counts</h3>
+<div class="table-scroll">
+  <table data-table="row-counts">
+    <caption>Every table this application owns.</caption>
+    <thead><tr><th scope="col">Table</th><th scope="col" class="numeric">Rows</th></tr></thead>
+    <tbody>
+      {% for table, count in stats.status.table_row_counts | dictsort %}
+      <tr><td class="mono">{{ table }}</td><td class="numeric">{{ count }}</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endif %}
+
+<h3>Delete results</h3>
+<form class="filter-bar" method="post" action="/database/preview" aria-label="Choose what to delete">
+  <div class="field">
+    <label for="d-scope">Scope</label>
+    <select id="d-scope" name="scope">
+      {% for option in ['run', 'model', 'suite', 'before', 'all'] %}
+      <option value="{{ option }}" {% if form.scope == option %}selected{% endif %}>{{ option }}</option>
+      {% endfor %}
+    </select>
+  </div>
+  <div class="field">
+    <label for="d-selector">Selector</label>
+    <input id="d-selector" name="selector" value="{{ form.selector }}"
+           placeholder="run ULID, model, suite key, or RFC 3339 instant">
+  </div>
+  <button type="submit">Preview deletion</button>
+</form>
+<p class="muted">
+  <code>run</code> takes a ULID or prefix · <code>model</code> a canonical ID · <code>suite</code>
+  a suite key · <code>before</code> an RFC 3339 instant · <code>all</code> takes no selector.
+</p>
+
+{% if preview %}
+<div class="warning-state">
+  <h3>Preview — nothing has been deleted yet</h3>
+  <p><strong>{{ preview.summary_line() }}</strong></p>
+  {% if preview.run_ids %}
+  <div class="table-scroll">
+    <table>
+      <caption>Rows this deletion would remove, by table.</caption>
+      <thead><tr><th scope="col">Table</th><th scope="col" class="numeric">Rows removed</th></tr></thead>
+      <tbody>
+        {% for table, count in preview.removed_counts | dictsort %}
+        <tr><td class="mono">{{ table }}</td><td class="numeric">{{ count }}</td></tr>
+        {% endfor %}
+        <tr><th scope="row">Total</th><td class="numeric">{{ preview.total_rows }}</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <div class="table-scroll">
+    <table>
+      <caption>Rows this deletion leaves alone.</caption>
+      <thead><tr><th scope="col">Table</th><th scope="col" class="numeric">Rows kept</th></tr></thead>
+      <tbody>
+        {% for table, count in preview.preserved_counts | dictsort %}
+        <tr><td class="mono">{{ table }}</td><td class="numeric">{{ count }}</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  <p>
+    {% if preview.will_backup %}
+    A backup will be taken automatically first, because this removes {{ preview.total_rows }} rows.
+    {% else %}
+    No automatic backup: this is below the threshold. Take one from the button below if you want one.
+    {% endif %}
+  </p>
+  <form method="post" action="/database/delete">
+    <input type="hidden" name="scope" value="{{ preview.selection.scope.value }}">
+    <input type="hidden" name="selector" value="{{ preview.selection.selector or '' }}">
+    <input type="hidden" name="token" value="{{ preview.token }}">
+    <div class="field">
+      <label for="d-confirm">Type <code>{{ confirmation_phrase }}</code> to confirm</label>
+      <input id="d-confirm" name="confirm" autocomplete="off" required>
+    </div>
+    <button type="submit" data-variant="danger">Delete these {{ preview.total_rows }} rows</button>
+  </form>
+  {% else %}
+  <p>Nothing matches this selection, so there is nothing to confirm.</p>
+  {% endif %}
+</div>
+{% endif %}
+
+{% if outcome %}
+<div class="notice" role="status">
+  <h3>Deleted</h3>
+  <p>{{ outcome.deleted_counts.values() | sum }} rows removed across
+    {{ outcome.preview.run_ids | length }} runs.</p>
+  {% if outcome.backup_path %}
+  <p>A backup was written to <code>{{ outcome.backup_path }}</code> first.</p>
+  {% endif %}
+  <div class="table-scroll">
+    <table>
+      <caption>What was removed, against what the preview said.</caption>
+      <thead>
+        <tr><th scope="col">Table</th><th scope="col" class="numeric">Previewed</th>
+          <th scope="col" class="numeric">Removed</th></tr>
+      </thead>
+      <tbody>
+        {% for table, count in outcome.preview.removed_counts | dictsort %}
+        <tr>
+          <td class="mono">{{ table }}</td>
+          <td class="numeric">{{ count }}</td>
+          <td class="numeric">{{ outcome.deleted_counts.get(table, 0) }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  <div class="table-scroll">
+    <table>
+      <caption>Untouched, counted after the deletion committed.</caption>
+      <thead><tr><th scope="col">Table</th><th scope="col" class="numeric">Rows</th></tr></thead>
+      <tbody>
+        {% for table, count in outcome.preserved_counts_after | dictsort %}
+        <tr><td class="mono">{{ table }}</td><td class="numeric">{{ count }}</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endif %}
+
+<h3>Maintenance</h3>
+<form method="post" action="/database/backup" style="display: inline-block; margin-right: 1rem;">
+  <button type="submit">Take a backup now</button>
+</form>
+<form method="post" action="/database/vacuum" style="display: inline-block;">
+  <button type="submit">Vacuum (reclaim free space)</button>
+</form>
+<p class="muted">
+  Backups are written inside the data directory with mode 0600 and are never sent anywhere.
+  Restore is deliberately command-line only: <code>freeweight db restore &lt;path&gt; --yes</code>.
+</p>
+{% endblock %}

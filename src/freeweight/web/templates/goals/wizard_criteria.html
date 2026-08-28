@@ -1,0 +1,179 @@
+{% extends "base.html" %}
+{% block title %}Criteria — FreeWeight{% endblock %}
+{% block content %}
+<h2>{{ draft.name }}</h2>
+{% include "partials/_wizard_steps.html" %}
+<h3>2. {{ step.heading }}</h3>
+<p class="muted">
+  List the qualities you want. Of each one, the wizard asks two questions — and these two
+  questions are most of the value it adds.
+</p>
+<ul>
+  <li><strong>{{ questions[0] }}</strong></li>
+  <li><strong>{{ questions[1] }}</strong></li>
+</ul>
+<p class="muted">
+  If the answer to the second is "two", split it. "Not LinkedIn" is a vocabulary problem and a
+  register problem; splitting it is what makes both measurable. The wizard will not split anything
+  for you — the rubric is yours, and a model that edited it until it could measure it would be
+  measuring its own edit.
+</p>
+
+{% if error %}
+<div class="error-state" role="alert"><p>{{ error }}</p></div>
+{% endif %}
+
+{% if draft.criteria %}
+<div class="table-scroll">
+  <table data-table="draft-criteria">
+    <caption>
+      {{ draft.criteria | length }} criteria. Weights are normalised as you add them, and you can
+      change them by hand in the file afterwards.
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">Criterion</th>
+        <th scope="col" class="numeric">Weight</th>
+        <th scope="col">Rung</th>
+        <th scope="col">Split from</th>
+        <th scope="col">The two questions</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for criterion in draft.criteria %}
+      <tr>
+        <td>
+          <strong>{{ criterion.name }}</strong>
+          <br><span class="unit mono">{{ criterion.key }}</span>
+          {% if criterion.intent %}<br><span class="muted">{{ criterion.intent }}</span>{% endif %}
+        </td>
+        <td class="numeric">{{ '%.0f' % (criterion.weight * 100) }}%</td>
+        <td>
+          {{ criterion.rung }}
+          {% if criterion.rung == 'judge' %}
+          <br><span class="unit">
+            {{ criterion.descriptors | length }} of {{ criterion.scale_points }} points described
+          </span>
+          {% endif %}
+        </td>
+        <td class="mono">{{ criterion.split_from or '—' }}</td>
+        <td>
+          <form method="post" action="/goals/new/{{ draft.draft_id }}/criteria">
+            <input type="hidden" name="action" value="answer">
+            <input type="hidden" name="criterion" value="{{ criterion.key }}">
+            <fieldset style="border: 0; padding: 0;">
+              <legend class="unit">{{ questions[0] }}</legend>
+              <label for="ga-yes-{{ criterion.key }}">
+                <input type="radio" id="ga-yes-{{ criterion.key }}" name="graded_alike" value="yes"
+                       {% if criterion.graded_alike is true %}checked{% endif %}> yes
+              </label>
+              <label for="ga-no-{{ criterion.key }}">
+                <input type="radio" id="ga-no-{{ criterion.key }}" name="graded_alike" value="no"
+                       {% if criterion.graded_alike is false %}checked{% endif %}> no
+              </label>
+            </fieldset>
+            <fieldset style="border: 0; padding: 0;">
+              <legend class="unit">{{ questions[1] }}</legend>
+              <label for="oq-yes-{{ criterion.key }}">
+                <input type="radio" id="oq-yes-{{ criterion.key }}" name="one_quality" value="yes"
+                       {% if criterion.one_quality is true %}checked{% endif %}> one
+              </label>
+              <label for="oq-no-{{ criterion.key }}">
+                <input type="radio" id="oq-no-{{ criterion.key }}" name="one_quality" value="no"
+                       {% if criterion.one_quality is false %}checked{% endif %}> two
+              </label>
+            </fieldset>
+            <button type="submit">Record answers</button>
+          </form>
+          {% if criterion.needs_descriptors %}
+          <div class="warning-state">
+            <p>
+              This criterion is judged and its scale has no descriptors. A jury given
+              "rate it 1 to {{ criterion.scale_points }}" and nothing else agrees with nobody —
+              describe the top, the middle and the bottom in your own words.
+            </p>
+            <form method="post" action="/goals/new/{{ draft.draft_id }}/criteria">
+              <input type="hidden" name="action" value="describe">
+              <input type="hidden" name="criterion" value="{{ criterion.key }}">
+              <div class="field">
+                <label for="points-{{ criterion.key }}">Scale</label>
+                <select id="points-{{ criterion.key }}" name="points">
+                  <option value="3">3 points</option>
+                  <option value="5" selected>5 points</option>
+                  <option value="7">7 points</option>
+                </select>
+              </div>
+              <div class="field">
+                <label for="top-{{ criterion.key }}">The best it could be</label>
+                <textarea id="top-{{ criterion.key }}" name="top" rows="2" cols="50" required></textarea>
+              </div>
+              <div class="field">
+                <label for="middle-{{ criterion.key }}">The middle</label>
+                <textarea id="middle-{{ criterion.key }}" name="middle" rows="2" cols="50" required></textarea>
+              </div>
+              <div class="field">
+                <label for="bottom-{{ criterion.key }}">The worst it could be</label>
+                <textarea id="bottom-{{ criterion.key }}" name="bottom" rows="2" cols="50" required></textarea>
+              </div>
+              <button type="submit">Describe the scale</button>
+            </form>
+          </div>
+          {% endif %}
+          {% if criterion.needs_attention %}
+          <div class="warning-state">
+            <p>
+              {% if criterion.one_quality is false %}
+              You said this is two qualities. Split it, and each half becomes something a rule may
+              be able to carry part of.
+              {% else %}
+              You said two people would grade this differently. That usually means the description
+              names a topic rather than a quality, or fuses two qualities. Splitting it is the
+              usual fix.
+              {% endif %}
+            </p>
+            <form method="post" action="/goals/new/{{ draft.draft_id }}/criteria">
+              <input type="hidden" name="action" value="split">
+              <input type="hidden" name="criterion" value="{{ criterion.key }}">
+              <div class="field">
+                <label for="first-{{ criterion.key }}">First half</label>
+                <input id="first-{{ criterion.key }}" name="first" required>
+              </div>
+              <div class="field">
+                <label for="second-{{ criterion.key }}">Second half</label>
+                <input id="second-{{ criterion.key }}" name="second" required>
+              </div>
+              <button type="submit">Split into two</button>
+            </form>
+          </div>
+          {% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% else %}
+<div class="empty-state">
+  <p>No criteria yet. Add the first quality you want, in your own words.</p>
+</div>
+{% endif %}
+
+<h3>Add a criterion</h3>
+<form method="post" action="/goals/new/{{ draft.draft_id }}/criteria">
+  <input type="hidden" name="action" value="add">
+  <div class="field">
+    <label for="c-name">Name</label>
+    <input id="c-name" name="name" required placeholder="Dry wit, never winking">
+  </div>
+  <div class="field">
+    <label for="c-intent">What do you mean by it?</label>
+    <textarea id="c-intent" name="intent" rows="2" cols="70"></textarea>
+  </div>
+  <p><button type="submit">Add criterion</button></p>
+</form>
+
+<form method="post" action="/goals/new/{{ draft.draft_id }}/criteria">
+  <input type="hidden" name="action" value="next">
+  <p><button type="submit" data-variant="primary">Next: rules that could carry part of these</button></p>
+</form>
+{% endblock %}

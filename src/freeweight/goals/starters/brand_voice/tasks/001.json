@@ -1,0 +1,37 @@
+{
+  "prompt_id": "goals.brand_voice.release_note",
+  "version": "1.0.0",
+  "schema_version": "1.0",
+  "purpose": "A starter house-style prompt. Replace it with copy you actually ship.",
+  "task": "goal.brand_voice",
+  "capability": "instruction_following",
+  "system": null,
+  "template": "Write a short release note for a backup feature that now runs automatically before every schema migration. Include a heading, two or three bullet points, and tell the reader where the support and documentation links are. Plain language, no hype.",
+  "variables": {},
+  "response": {
+    "format": "text",
+    "json_schema_ref": null,
+    "expectations": []
+  },
+  "model_requirements": {
+    "min_context_tokens": 4096,
+    "requires_capabilities": [],
+    "recommended_temperature": 0.4
+  },
+  "metadata": {
+    "author": "freeweight",
+    "created_at": "2026-08-28T00:00:00Z",
+    "changed_at": "2026-08-28T00:00:00Z",
+    "change_reason": "Shipped starter task.",
+    "supersedes": null,
+    "tags": [
+      "goal",
+      "starter"
+    ],
+    "goal_task": {
+      "key": "release_note",
+      "name": "Release note: automatic pre-migration backup",
+      "is_starter": true
+    }
+  }
+}

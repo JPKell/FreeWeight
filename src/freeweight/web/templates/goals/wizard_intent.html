@@ -1,0 +1,34 @@
+{% extends "base.html" %}
+{% block title %}Define a goal — FreeWeight{% endblock %}
+{% block content %}
+<h2>Define a goal</h2>
+{% include "partials/_wizard_steps.html" %}
+<h3>1. {{ step.heading }}</h3>
+<p class="muted">
+  In your own words. Nothing is inferred from this and nothing is hashed into the measurement —
+  it is stored so that the goal still makes sense to you in six months.
+</p>
+
+{% if error %}
+<div class="error-state" role="alert"><p>{{ error }}</p></div>
+{% endif %}
+
+<form method="post" action="/goals/new">
+  <div class="field">
+    <label for="intent">What are you trying to get?</label>
+    <textarea id="intent" name="intent" rows="4" cols="80" required>{{ intent or '' }}</textarea>
+  </div>
+  <div class="field">
+    <label for="name">Call it (optional)</label>
+    <input id="name" name="name" placeholder="Taken from your answer if you leave it blank">
+  </div>
+  <p><button type="submit" data-variant="primary">Next: break it into criteria</button></p>
+</form>
+
+<div class="empty-state">
+  <h3>An example</h3>
+  <p><em>"Essays that sound like me: dry, concrete, unhurried. Not LinkedIn, not a manual."</em></p>
+  <p>Notice that "not LinkedIn" is two things — a vocabulary problem and a register problem. The
+    next step is where that gets split, and splitting it is what makes both of them measurable.</p>
+</div>
+{% endblock %}

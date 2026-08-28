@@ -1,0 +1,71 @@
+{
+  "prompt_id": "goals.summary_faithfulness.halden",
+  "version": "1.0.0",
+  "schema_version": "1.0",
+  "purpose": "A starter summarisation prompt with an annotated source. Replace it with your own sources.",
+  "task": "goal.summary_faithfulness",
+  "capability": "summarization",
+  "system": null,
+  "template": "Summarise the following report in under 120 words, as connected prose.\n\nIn March 2026 the Halden works replaced its overnight batch reconciliation with an incremental one. The old process ran for 4 hours and 20 minutes and finished at 06:10, twenty minutes after the first shift began. The new process runs in 38 minutes. Ingrid Sorensen, who had run the old process for eleven years, wrote the replacement over a fortnight. In its first month the new process found 213 discrepancies, of which 9 were genuine stock errors and the rest were timing artefacts of the old system it replaced.",
+  "variables": {},
+  "response": {
+    "format": "text",
+    "json_schema_ref": null,
+    "expectations": []
+  },
+  "model_requirements": {
+    "min_context_tokens": 4096,
+    "requires_capabilities": [],
+    "recommended_temperature": 0.2
+  },
+  "metadata": {
+    "author": "freeweight",
+    "created_at": "2026-08-28T00:00:00Z",
+    "changed_at": "2026-08-28T00:00:00Z",
+    "change_reason": "Shipped starter task.",
+    "supersedes": null,
+    "tags": [
+      "goal",
+      "starter"
+    ],
+    "goal_task": {
+      "key": "halden_reconciliation",
+      "name": "Halden reconciliation report",
+      "is_starter": true,
+      "source": {
+        "text": "In March 2026 the Halden works replaced its overnight batch reconciliation with an incremental one. The old process ran for 4 hours and 20 minutes and finished at 06:10, twenty minutes after the first shift began. The new process runs in 38 minutes. Ingrid Sorensen, who had run the old process for eleven years, wrote the replacement over a fortnight. In its first month the new process found 213 discrepancies, of which 9 were genuine stock errors and the rest were timing artefacts of the old system it replaced.",
+        "entities": [
+          "Halden",
+          "Ingrid Sorensen",
+          "March 2026"
+        ],
+        "claims": [
+          {
+            "id": "runtime",
+            "text": "The new process runs in 38 minutes rather than 4 hours 20.",
+            "any_of": [
+              "38 minutes",
+              "38-minute"
+            ]
+          },
+          {
+            "id": "author",
+            "text": "Ingrid Sorensen wrote the replacement.",
+            "any_of": [
+              "Sorensen"
+            ]
+          },
+          {
+            "id": "discrepancies",
+            "text": "213 discrepancies were found, 9 of them genuine.",
+            "any_of": [
+              "213",
+              "nine genuine",
+              "9 were genuine"
+            ]
+          }
+        ]
+      }
+    }
+  }
+}

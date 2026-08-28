@@ -1,0 +1,217 @@
+{% extends "base.html" %}
+{% block title %}Sample — FreeWeight{% endblock %}
+{% block content %}
+<h2>Case inspector</h2>
+{% if error %}
+<div class="error-state" role="alert">
+  <h3>That sample could not be shown</h3>
+  <p>{{ error }}</p>
+  <p><a href="/results">Back to results</a></p>
+</div>
+{% else %}
+{% set sample = inspection.sample %}
+<p class="muted">
+  One request, exactly as it was recorded. Nothing on this page is aggregated: if a number here
+  disagrees with one on the dashboard, the dashboard is wrong.
+</p>
+<p>
+  <a href="/runs/{{ inspection.run.id }}">Run {{ inspection.run.id[:8] }}</a> ·
+  <a href="/runs/{{ inspection.run.id }}/tests/{{ inspection.run_test_id }}">test {{ inspection.run_test_key or inspection.run_test_id[:8] }}</a>
+</p>
+
+<h3>Identity</h3>
+<div class="table-scroll">
+  <table>
+    <tbody>
+      <tr><th scope="row">Sample</th><td class="mono">{{ sample.id }}</td></tr>
+      <tr><th scope="row">Case</th><td class="mono">{{ sample.case_id }}</td></tr>
+      <tr><th scope="row">Ordinal / repetition</th><td class="numeric">{{ sample.ordinal }} / {{ sample.repetition }}</td></tr>
+      <tr><th scope="row">Status</th><td><span class="status status-{{ sample.status }}">{{ sample.status }}</span></td></tr>
+      <tr><th scope="row">Recorded</th><td class="mono">{{ sample.created_at | timestamp }}</td></tr>
+      <tr><th scope="row">Finish reason</th><td>{{ sample.finish_reason or '—' }}</td></tr>
+      {% if sample.error_code %}
+      <tr><th scope="row">Error</th><td><code>{{ sample.error_code }}</code> {{ sample.error_text }}</td></tr>
+      {% endif %}
+    </tbody>
+  </table>
+</div>
+
+<h3>Prompt</h3>
+<div class="table-scroll">
+  <table>
+    <tbody>
+      <tr><th scope="row">Prompt ID</th><td class="mono">{{ sample.prompt_id or '—' }}</td></tr>
+      <tr><th scope="row">Prompt version</th><td class="mono">{{ sample.prompt_version or '—' }}</td></tr>
+      <tr><th scope="row">Prompt hash</th><td class="mono">{{ sample.prompt_hash or '—' }}</td></tr>
+      <tr><th scope="row">Rendered prompt hash</th><td class="mono">{{ sample.rendered_prompt_hash or '—' }}</td></tr>
+    </tbody>
+  </table>
+</div>
+<p class="muted">
+  The prompt is identified by version and hash rather than stored inline unless the run was
+  configured to store it, so a database of measurements does not become a copy of the prompt pack.
+  Rebuild the exact text with <code>freeweight prompts show {{ sample.prompt_id or '&lt;id&gt;' }}</code>.
+</p>
+
+<h3>Response</h3>
+{% if sample.response_text %}
+<pre>{{ sample.response_text }}</pre>
+{% else %}
+<div class="empty-state">
+  <p>This run did not store response text
+    (<code>execution.store_responses</code> is off for this suite). Its hash is
+    <code>{{ sample.response_hash or '—' }}</code>, which is enough to tell two responses apart
+    but not to read one.</p>
+</div>
+{% endif %}
+
+<h3>Scoring</h3>
+<div class="table-scroll">
+  <table>
+    <tbody>
+      <tr>
+        <th scope="row">Score</th>
+        <td class="numeric">{% if sample.score is none %}<span class="muted">—</span>{% else %}{{ '%.6g' % sample.score }}{% endif %}</td>
+      </tr>
+      <tr><th scope="row">Method</th><td>{{ sample.score_method or '—' }}</td></tr>
+      <tr><th scope="row">Input tokens</th><td class="numeric">{{ sample.input_tokens if sample.input_tokens is not none else '—' }}</td></tr>
+      <tr><th scope="row">Output tokens</th><td class="numeric">{{ sample.output_tokens if sample.output_tokens is not none else '—' }}</td></tr>
+      <tr><th scope="row">Wall time</th><td class="numeric">{% if sample.client_wall_ms is none %}—{% else %}{{ '%.1f' % sample.client_wall_ms }} <span class="unit">ms</span>{% endif %}</td></tr>
+      <tr><th scope="row">Time to first token</th><td class="numeric">{% if sample.client_ttft_ms is none %}—{% else %}{{ '%.1f' % sample.client_ttft_ms }} <span class="unit">ms</span>{% endif %}</td></tr>
+    </tbody>
+  </table>
+</div>
+{% if sample.result_json %}
+<details>
+  <summary>Scorer detail</summary>
+  <pre>{{ sample.result_json }}</pre>
+</details>
+{% endif %}
+
+{% if inspection.criterion_scores %}
+<h3>Criterion scores</h3>
+<div class="table-scroll">
+  <table>
+    <thead>
+      <tr>
+        <th scope="col">Criterion</th><th scope="col">Rung</th>
+        <th scope="col" class="numeric">Raw score</th><th scope="col" class="numeric">Weight</th>
+        <th scope="col">Status</th><th scope="col">Skip reason</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for score in inspection.criterion_scores %}
+      <tr>
+        <td>{{ score.criterion_key }}</td>
+        <td>{{ score.rung }}</td>
+        <td class="numeric">{% if score.raw_score is none %}<span class="muted">—</span>{% else %}{{ '%.4g' % score.raw_score }}{% endif %}</td>
+        <td class="numeric">{{ '%.3g' % score.weight }}</td>
+        <td><span class="status status-{{ score.status }}">{{ score.status }}</span></td>
+        <td class="muted">{{ score.skip_reason or '—' }}</td>
+      </tr>
+      {% if inspection.judge_verdicts.get(score.criterion_key) %}
+      <tr>
+        <td colspan="6">
+          <details>
+            <summary>{{ inspection.judge_verdicts[score.criterion_key] | length }} juror verdicts</summary>
+            <table>
+              <thead>
+                <tr><th scope="col">Juror</th><th scope="col" class="numeric">Rep</th>
+                  <th scope="col" class="numeric">Grade</th><th scope="col">Rationale</th></tr>
+              </thead>
+              <tbody>
+                {% for verdict in inspection.judge_verdicts[score.criterion_key] %}
+                <tr>
+                  <td class="mono">{{ verdict.juror_canonical_id }}</td>
+                  <td class="numeric">{{ verdict.repetition }}</td>
+                  <td class="numeric">{{ verdict.grade if verdict.grade is not none else '—' }}</td>
+                  <td>{{ verdict.rationale or verdict.refused_reason or '—' }}</td>
+                </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </details>
+        </td>
+      </tr>
+      {% endif %}
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endif %}
+
+<h3>Tool calls</h3>
+{% if inspection.tool_calls %}
+<div class="table-scroll">
+  <table>
+    <thead>
+      <tr>
+        <th scope="col" class="numeric">Turn</th><th scope="col" class="numeric">Call</th>
+        <th scope="col">Tool</th><th scope="col">Expected</th>
+        <th scope="col">Schema valid</th><th scope="col">Correct tool</th>
+        <th scope="col">Correct arguments</th><th scope="col">Status</th>
+        <th scope="col" class="numeric">Latency</th><th scope="col">Arguments</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for call in inspection.tool_calls %}
+      <tr>
+        <td class="numeric">{{ call.turn_index }}</td>
+        <td class="numeric">{{ call.call_index }}</td>
+        <td class="mono">{{ call.tool_name }}</td>
+        <td class="mono">{{ call.expected_tool or '—' }}</td>
+        <td>{{ 'yes' if call.schema_valid else 'no' }}</td>
+        <td>{% if call.correct_tool is none %}—{% else %}{{ 'yes' if call.correct_tool else 'no' }}{% endif %}</td>
+        <td>{% if call.correct_arguments is none %}—{% else %}{{ 'yes' if call.correct_arguments else 'no' }}{% endif %}</td>
+        <td><span class="status status-{{ call.status }}">{{ call.status }}</span></td>
+        <td class="numeric">{% if call.latency_ms is none %}—{% else %}{{ '%.1f' % call.latency_ms }} <span class="unit">ms</span>{% endif %}</td>
+        <td><details><summary>show</summary><pre>{{ call.arguments_json }}</pre></details></td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% else %}
+<div class="empty-state"><p>This sample made no tool calls.</p></div>
+{% endif %}
+
+<h3>Telemetry during this request</h3>
+{% if inspection.telemetry %}
+<div class="table-scroll">
+  <table>
+    <caption>
+      {{ inspection.telemetry | length }} device observations inside this request's window.
+      The window is reconstructed from the recorded wall time, not stored, so an observation on
+      its boundary may belong to the neighbouring request.
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col" class="numeric">GPU</th>
+        <th scope="col" class="numeric">Utilization</th>
+        <th scope="col" class="numeric">VRAM used</th>
+        <th scope="col" class="numeric">Power</th>
+        <th scope="col" class="numeric">Temperature</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for observation in inspection.telemetry %}
+      <tr>
+        <td class="numeric">{{ observation.gpu_index }}</td>
+        <td class="numeric">{% if observation.gpu_utilization_percent is none %}—{% else %}{{ '%.0f' % observation.gpu_utilization_percent }} <span class="unit">%</span>{% endif %}</td>
+        <td class="numeric">{{ observation.vram_used_bytes | bytes }}</td>
+        <td class="numeric">{% if observation.gpu_power_watts is none %}—{% else %}{{ '%.1f' % observation.gpu_power_watts }} <span class="unit">W</span>{% endif %}</td>
+        <td class="numeric">{% if observation.gpu_temperature_c is none %}—{% else %}{{ '%.0f' % observation.gpu_temperature_c }} <span class="unit">°C</span>{% endif %}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% else %}
+<div class="empty-state">
+  <p>No telemetry observation fell inside this request's window — either the machine has no
+    readable GPU, sampling was off for this run, or the request was shorter than the sampling
+    interval. Not zero usage: no reading.</p>
+</div>
+{% endif %}
+{% endif %}
+{% endblock %}

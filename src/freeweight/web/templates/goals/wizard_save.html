@@ -1,0 +1,80 @@
+{% extends "base.html" %}
+{% block title %}Save — FreeWeight{% endblock %}
+{% block content %}
+<h2>{{ draft.name }}</h2>
+{% include "partials/_wizard_steps.html" %}
+<h3>7. {{ step.heading }}</h3>
+
+{% if error %}
+<div class="error-state" role="alert">
+  <p>{{ error }}</p>
+  <p>Nothing was written. Change the name below and try again, or go back and fix the draft.</p>
+</div>
+{% endif %}
+
+{% if goal %}
+<div class="notice" role="status">
+  <h3>Written</h3>
+  <p>Your goal pack is at:</p>
+  <pre>{{ goal.pack_path }}</pre>
+  <p>Its <code>goal_hash</code> is <code class="mono">{{ goal.goal_hash }}</code>. That hash is
+    what separates results: change a criterion, a weight, a rule parameter or the jury, and the
+    hash changes, and FreeWeight will not average the old numbers with the new ones.</p>
+  <p><strong>This file is yours.</strong> It is plain JSON: open it in an editor, diff it in git,
+    copy it to another machine. Nothing about it points back into FreeWeight, and a pack you edit
+    by hand loads in this wizard again without loss.</p>
+</div>
+
+<h3>What is in it</h3>
+<div class="table-scroll">
+  <table>
+    <thead>
+      <tr>
+        <th scope="col">Criterion</th><th scope="col">Rung</th>
+        <th scope="col" class="numeric">Weight</th><th scope="col">Scored by</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for criterion in goal.pack.criteria %}
+      <tr>
+        <td>{{ criterion.name }}</td>
+        <td>{{ criterion.rung.value }}</td>
+        <td class="numeric">{{ '%.0f' % (criterion.weight * 100) }}%</td>
+        <td>{{ criterion.rule_type or 'a jury' }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+<h3>Next</h3>
+<p>{{ cost }}</p>
+<p>
+  <a href="/goals/{{ goal.slug }}/grade"><button type="button" data-variant="primary">Grade the calibration samples</button></a>
+  <a href="/goals/{{ goal.slug }}/report"><button type="button">See the agreement</button></a>
+  <a href="/goals"><button type="button">Back to goals</button></a>
+</p>
+<p class="muted">
+  A failed calibration gate is a useful answer, not a rejection: the run still executes, every
+  sample stays inspectable, and the report names the criteria the jury disagreed with you on most.
+  What it will not do is emit capability evidence from a rubric nobody can measure yet.
+</p>
+{% else %}
+<p class="muted">
+  Name it, and FreeWeight writes the pack. The slug becomes a directory name, a URL and the
+  capability its evidence is emitted under — <code>user.&lt;slug&gt;</code> — so it is worth
+  picking one you will recognise.
+</p>
+<form method="post" action="/goals/new/{{ draft.draft_id }}/save">
+  <div class="field">
+    <label for="s-name">Name</label>
+    <input id="s-name" name="name" value="{{ draft.name }}" required>
+  </div>
+  <div class="field">
+    <label for="s-slug">Slug</label>
+    <input id="s-slug" name="slug" value="{{ draft.slug }}" required pattern="[a-z0-9_]+">
+  </div>
+  <p><button type="submit" data-variant="primary">Write the pack</button></p>
+</form>
+{% endif %}
+{% endblock %}

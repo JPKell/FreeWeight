@@ -1,0 +1,80 @@
+{% extends "base.html" %}
+{% block title %}Goals — FreeWeight{% endblock %}
+{% block content %}
+<h2>Goals</h2>
+<p class="muted">
+  A goal is your own rubric, measured the same way a shipped benchmark is. It lives on disk as
+  JSON you can open in an editor and diff in git — the wizard and the starters are two ways to get
+  one, and neither is required.
+</p>
+
+{% if error %}
+<div class="error-state" role="alert"><p>{{ error }}</p></div>
+{% endif %}
+
+<p>
+  <a href="/goals/new"><button type="button" data-variant="primary">Define a goal</button></a>
+  <a href="/goals/starters"><button type="button">Start from a starter pack</button></a>
+</p>
+
+{% if goals %}
+<div class="table-scroll">
+  <table data-table="goals">
+    <caption>{{ goals | length }} installed. Each is a directory under your goals root.</caption>
+    <thead>
+      <tr>
+        <th scope="col">Goal</th>
+        <th scope="col">Capability</th>
+        <th scope="col">Criteria</th>
+        <th scope="col">Tasks</th>
+        <th scope="col">Score method mix</th>
+        <th scope="col">Badge</th>
+        <th scope="col">Actions</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for goal, summary in goals %}
+      <tr>
+        <td>
+          <strong>{{ summary.name }}</strong><br>
+          <span class="unit mono">{{ summary.slug }} · {{ goal.goal_hash[:20] }}…</span>
+        </td>
+        <td class="mono">{{ summary.capability_id }}</td>
+        <td class="numeric">{{ summary.criteria_count }} ({{ summary.judged_criteria_count }} judged)</td>
+        <td class="numeric">{{ summary.task_count }}</td>
+        <td>
+          {# Beside the score, always: a 0.82 that is 80 % rules is a different fact from a 0.82
+             a jury produced (ADR-0031). #}
+          {% for rung in ['rule', 'reference', 'human', 'judge'] %}
+          {% if summary.score_method_mix[rung] > 0 %}
+          <span class="unit">{{ rung }} {{ '%.0f' % (summary.score_method_mix[rung] * 100) }}%</span>
+          {% endif %}
+          {% endfor %}
+        </td>
+        <td>
+          {% if summary.unforked %}
+          <span class="status status-interrupted" title="Unedited starter content. A voice measured on someone else's prompts is not your voice.">unforked</span>
+          {% else %}
+          <span class="muted">—</span>
+          {% endif %}
+        </td>
+        <td>
+          <a href="/goals/{{ summary.slug }}/grade">grade</a> ·
+          <a href="/goals/{{ summary.slug }}/report">report</a> ·
+          <a href="/results/goals/{{ summary.slug }}">results</a>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% else %}
+<div class="empty-state">
+  <h3>No goals yet</h3>
+  <p>Define one from the UI with the wizard, fork a starter pack to see the shape of a good
+    rubric, or write <code>goal.json</code> by hand — all three produce the same thing.</p>
+  <pre>freeweight goals starters
+freeweight goals fork-starter creative_voice</pre>
+</div>
+{% endif %}
+{% endblock %}

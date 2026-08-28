@@ -109,7 +109,7 @@
 <progress id="run-progress" value="0" max="1" aria-describedby="run-progress-text"></progress>
 <p id="run-progress-text" class="muted">Waiting for events.</p>
 
-<h3>Tests</h3>
+<h3 id="tests">Tests</h3>
 <table>
   <thead>
     <tr>
@@ -151,6 +151,7 @@
       <th scope="col">Spread</th>
       <th scope="col">Samples</th>
       <th scope="col">Excluded</th>
+      <th scope="col">Raw source</th>
     </tr>
   </thead>
   <tbody>
@@ -175,9 +176,20 @@
       </td>
       <td class="numeric">{{ metric.sample_count if metric.sample_count is not none else "—" }}</td>
       <td class="numeric">{{ metric.excluded_count if metric.excluded_count is not none else "—" }}</td>
+      {# UI standards §5: at most two clicks from a headline metric to the raw record behind it.
+         A test-scope metric links straight at its samples; a run-scope one combines every test,
+         so it links at the tests table, where each row links at its own samples. Either way the
+         second click lands on stored rows. #}
+      <td>
+        {% if metric.run_test_id %}
+        <a href="/runs/{{ detail.run.id }}/tests/{{ metric.run_test_id }}">samples</a>
+        {% else %}
+        <a href="#tests">every test</a>
+        {% endif %}
+      </td>
     </tr>
     {% else %}
-    <tr><td colspan="9" class="muted">No aggregates yet — they are written once every sample is durable.</td></tr>
+    <tr><td colspan="10" class="muted">No aggregates yet — they are written once every sample is durable.</td></tr>
     {% endfor %}
   </tbody>
 </table>

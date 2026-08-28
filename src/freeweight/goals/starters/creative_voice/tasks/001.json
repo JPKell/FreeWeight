@@ -1,0 +1,37 @@
+{
+  "prompt_id": "goals.creative_voice.inventory",
+  "version": "1.0.0",
+  "schema_version": "1.0",
+  "purpose": "A starter essay prompt. Replace it: a voice measured on someone else's prompt is not your voice.",
+  "task": "goal.creative_voice",
+  "capability": "creative_writing",
+  "system": null,
+  "template": "Write three paragraphs of creative non-fiction about the night an inventory count did not add up, and what the person doing the counting decided to do about it. No dialogue.",
+  "variables": {},
+  "response": {
+    "format": "text",
+    "json_schema_ref": null,
+    "expectations": []
+  },
+  "model_requirements": {
+    "min_context_tokens": 4096,
+    "requires_capabilities": [],
+    "recommended_temperature": 0.8
+  },
+  "metadata": {
+    "author": "freeweight",
+    "created_at": "2026-08-28T00:00:00Z",
+    "changed_at": "2026-08-28T00:00:00Z",
+    "change_reason": "Shipped starter task.",
+    "supersedes": null,
+    "tags": [
+      "goal",
+      "starter"
+    ],
+    "goal_task": {
+      "key": "inventory_night",
+      "name": "The night the inventory did not add up",
+      "is_starter": true
+    }
+  }
+}

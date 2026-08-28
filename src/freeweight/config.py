@@ -20,7 +20,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, ClassVar, Literal
 
-from baseaicore import ConfigurationError
+from baseaicore import ConfigurationError, RuntimeProfile
 from pydantic import (
     BaseModel,
     ConfigDict,
@@ -37,6 +37,7 @@ __all__ = [
     "ENV_PREFIX",
     "LOOPBACK_HOSTS",
     "AuthSettings",
+    "BenchmarkSettings",
     "CalibrationSettings",
     "ConfigurationError",
     "GoalSettings",
@@ -45,6 +46,7 @@ __all__ = [
     "LoadedSettings",
     "LoggingSettings",
     "ProviderSettings",
+    "RuntimeSettings",
     "ProvidersSettings",
     "ServerSettings",
     "Settings",
@@ -112,7 +114,6 @@ class StorageSettings(BaseModel):
     database_url: str | None = None
     auto_migrate: bool = True
     artifact_dir: str | None = None
-    retention_days: int = Field(default=0, ge=0)
     backup_retention: int = Field(default=5, ge=0)
     statement_timeout_ms: int | None = Field(default=None, gt=0)
 
@@ -143,6 +144,58 @@ class StorageSettings(BaseModel):
         """
         url = self.database_url or ""
         return url.startswith("sqlite")
+
+
+class RuntimeSettings(BaseModel):
+    """``[runtime]`` — how a model is loaded and served, as opposed to how a run is executed.
+
+    ADR-0023's runtime profile, made settable. It is a **separate section from ``[execution]``**
+    because the two are separate axes and are separated everywhere else: an execution parameter
+    (repetitions, seed, cooldown) is how a measurement is taken, while a runtime setting is what is
+    being measured *under*. They hash into the fingerprint through different fields —
+    ``execution.effective_parameters`` and ``runtime_profile_hash`` — and ADR-0017 makes a differing
+    runtime profile a **hard separation**, not a discount: evidence measured at one context does not
+    describe another.
+
+    Every field defaults to ``None``, which is the legal profile meaning "provider defaults"
+    (ADR-0023 §1). There is no "no profile" state; ``RuntimeProfile()`` has a stable hash and is
+    stored like any other.
+
+    **Only settings a provider can actually honour per request appear here.** Ollama configures
+    flash attention and KV-cache precision at server startup (``OLLAMA_FLASH_ATTENTION``,
+    ``OLLAMA_KV_CACHE_TYPE``), not per request, so offering them here would record a promise the
+    run cannot keep — the same dishonesty ADR-0007 rule 2 forbids of a capability flag. They stay
+    server-side until a provider exposes them.
+
+    Attributes:
+        context_size: The context to serve, in tokens — Ollama's ``num_ctx``. Unset means the
+            provider decides, and the run records its served context as ``assumed`` rather than
+            ``configured``. **Setting it is what makes a context comparison possible**: two runs of
+            one model at two contexts are two subjects, and without this they are indistinguishable.
+        gpu_layers: Layers to offload to the GPU. Unset lets the provider fit it.
+        threads: CPU threads for the parts that stay on the host.
+        batch_size: Prompt-evaluation batch size.
+        keep_alive: How long the provider should hold the model resident after a call, in its own
+            duration syntax. A benchmark that reloads between every test measures loading.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    context_size: int | None = Field(default=None, gt=0)
+    gpu_layers: int | None = Field(default=None, ge=0)
+    threads: int | None = Field(default=None, gt=0)
+    batch_size: int | None = Field(default=None, gt=0)
+    keep_alive: str | None = None
+
+    def to_profile(self) -> RuntimeProfile:
+        """Build the :class:`~baseaicore.RuntimeProfile` these settings describe."""
+        return RuntimeProfile(
+            context_size=self.context_size,
+            gpu_layers=self.gpu_layers,
+            threads=self.threads,
+            batch_size=self.batch_size,
+            keep_alive=self.keep_alive,
+        )
 
 
 class ProviderSettings(BaseModel):
@@ -204,6 +257,31 @@ class ExecutionSettings(BaseModel):
     idle_wait_timeout_seconds: float = Field(default=120.0, ge=0)
     on_idle_timeout: Literal["warn", "refuse"] = "warn"
     store_responses: bool = False
+
+
+class BenchmarkSettings(BaseModel):
+    """The ``[benchmarks]`` section: limits a machine, not a suite author, decides.
+
+    A shipped suite's content is fixed and hashed — that is what makes two runs of it comparable.
+    What is *not* fixed is how far a sweep can go before the machine running it cannot serve the
+    context any more, and that is a property of the hardware rather than of the benchmark.
+
+    Attributes:
+        long_context_max_tokens: The ceiling of ``native.long_context``'s depth sweep. The shipped
+            ladder doubles — 2 000, 4 000, 8 000, 16 000, 32 000 — and is truncated to, or extended
+            by doubling up to, this value. Raising it on a machine that can serve more turns
+            ``effective_context_tokens`` from a floor into a measurement; lowering it on a small
+            card keeps the suite runnable instead of failing every rung.
+
+            **It separates results.** The effective ladder is hashed into the suite's
+            ``dataset_hashes``, so a 32 000-token sweep and a 128 000-token sweep are two different
+            measurements and are never averaged — a sweep that stopped earlier reports a smaller
+            effective context for reasons that have nothing to do with the model.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    long_context_max_tokens: int = Field(default=32_000, ge=1_000, le=2_000_000)
 
 
 class GoalSettings(BaseModel):
@@ -334,6 +412,8 @@ class Settings(BaseModel):
     providers: ProvidersSettings = Field(default_factory=ProvidersSettings)
     telemetry: TelemetrySettings = Field(default_factory=TelemetrySettings)
     execution: ExecutionSettings = Field(default_factory=ExecutionSettings)
+    runtime: RuntimeSettings = Field(default_factory=RuntimeSettings)
+    benchmarks: BenchmarkSettings = Field(default_factory=BenchmarkSettings)
     goals: GoalSettings = Field(default_factory=GoalSettings)
     judge: JudgeSettings = Field(default_factory=JudgeSettings)
     calibration: CalibrationSettings = Field(default_factory=CalibrationSettings)
@@ -593,10 +673,19 @@ request_timeout_seconds = 120.0
 # auto_migrate defaults to true on SQLite and false on PostgreSQL, where a failed migration
 # cannot be rolled back automatically (database standards §5.1, §7). Set it explicitly to
 # override that on either dialect.
-retention_days = 0          # 0 = keep everything
 backup_retention = 5        # automatic pre-migration backups to keep
+# There is no time-based retention. A measurement does not expire: a result taken six months ago
+# is as true as one taken today, and the thing that invalidates it is a change of hardware or a
+# model leaving the machine — neither of which a clock can detect. Delete results by model
+# (`freeweight db delete --model …`) when you remove the model, and never on a timer.
 # statement_timeout_ms applies to PostgreSQL only (also used as lock_timeout); unset = server
 # default. SQLite's analogue is its busy_timeout, which the engine always sets.
+
+[benchmarks]
+# The ceiling of native.long_context's depth sweep. The shipped ladder doubles to 32 000; raise it
+# on a machine that can serve more, lower it on one that cannot. The effective ladder is hashed
+# into the suite's dataset_hashes, so two ceilings are two measurements and are never averaged.
+long_context_max_tokens = 32000
 
 [provider]
 kind = "ollama"
@@ -605,6 +694,19 @@ timeout_seconds = 300.0
 
 [providers]
 allow_remote = false
+
+[runtime]
+# How a model is loaded and served, as opposed to how a run is executed (ADR-0023). Every setting
+# is optional; unset means "provider defaults", which is itself a legal, hashable profile.
+# A differing runtime profile is a *hard separation* (ADR-0017): results measured at one context do
+# not describe another, and FreeWeight will not merge them.
+# context_size = 8192   # Ollama's num_ctx. Unset = the provider decides and the run records its
+                        # served context as "assumed" rather than "configured". Set it to compare
+                        # one model against itself at two contexts.
+# gpu_layers = 32
+# threads = 8
+# batch_size = 512
+# keep_alive = "5m"
 
 [telemetry]
 interval_ms = 1000

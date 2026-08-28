@@ -89,7 +89,11 @@ _JsonOption = Annotated[bool, typer.Option("--json", help="Print JSON instead of
 
 @app.command("list")
 def list_models(config: _ConfigOption = None, json_output: _JsonOption = False) -> None:
-    """List every discovered model identity. Mode: local."""
+    """List every discovered model identity. Mode: local.
+
+    Example:
+        freeweight models list --json
+    """
     from baseaicore.timeutil import to_rfc3339
 
     from freeweight.infrastructure.db.errors import DatabaseError
@@ -168,6 +172,9 @@ def show(
 
     Falls back to the provider when ``reference`` matches nothing stored yet, and records the
     resolution as an alias if it changes what was typed (canonical model identity §2.3).
+
+    Example:
+        freeweight models show ollama/qwen3.5:9b
     """
     from baseaicore import ValidationError
     from baseaicore.timeutil import to_rfc3339
@@ -238,7 +245,11 @@ def show(
 
 @app.command("refresh")
 def refresh(config: _ConfigOption = None, json_output: _JsonOption = False) -> None:
-    """Discover every model the configured provider is serving. Mode: local."""
+    """Discover every model the configured provider is serving. Mode: local.
+
+    Example:
+        freeweight models refresh
+    """
     from modelrack.errors import ProviderError
 
     from freeweight.services.models import discover_models

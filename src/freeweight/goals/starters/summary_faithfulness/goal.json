@@ -1,0 +1,97 @@
+{
+  "slug": "summary_faithfulness",
+  "name": "Summary faithfulness",
+  "goal_pack_version": "1.0.0",
+  "schema_version": "1.0",
+  "intent": "Did the summary cover the source, and did it make anything up. This pack exists to show that 'did it hallucinate' is usually a deterministic question against an annotated source, not a matter of judgement.",
+  "contributes_to": "summarization",
+  "created_by": "freeweight",
+  "criteria": [
+    {
+      "key": "claim_coverage",
+      "name": "Covers the source's claims",
+      "intent": "Every claim the annotated source lists is carried by the summary. Rung 3: deterministic, but it needs ground truth the author supplies.",
+      "rung": "reference",
+      "weight": 0.35,
+      "rule": {
+        "type": "claim_coverage",
+        "min_overlap": 0.5
+      }
+    },
+    {
+      "key": "no_unsupported_claims",
+      "name": "Invents nothing",
+      "intent": "Every number and named entity in the summary traces back to the source. This is the criterion people assume needs a judge.",
+      "rung": "reference",
+      "weight": 0.35,
+      "rule": {
+        "type": "no_unsupported_claims",
+        "check": [
+          "numbers",
+          "entities"
+        ],
+        "allow": [
+          "The",
+          "Summary",
+          "This"
+        ]
+      }
+    },
+    {
+      "key": "entity_recall",
+      "name": "Names the people and places",
+      "intent": "The source's entities appear. Cheap, exact, and it catches a summary that is fluent about nothing.",
+      "rung": "reference",
+      "weight": 0.12,
+      "rule": {
+        "type": "entity_recall",
+        "case_sensitive": false
+      }
+    },
+    {
+      "key": "length_band",
+      "name": "Actually a summary",
+      "intent": "A summary the length of the source is not a summary.",
+      "rung": "rule",
+      "weight": 0.08,
+      "rule": {
+        "type": "word_count",
+        "min": 40,
+        "max": 160,
+        "tolerance": 60
+      }
+    },
+    {
+      "key": "readable_prose",
+      "name": "Reads as prose, not as notes",
+      "intent": "The only judged criterion, and it carries a tenth of the weight. That ratio is the whole point of this pack.",
+      "rung": "judge",
+      "weight": 0.1,
+      "scale": {
+        "points": 5,
+        "descriptors": {
+          "5": "Connected prose a person would read aloud; the summary has a shape of its own.",
+          "4": "Readable, with one or two sentences that read as extracted notes.",
+          "3": "Half prose, half clipped fragments.",
+          "2": "Mostly fragments joined by commas.",
+          "1": "Notes. Nothing connected, no through-line."
+        }
+      }
+    }
+  ],
+  "judge": {
+    "jury_size": 3,
+    "models": [],
+    "repetitions": 3,
+    "randomize_order": true,
+    "allow_remote": false,
+    "temperature": 0.0
+  },
+  "calibration": {
+    "target_samples": 12,
+    "min_samples": 8,
+    "holdout_fraction": 0.4,
+    "partition_seed": 20260828,
+    "min_agreement": 0.4
+  }
+}

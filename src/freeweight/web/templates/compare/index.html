@@ -1,0 +1,248 @@
+{#
+  The comparison page. Server-rendered in one pass, no JavaScript: everything here is read-only
+  content, and UI standards §13 requires that to work with scripting disabled.
+
+  The rule the whole layout exists to serve: two columns in different groups are never presented
+  as if their numbers could be subtracted. A separated row says so in words, the group number
+  appears in every affected cell, and the fingerprint diff that separates the columns is printed
+  underneath rather than left as two hex strings nobody can read.
+#}
+{% extends "base.html" %}
+{% block title %}Compare · FreeWeight{% endblock %}
+{% block content %}
+<h2>Compare results</h2>
+
+<form method="get" action="/compare">
+  <fieldset>
+    <legend>Choose runs</legend>
+    <p>
+      <label for="subjects">Runs</label>
+      <input id="subjects" name="subjects" type="text" size="60" value="{{ subjects_value }}"
+             placeholder="01J9K2M…, 01J9K3P…" required
+             aria-describedby="subjects-help">
+      <span id="subjects-help" class="muted">Two or more run IDs, comma separated. A unique prefix is enough.</span>
+    </p>
+    <p>
+      <label for="suite">Suite (optional)</label>
+      <input id="suite" name="suite" type="text" size="30" value="{{ suite }}"
+             placeholder="native.memory_kv" aria-describedby="suite-help">
+      <span id="suite-help" class="muted">Refuses any run that is not this suite, instead of comparing across suites.</span>
+    </p>
+    <button type="submit">Compare</button>
+  </fieldset>
+</form>
+
+{% if error %}
+<div class="error-state" role="alert">
+  <p><strong>These runs could not be compared.</strong></p>
+  <p>{{ error }}</p>
+  <p class="muted">
+    Check the run IDs with <code>freeweight run list</code>. Two runs that measured different
+    things are still comparable — they are shown side by side with the reason — so this message
+    means the request itself could not be read.
+  </p>
+</div>
+{% endif %}
+
+{% if not comparison and not error %}
+<div class="empty-state">
+  <p><strong>Nothing to compare yet.</strong></p>
+  <p>
+    Name two or more runs above. A quantization study, a KV-precision study and a plain
+    before-and-after are all the same form: pick the runs, and the boundaries between them are
+    worked out and labelled for you.
+  </p>
+</div>
+{% endif %}
+
+{% if comparison %}
+<section aria-labelledby="subjects-heading">
+  <h3 id="subjects-heading">Subjects</h3>
+  <p class="muted">
+    This is a <strong>{{ comparison.study.value | replace("_", " ") }}</strong> across
+    {{ comparison.columns | length }} run(s).
+  </p>
+  <table>
+    <caption class="muted">What each column was measured against.</caption>
+    <thead>
+      <tr>
+        <th scope="col">Run</th>
+        <th scope="col">Model</th>
+        <th scope="col">Suite</th>
+        <th scope="col">Quantization</th>
+        <th scope="col">KV precision</th>
+        <th scope="col">Context</th>
+        <th scope="col">Machine</th>
+        <th scope="col">GPU</th>
+        <th scope="col">Started</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for column in comparison.columns %}
+      <tr>
+        <th scope="row"><a href="/runs/{{ column.run_id }}"><code>{{ column.run_id[:8] }}…</code></a> {{ column.label }}</th>
+        <td>
+          {{ column.model_canonical_id }}
+          {% if column.identity_confidence == "name_only" %}
+          <span class="status status-interrupted" title="These weights are identified by name alone; they may have changed under that name.">name only</span>
+          {% endif %}
+        </td>
+        <td>{{ column.suite_key }} <span class="muted">v{{ column.suite_version }}</span></td>
+        <td>{{ column.quantization or "—" }}</td>
+        <td>{{ column.kv_cache_precision or "—" }}</td>
+        <td class="numeric">{{ column.context_size if column.context_size is not none else "—" }}</td>
+        <td title="{{ column.machine_fingerprint }}">{{ column.machine_hostname or column.machine_fingerprint[:12] ~ "…" }}</td>
+        <td class="numeric">{{ column.gpu_index if column.gpu_index is not none else "—" }}</td>
+        <td>{{ column.started_at_rfc3339 or "—" }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>
+
+{% if comparison.context_sweep %}
+<section aria-labelledby="sweep-heading">
+  <h3 id="sweep-heading">Context sweep — what one token of context costs</h3>
+  <p class="muted">
+    These runs are one model at {{ comparison.context_sweep.points | length }} different served
+    contexts on one machine, so the memory each needs can be differenced into a cost function.
+    Each point is that run's <em>own</em> reported residency, not the device's total.
+    <strong>This is a study across runs, not a benchmark result</strong>: a benchmark measures one
+    run under one profile.
+  </p>
+  <table>
+    <caption class="muted">Model VRAM at each served context, one run per row.</caption>
+    <thead>
+      <tr>
+        <th scope="col">Served context</th>
+        <th scope="col" class="numeric">Model VRAM</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for point in comparison.context_sweep.points %}
+      <tr>
+        <th scope="row">{{ "{:,}".format(point[0]) }} tokens</th>
+        <td class="numeric">{{ point[1] | bytes }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  <p>
+    <strong>{{ comparison.context_sweep.weights_bytes | bytes }}</strong> of weights and fixed
+    allocations, plus <strong>{{ comparison.context_sweep.bytes_per_token | bytes }}</strong> per
+    token of context.
+  </p>
+  <p class="muted">
+    Fit quality r² = {{ "%.4f" | format(comparison.context_sweep.r_squared) }}, points scattered
+    ±{{ comparison.context_sweep.residual_stddev_bytes | bytes }} around the line. A sweep taken
+    while something else was using the GPU shows up here rather than quietly biasing the slope.
+  </p>
+</section>
+{% endif %}
+
+{% if comparison.separations %}
+<section aria-labelledby="separations-heading">
+  <h3 id="separations-heading">What separates these runs</h3>
+  {% for verdict in comparison.separations %}
+  <div class="warning-state">
+    <p>
+      <strong><code>{{ verdict.left[:8] }}…</code> vs <code>{{ verdict.right[:8] }}…</code></strong>
+      — {{ verdict.comparability.value }} ({{ verdict.study.value | replace("_", " ") }})
+    </p>
+    <p>{{ verdict.reason }}</p>
+    {% if verdict.diff %}
+    <details>
+      <summary>Provenance differs on {{ verdict.diff | length }} field(s)</summary>
+      <table>
+        <thead>
+          <tr><th scope="col">Field</th><th scope="col">Left</th><th scope="col">Right</th></tr>
+        </thead>
+        <tbody>
+          {% for entry in verdict.diff %}
+          <tr>
+            <th scope="row"><code>{{ entry.path }}</code></th>
+            <td><code>{{ entry.left }}</code></td>
+            <td><code>{{ entry.right }}</code></td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </details>
+    {% else %}
+    <p class="muted">No stored fingerprint document to diff — the reason above is the whole of what is known.</p>
+    {% endif %}
+  </div>
+  {% endfor %}
+</section>
+{% endif %}
+
+<section aria-labelledby="metrics-heading">
+  <h3 id="metrics-heading">Metrics</h3>
+  <table>
+    <caption class="muted">
+      One row per metric, one cell per run. Each cell shows the value, its unit, and the samples
+      it used against the samples it excluded. A group number appears wherever the columns are
+      not directly comparable; cells in different groups are never to be read against each other.
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">Metric</th>
+        <th scope="col">Kind</th>
+        {% for column in comparison.columns %}
+        <th scope="col">{{ column.label }}</th>
+        {% endfor %}
+        <th scope="col">Comparable</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for row in comparison.rows %}
+      <tr>
+        <th scope="row">
+          <code>{{ row.metric_key }}</code>
+          <span class="muted">({{ row.unit }}, {{ "higher is better" if row.higher_is_better else "lower is better" }})</span>
+        </th>
+        <td>{{ row.kind.value }}</td>
+        {% for cell in row.cells %}
+        <td class="numeric">
+          {% if cell.numeric_value is not none %}
+          {{ "%.4g" | format(cell.numeric_value) }}
+          {% if row.mergeable and row.best_run_id == cell.run_id %}
+          <span class="status status-completed">best</span>
+          {% endif %}
+          {% else %}
+          <span title="{{ cell.unavailable_reason }}">—</span>
+          {% endif %}
+          <br>
+          <span class="muted">
+            n={{ cell.sample_count if cell.sample_count is not none else "—" }},
+            excluded={{ cell.excluded_count if cell.excluded_count is not none else "—" }}
+            {% if cell.coefficient_of_variation is not none %}
+            , cv={{ "%.3g" | format(cell.coefficient_of_variation) }}
+            {% endif %}
+            {% if not row.mergeable %}
+            , group {{ cell.group_index + 1 }}
+            {% endif %}
+          </span>
+        </td>
+        {% endfor %}
+        <td>
+          {% if row.mergeable %}
+          <span class="status status-completed">yes</span>
+          {% else %}
+          <span class="status status-failed">no</span>
+          <span class="muted">{{ row.groups | length }} groups</span>
+          {% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% if not comparison.rows %}
+  <div class="empty-state">
+    <p><strong>No aggregate metrics on these runs.</strong></p>
+    <p>These runs stored no run-level metric rows — most often because none of them completed.</p>
+  </div>
+  {% endif %}
+</section>
+{% endif %}
+{% endblock %}

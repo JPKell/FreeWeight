@@ -4,10 +4,15 @@
   "version": "1.0.0",
   "category": "structured_output",
   "runner": "native",
+  "headline_metric": "schema_conformance",
   "scorer": "json_schema",
-  "capabilities": ["structured_output"],
+  "capabilities": [
+    "structured_output"
+  ],
   "requires": {
-    "provider_capabilities": ["structured_output"],
+    "provider_capabilities": [
+      "structured_output"
+    ],
     "sandbox": false,
     "network": false
   },
@@ -27,14 +32,62 @@
   "prompt_subset_hash": "sha256:70c83830a767b8054ba5004162c42d390d83e49b6b49abecbed62b329684ef89",
   "target_device": "any",
   "metrics": [
-    {"key": "valid_json", "unit": "ratio", "higher_is_better": true, "aggregation": "mean", "description": "Share of answers that parsed as JSON at all."},
-    {"key": "schema_conformance", "unit": "ratio", "higher_is_better": true, "aggregation": "mean", "description": "Share of answers that conformed to the case's schema with no violation."},
-    {"key": "required_field_presence", "unit": "ratio", "higher_is_better": true, "aggregation": "mean", "description": "Share of answers with every required field present."},
-    {"key": "type_correctness", "unit": "ratio", "higher_is_better": true, "aggregation": "mean", "description": "Share of answers whose top-level field types were all correct."},
-    {"key": "enum_adherence", "unit": "ratio", "higher_is_better": true, "aggregation": "mean", "description": "Share of answers whose enumerated fields used a declared value."},
-    {"key": "nesting_correctness", "unit": "ratio", "higher_is_better": true, "aggregation": "mean", "description": "Share of answers whose nested objects and arrays came out with the right shape."},
-    {"key": "first_attempt_conformed", "unit": "ratio", "higher_is_better": true, "aggregation": "mean", "description": "Share of cases that conformed without needing the corrective retry. Never replaced by the post-retry figure."},
-    {"key": "recovered_after_retry", "unit": "ratio", "higher_is_better": true, "aggregation": "mean", "description": "Of the cases that failed the first attempt, the share that conformed after one corrective retry."}
+    {
+      "key": "valid_json",
+      "unit": "ratio",
+      "higher_is_better": true,
+      "aggregation": "mean",
+      "description": "Share of answers that parsed as JSON at all."
+    },
+    {
+      "key": "schema_conformance",
+      "unit": "ratio",
+      "higher_is_better": true,
+      "aggregation": "mean",
+      "description": "Share of answers that conformed to the case's schema with no violation."
+    },
+    {
+      "key": "required_field_presence",
+      "unit": "ratio",
+      "higher_is_better": true,
+      "aggregation": "mean",
+      "description": "Share of answers with every required field present."
+    },
+    {
+      "key": "type_correctness",
+      "unit": "ratio",
+      "higher_is_better": true,
+      "aggregation": "mean",
+      "description": "Share of answers whose top-level field types were all correct."
+    },
+    {
+      "key": "enum_adherence",
+      "unit": "ratio",
+      "higher_is_better": true,
+      "aggregation": "mean",
+      "description": "Share of answers whose enumerated fields used a declared value."
+    },
+    {
+      "key": "nesting_correctness",
+      "unit": "ratio",
+      "higher_is_better": true,
+      "aggregation": "mean",
+      "description": "Share of answers whose nested objects and arrays came out with the right shape."
+    },
+    {
+      "key": "first_attempt_conformed",
+      "unit": "ratio",
+      "higher_is_better": true,
+      "aggregation": "mean",
+      "description": "Share of cases that conformed without needing the corrective retry. Never replaced by the post-retry figure."
+    },
+    {
+      "key": "recovered_after_retry",
+      "unit": "ratio",
+      "higher_is_better": true,
+      "aggregation": "mean",
+      "description": "Of the cases that failed the first attempt, the share that conformed after one corrective retry."
+    }
   ],
   "license": "project",
   "description": "JSON-mode and JSON-Schema conformance, checked by a bounded validator that refuses a schema keyword it does not decide rather than reporting conformance it never checked. Capability-gated: a provider without structured output records a skip, not a low score."

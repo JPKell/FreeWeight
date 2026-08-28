@@ -1,0 +1,195 @@
+{
+  "schema_version": "1.0",
+  "description": "A worked calibration set: twelve candidate outputs and the grades a careful author gave them, spanning the scale. Grading twelve samples is a real sitting, and this set exists so a fresh install can show the whole calibration path without one.",
+  "samples": [
+    "## What write-ahead logging is\n\nSQLite normally writes changes by copying the original pages into a rollback journal and then editing the database file. With write-ahead logging it does the opposite: new pages go into a separate `-wal` file, and the database file is left alone until a checkpoint folds them in.\n\n```sql\nPRAGMA journal_mode=WAL;\n```\n\n## Why readers and a writer coexist\n\nA reader takes the database file plus the WAL frames committed before it started. A writer appends new frames. Neither blocks the other, because they are not writing to the same bytes.\n\n## What it costs\n\nA checkpoint has to run eventually, and until it does the WAL grows. Readers on a network filesystem cannot share the WAL index, so WAL is a local-disk mode.",
+    "## Write-ahead logging\n\nIn WAL mode SQLite appends changes to a `-wal` file instead of rewriting the database in place.\n\n```sql\nPRAGMA journal_mode=WAL;\n```\n\n## Concurrency\n\nReaders see a snapshot; one writer appends. They do not block each other.\n\n## Cost\n\nThe WAL grows until a checkpoint, and it does not work over a network filesystem.",
+    "## WAL\n\nWAL means the database writes ahead. This makes it faster because writing ahead is faster than writing behind.\n\n```sql\nPRAGMA journal_mode=WAL;\n```\n\n## Concurrency\n\nMultiple writers can write at the same time, which is the main benefit.",
+    "## Write-ahead logging in SQLite\n\nChanges are appended to a separate log file and folded back into the database at a checkpoint.\n\n```sql\nPRAGMA journal_mode=WAL;\nPRAGMA wal_autocheckpoint=1000;\n```\n\n## Why it helps\n\nReaders read a consistent snapshot of the database plus the frames committed before they began. A single writer appends. Because the two touch different bytes, a long read no longer blocks a write.\n\n## What it costs\n\nThe WAL file grows between checkpoints, and the shared-memory index it needs rules out network filesystems.",
+    "## Overview\n\nSQLite's write-ahead log is a file called `-wal`. Instead of a rollback journal, committed pages are appended there.\n\n```sql\nPRAGMA journal_mode=WAL;\n```\n\n## Trade-offs\n\nYou get concurrent reads with a writer. You pay for it with a second file, a checkpoint, and no network filesystem support. Also, WAL mode is persistent across connections, which surprises people.",
+    "## What is a database?\n\nA database is a place to store information. SQLite is a database. Write-ahead logging is a feature of SQLite.\n\n```sql\nPRAGMA journal_mode=WAL;\n```\n\n## More\n\nIt makes things faster.",
+    "## Write-ahead logging\n\nCommitted pages are appended to a `-wal` sidecar and checkpointed into the main file later.\n\n```sql\nPRAGMA journal_mode=WAL;\n```\n\n## Concurrency\n\nOne writer, many readers, no blocking between them. Readers use a shared-memory index (`-shm`) to find frames.\n\n## Costs\n\nCheckpoint pauses, WAL growth under long-running readers, and no network filesystems.",
+    "## WAL mode\n\nWAL keeps a log of changes. Readers and writers can both work. Set it like this:\n\n```sql\nPRAGMA journal_mode=WAL;\n```\n\nThe main downside is that the log file can get big.",
+    "## Write-ahead logging\n\nSQLite writes changed pages to a separate file first. A checkpoint moves them back.\n\n```sql\nPRAGMA journal_mode=WAL;\n```\n\n## Concurrency\n\nReaders are not blocked by the writer. The writer is not blocked by readers, although a checkpoint can be.\n\n## Costs\n\nWAL growth, checkpoint work, local disk only.",
+    "## Journaling\n\nSQLite supports several journal modes, including DELETE, TRUNCATE, PERSIST, MEMORY, WAL and OFF. WAL stands for write-ahead logging and was added in version 3.7.0.\n\n```sql\nPRAGMA journal_mode;\n```\n\nEach mode has different durability characteristics which are documented in the SQLite manual.",
+    "## Write-ahead logging\n\nWith WAL, SQLite appends to a log and periodically checkpoints. This allows readers and a writer to proceed concurrently because readers never see partially written pages.\n\n```sql\nPRAGMA journal_mode=WAL;\n```\n\n## Cost\n\nThe log grows and must be checkpointed. WAL also requires all processes to be on the same host.",
+    "## WAL\n\nWrite-ahead logging removes the need for locking entirely, so any number of writers can commit at once without coordination.\n\n```sql\nPRAGMA journal_mode=WAL;\n```\n\nThere is no downside."
+  ],
+  "grades": [
+    {
+      "sample": 0,
+      "criterion": "technical_correctness",
+      "grade": 5,
+      "note": "Correct, and the caveats are the right ones."
+    },
+    {
+      "sample": 0,
+      "criterion": "audience_fit",
+      "grade": 5,
+      "note": "Correct, and the caveats are the right ones."
+    },
+    {
+      "sample": 1,
+      "criterion": "technical_correctness",
+      "grade": 5,
+      "note": "Correct but terse; assumes a little too much."
+    },
+    {
+      "sample": 1,
+      "criterion": "audience_fit",
+      "grade": 4,
+      "note": "Correct but terse; assumes a little too much."
+    },
+    {
+      "sample": 2,
+      "criterion": "technical_correctness",
+      "grade": 1,
+      "note": "Confidently wrong: WAL does not give multiple writers."
+    },
+    {
+      "sample": 2,
+      "criterion": "audience_fit",
+      "grade": 2,
+      "note": "Confidently wrong: WAL does not give multiple writers."
+    },
+    {
+      "sample": 3,
+      "criterion": "technical_correctness",
+      "grade": 5,
+      "note": "The best explanation here."
+    },
+    {
+      "sample": 3,
+      "criterion": "audience_fit",
+      "grade": 5,
+      "note": "The best explanation here."
+    },
+    {
+      "sample": 4,
+      "criterion": "technical_correctness",
+      "grade": 5,
+      "note": "Correct; the last line is good and slightly abrupt."
+    },
+    {
+      "sample": 4,
+      "criterion": "audience_fit",
+      "grade": 4,
+      "note": "Correct; the last line is good and slightly abrupt."
+    },
+    {
+      "sample": 5,
+      "criterion": "technical_correctness",
+      "grade": 2,
+      "note": "Patronising and nearly contentless."
+    },
+    {
+      "sample": 5,
+      "criterion": "audience_fit",
+      "grade": 1,
+      "note": "Patronising and nearly contentless."
+    },
+    {
+      "sample": 6,
+      "criterion": "technical_correctness",
+      "grade": 5,
+      "note": "Names -shm, which is the detail that helps."
+    },
+    {
+      "sample": 6,
+      "criterion": "audience_fit",
+      "grade": 5,
+      "note": "Names -shm, which is the detail that helps."
+    },
+    {
+      "sample": 7,
+      "criterion": "technical_correctness",
+      "grade": 4,
+      "note": "Correct as far as it goes; omits the network caveat."
+    },
+    {
+      "sample": 7,
+      "criterion": "audience_fit",
+      "grade": 3,
+      "note": "Correct as far as it goes; omits the network caveat."
+    },
+    {
+      "sample": 8,
+      "criterion": "technical_correctness",
+      "grade": 5,
+      "note": "The checkpoint-blocking nuance is right."
+    },
+    {
+      "sample": 8,
+      "criterion": "audience_fit",
+      "grade": 5,
+      "note": "The checkpoint-blocking nuance is right."
+    },
+    {
+      "sample": 9,
+      "criterion": "technical_correctness",
+      "grade": 4,
+      "note": "Accurate trivia; never explains the mechanism asked for."
+    },
+    {
+      "sample": 9,
+      "criterion": "audience_fit",
+      "grade": 2,
+      "note": "Accurate trivia; never explains the mechanism asked for."
+    },
+    {
+      "sample": 10,
+      "criterion": "technical_correctness",
+      "grade": 5,
+      "note": "Correct; 'same host' is a good plain-English version."
+    },
+    {
+      "sample": 10,
+      "criterion": "audience_fit",
+      "grade": 4,
+      "note": "Correct; 'same host' is a good plain-English version."
+    },
+    {
+      "sample": 11,
+      "criterion": "technical_correctness",
+      "grade": 1,
+      "note": "Wrong twice, and 'no downside' is the tell."
+    },
+    {
+      "sample": 11,
+      "criterion": "audience_fit",
+      "grade": 2,
+      "note": "Wrong twice, and 'no downside' is the tell."
+    }
+  ],
+  "expected": {
+    "technical_correctness": {
+      "kappa_w": 0.705882,
+      "rho": 0.25,
+      "mae": 1.0,
+      "bias": -0.2,
+      "n_holdout": 5,
+      "band": "good"
+    },
+    "audience_fit": {
+      "kappa_w": 0.390244,
+      "rho": 0.592349,
+      "mae": 1.0,
+      "bias": -0.2,
+      "n_holdout": 5,
+      "band": "not_measurable"
+    }
+  },
+  "expected_summary": {
+    "judge_validity_factor": 0.741132,
+    "weighted_kappa_w": 0.60067,
+    "calibration_state": "calibrated",
+    "n_holdout": 5,
+    "n_anchor": 7,
+    "reference_jury": {
+      "bias": 0,
+      "scatter": 1,
+      "jurors": 3,
+      "description": "A deterministic jury that reproduces the author's own grade with an alternating one-point scatter. It is not a model; it exists so a shipped calibration set has a figure that can be reproduced exactly on any machine, with no GPU and no network."
+    }
+  }
+}

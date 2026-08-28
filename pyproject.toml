@@ -22,7 +22,12 @@ classifiers = [
 # weightsdb and mirrorwall are adopted at Phase 12 (extracted from this application's own in-app plumbing at LoadCoach P1/P4); not a dependency until then.
 dependencies = [
     "baseaicore>=0.4,<0.5",
-    "setspec>=0.3,<0.4",
+    # 0.2, not the 0.3 the packaging standards' example shows: that example describes the
+    # post-M3 state, and SetSpec's schemas are frozen at 0.3 only once FreeWeight has produced
+    # real results against the drafts (master roadmap §2, §6). Declaring >=0.3 today makes this
+    # distribution unresolvable against the SetSpec that exists. The range moves to >=0.3,<0.4 in
+    # the same release that ships the frozen-schema evidence export.
+    "setspec>=0.2,<0.3",
     "modelrack>=0.5,<0.6",
     "sweatmeter>=0.4,<0.5",
     "fastapi>=0.115,<1",
@@ -44,14 +49,21 @@ dependencies = [
 postgresql = [
     "psycopg[binary]>=3.2,<4",
 ]
+# Pinned to the majors this repository's gate is actually verified against. They were previously
+# a major behind on four of the seven, so CI installed a different toolchain than any developer
+# ran — and a mypy 1 / mypy 2 disagreement is exactly the kind of thing that turns up as a red
+# build nobody can reproduce locally.
 dev = [
-    "pytest>=8,<9",
-    "pytest-cov>=5,<6",
-    "pytest-randomly>=3,<4",
-    "mypy>=1.11,<2",
-    "ruff>=0.6,<1",
-    "import-linter>=2.0,<3",
-    "respx>=0.21,<1",
+    "pytest>=9,<10",
+    "pytest-cov>=7,<8",
+    "pytest-randomly>=4,<5",
+    "mypy>=2,<3",
+    "ruff>=0.16,<1",
+    "import-linter>=2.13,<3",
+    "respx>=0.23,<1",
+    # Testing standards §10 lists diff-cover among the gates required before merge, so it belongs
+    # in the extra a developer installs rather than only in the CI step.
+    "diff-cover>=9,<11",
     "freeweight[postgresql]",
 ]
 
@@ -88,6 +100,8 @@ ignore = ["D100", "D104"]
 # Alembic-generated: upgrade()/downgrade() carry no behaviour beyond the revision's own docstring,
 # and their bodies are op.* DDL calls Alembic itself generated, not hand-written business logic.
 "src/freeweight/infrastructure/db/migrations/versions/*.py" = ["D1"]
+# A developer script whose entire output is what it tells the person who ran it.
+"scripts/*.py" = ["T201"]
 
 [tool.ruff.lint.pydocstyle]
 convention = "google"
@@ -102,10 +116,23 @@ exclude = ['^src/freeweight/benchmarks/fixtures/data/']
 
 [tool.pytest.ini_options]
 addopts = "-m 'not live and not performance'"
+# Five modules import shared fixtures as `tests.conftest`. Under the default `prepend` import mode
+# pytest puts the *test file's* directory on sys.path, not the repository root, so `import tests`
+# resolves only when the runner happens to insert the cwd — `python -m pytest` does, the bare
+# `pytest` console script does not, and CI runs the bare one. Stating the root here makes both
+# invocations agree.
+pythonpath = ["."]
 markers = [
     "live: requires a real provider/GPU, never in default CI",
     "performance: performance budget assertions, excluded by default",
     "contract: public API/schema conformance in both directions",
+    # The roadmap's integration milestones (§4): "none is considered complete on the basis of a
+    # code review". The verification exists as ordinary tests; this marker is what lets a reviewer
+    # point at it — `pytest -m "integration_milestone and I2"` answers "show me I2".
+    "integration_milestone: verifies a roadmap §4 integration milestone",
+    "I1: FreeWeight <-> ModelRack — discovery through ModelRack only, no provider HTTP here",
+    "I2: FreeWeight <-> SweatMeter — telemetry live, machine profile persisted, no-GPU path",
+    "I3: FreeWeight -> SetSpec — exports validate against the schemas and the goldens",
 ]
 testpaths = ["tests"]
 

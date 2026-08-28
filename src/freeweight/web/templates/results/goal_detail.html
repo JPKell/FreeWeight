@@ -1,0 +1,135 @@
+{% extends "base.html" %}
+{% block title %}{{ goal.pack.name }} results — FreeWeight{% endblock %}
+{% block content %}
+<h2>{{ goal.pack.name }}</h2>
+{% if error %}
+<div class="error-state" role="alert"><p>{{ error }}</p></div>
+{% else %}
+<p class="muted">{{ goal.pack.intent }}</p>
+<p>
+  <span class="unit mono">{{ goal.pack.capability_id }}</span> ·
+  <span class="unit mono">{{ goal.goal_hash }}</span>
+  {% if goal.pack.unforked %}
+  <span class="status status-interrupted"
+        title="Unedited starter content. A voice measured on someone else's prompts is not your voice.">unforked</span>
+  {% endif %}
+</p>
+
+{% if goal.pack.unforked %}
+<div class="warning-state">
+  <strong>This goal is running unedited starter content.</strong> Its results are badged
+  <code>unforked</code> here, in the dashboard and in every export. Edit its criteria or its tasks
+  and the badge comes off.
+</div>
+{% endif %}
+
+<h3>Score method mix</h3>
+<p class="muted">
+  Beside the score, always. A 0.82 that is 80&nbsp;% rules is a different fact from a 0.82 a jury
+  produced, and this is what tells the two apart.
+</p>
+<dl class="card-grid">
+  {% for rung in ['rule', 'reference', 'human', 'judge'] %}
+  <div class="card">
+    <dt>{{ rung }}</dt>
+    <dd>{{ '%.0f' % (mix[rung] * 100) }}%</dd>
+    <p class="card-note">
+      {% if rung == 'rule' %}Deterministic, free, and never disagrees with you.
+      {% elif rung == 'reference' %}Deterministic against your own ground truth.
+      {% elif rung == 'human' %}You graded it. Validity 1.0 by definition.
+      {% else %}A jury graded it. This is the part calibration has to measure.{% endif %}
+    </p>
+  </div>
+  {% endfor %}
+</dl>
+
+<h3>Calibration</h3>
+{% if outcome %}
+<dl class="card-grid">
+  <div class="card">
+    <dt>State</dt>
+    <dd style="font-size: 17px;">{{ outcome.verdict.state.value | replace('_', ' ') }}</dd>
+    <p class="card-note">
+      {% if outcome.verdict.state.value == 'calibrated' %}Evidence is emitted.
+      {% else %}No evidence is emitted — not discounted evidence, none.{% endif %}
+    </p>
+  </div>
+  <div class="card">
+    <dt>Weighted &kappa;<sub>w</sub></dt>
+    <dd>{{ '%.2f' % outcome.verdict.weighted_kappa_w if outcome.verdict.weighted_kappa_w is not none else '—' }}</dd>
+    <p class="card-note">over n<sub>holdout</sub> = {{ outcome.verdict.n_holdout }}</p>
+  </div>
+  <div class="card">
+    <dt>Judge validity factor</dt>
+    <dd>{{ '%.2f' % outcome.verdict.judge_validity_factor }}</dd>
+    <p class="card-note">The sixth confidence factor (ADR-0032 §2).</p>
+  </div>
+</dl>
+<p><a href="/goals/{{ goal.slug }}/report">Read the full agreement report</a></p>
+{% else %}
+<div class="empty-state">
+  <p>This goal has never been calibrated. It will still run, and every sample will be
+    inspectable — it just cannot emit capability evidence yet.
+    <a href="/goals/{{ goal.slug }}/grade">Grade its samples</a> to change that.</p>
+</div>
+{% endif %}
+
+<h3>Runs</h3>
+{% if rows %}
+<div class="table-scroll">
+  <table data-table="goal-results" data-sortable="true" data-complete="true">
+    <caption>
+      Every stored metric of this goal, newest run first. A different <code>goal_hash</code> is a
+      different suite version, so two rubrics never share a row.
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">Metric</th>
+        <th scope="col" class="numeric">Value</th>
+        <th scope="col" class="numeric">n</th>
+        <th scope="col">Suite version</th>
+        <th scope="col">Model</th>
+        <th scope="col">Raw source</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for row in rows %}
+      <tr>
+        <td>{{ row.metric_key }}</td>
+        <td class="numeric">
+          {% if row.numeric_value is none %}
+          <span class="muted" title="Unsupported: {{ row.unavailable_reason }}">—</span>
+          {% else %}{{ '%.4g' % row.numeric_value }}{% endif %}
+          <span class="unit">{{ row.unit }}</span>
+        </td>
+        <td class="numeric">{{ row.sample_count }}</td>
+        <td class="mono">{{ row.suite_version }}</td>
+        <td class="mono">{{ row.model_canonical_id }}</td>
+        <td>
+          <a href="/runs/{{ row.run_id }}{% if row.run_test_id %}/tests/{{ row.run_test_id }}{% endif %}">
+            {{ row.run_id[:8] }}
+          </a>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% else %}
+<div class="empty-state">
+  <p>No completed run of this goal yet.</p>
+  <pre>freeweight run start --model &lt;model&gt; --suite goal.{{ goal.slug }}</pre>
+</div>
+{% endif %}
+
+<h3>Exports</h3>
+<ul>
+  <li><a href="/api/v1/goals/{{ goal.slug }}/export">benchmark.goal_pack</a> — the rubric itself,
+    hash-pinned, for a consumer deciding comparability.</li>
+  <li><a href="/api/v1/goals/{{ goal.slug }}/calibration/report/export">benchmark.calibration_report</a>
+    — the agreement figures with their <code>n_holdout</code>, in the schema a consumer reads.</li>
+  <li><a href="/api/v1/results/export?scope=suite&amp;selector=goal.{{ goal.slug }}&amp;format=json">results</a>
+    — every run of this goal.</li>
+</ul>
+{% endif %}
+{% endblock %}

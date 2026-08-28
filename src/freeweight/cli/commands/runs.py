@@ -127,6 +127,17 @@ def start(  # noqa: PLR0913 — every parameter is a documented run option, not 
         int | None,
         typer.Option("--repetitions", help="Measured repetitions per case; overrides config."),
     ] = None,
+    context_size: Annotated[
+        int | None,
+        typer.Option(
+            "--context-size",
+            min=1,
+            help=(
+                "Tokens of context to serve for this run; overrides [runtime].context_size. "
+                "Two runs at two contexts are two subjects and are never merged."
+            ),
+        ),
+    ] = None,
     detach: Annotated[
         bool,
         typer.Option(
@@ -161,6 +172,18 @@ def start(  # noqa: PLR0913 — every parameter is a documented run option, not 
     Exits ``7`` without executing when another process already holds the machine's one execution
     slot. The run stays queued and that process's scheduler will claim it; ``freeweight run wait``
     is the command that then follows it to completion.
+
+    ``--context-size`` sets the context the model is served at (ADR-0023 §3). Without it the
+    provider decides and the run records its served context as ``assumed``; with it the run is
+    ``configured`` and the number in the fingerprint is a fact. It also changes the
+    ``runtime_profile_hash``, which is what makes measuring one model at 8K and again at 64K two
+    comparable-in-their-own-right subjects rather than two runs FreeWeight would merge.
+
+    Example:
+        freeweight run start --model ollama/qwen3.5:9b --suite native.performance
+
+    Example:
+        freeweight run start --model ollama/qwen3.5:9b --suite native.memory_kv --context-size 8192
     """
     from baseaicore import SuiteError
 
@@ -182,6 +205,11 @@ def start(  # noqa: PLR0913 — every parameter is a documented run option, not 
                 suite_key=suite,
                 execution=ExecutionConfig.resolve(
                     settings.execution, measured_repetitions=repetitions
+                ),
+                runtime_profile=(
+                    settings.runtime.model_copy(update={"context_size": context_size}).to_profile()
+                    if context_size is not None
+                    else settings.runtime.to_profile()
                 ),
                 label=label,
                 allow_prompt_override=allow_prompt_override,
@@ -268,7 +296,11 @@ def list_command(
     config: _ConfigOption = None,
     json_output: _JsonOption = False,
 ) -> None:
-    """List runs, newest first. Mode: local."""
+    """List runs, newest first. Mode: local.
+
+    Example:
+        freeweight run list --status completed --limit 20
+    """
     from freeweight.infrastructure.db.errors import DatabaseError
     from freeweight.services.runs import list_runs
 
@@ -298,7 +330,11 @@ def show(
     config: _ConfigOption = None,
     json_output: _JsonOption = False,
 ) -> None:
-    """Show one run with its tests and aggregate metrics. Mode: local."""
+    """Show one run with its tests and aggregate metrics. Mode: local.
+
+    Example:
+        freeweight run show 01J9K2M --json
+    """
     from baseaicore import SuiteError
 
     from freeweight.services.runs import get_run
@@ -402,6 +438,9 @@ def repeat(  # noqa: PLR0913 — every parameter is a documented option, not inc
 
     Exit codes are ``run start``'s: ``0`` completed, ``5`` failed (including a refused repeat),
     ``6`` cancelled, ``7`` another process holds the machine's execution slot.
+
+    Example:
+        freeweight run repeat 01J9K2M --check
     """
     from baseaicore import SuiteError
 
@@ -515,6 +554,9 @@ def cancel(
     A queued run is cancelled immediately. A running run enters ``cancelling`` and stops at the
     executing process's next boundary — this command reports that honestly rather than claiming a
     completion it cannot observe.
+
+    Example:
+        freeweight run cancel 01J9K2M
     """
     from baseaicore import SuiteError
 
@@ -552,6 +594,9 @@ def wait(
 
     ``Ctrl-C`` while waiting cancels the run and exits ``6``, which is what acceptance criterion 3
     asks for: the signal reaches the run, not just the watcher.
+
+    Example:
+        freeweight run wait 01J9K2M --timeout 3600
     """
     from baseaicore import SuiteError
 

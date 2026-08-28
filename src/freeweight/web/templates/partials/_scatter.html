@@ -1,0 +1,71 @@
+{#
+  A two-metric scatter, rendered as inline SVG with the same figures in a table beneath it.
+
+  Both axes start at zero and end just above the largest value: UI standards §5 forbids a
+  truncated axis, and a fixed zero origin is the only rule that cannot accidentally exaggerate a
+  difference. Every point is a link to the run it came from, so the chart is part of the
+  drill-down rather than a picture of it.
+
+  Expects: points (Sequence[ScatterPoint]), chart_id, title, x_label, y_label.
+#}
+{% if points %}
+{% set xmax = (points | map(attribute='x') | max) or 1 %}
+{% set ymax = (points | map(attribute='y') | max) or 1 %}
+{% set xspan = (xmax * 1.05) if xmax > 0 else 1 %}
+{% set yspan = (ymax * 1.05) if ymax > 0 else 1 %}
+<figure class="chart" id="{{ chart_id }}">
+  <figcaption>{{ title }}</figcaption>
+  <svg class="scatter" viewBox="0 0 320 180" role="img"
+       aria-labelledby="{{ chart_id }}-title {{ chart_id }}-desc">
+    <title id="{{ chart_id }}-title">{{ title }}</title>
+    <desc id="{{ chart_id }}-desc">
+      {{ points | length }} models. Horizontal axis {{ x_label }} from 0 to
+      {{ '%.4g' % xspan }}; vertical axis {{ y_label }} from 0 to {{ '%.4g' % yspan }}.
+      The same figures are in the table below this chart.
+    </desc>
+    <line class="axis" x1="40" y1="150" x2="310" y2="150"></line>
+    <line class="axis" x1="40" y1="10" x2="40" y2="150"></line>
+    {% for point in points %}
+    {% set cx = 40 + (270 * point.x / xspan) %}
+    {% set cy = 150 - (140 * point.y / yspan) %}
+    <circle class="point" cx="{{ '%.2f' % cx }}" cy="{{ '%.2f' % cy }}" r="4"></circle>
+    <text class="label" x="{{ '%.2f' % (cx + 6) }}" y="{{ '%.2f' % (cy - 4) }}">{{ loop.index }}</text>
+    {% endfor %}
+    <text class="label" x="40" y="172">0</text>
+    <text class="label" x="250" y="172">{{ '%.4g' % xspan }} {{ points[0].x_unit }}</text>
+    <text class="label" x="4" y="14">{{ '%.4g' % yspan }} {{ points[0].y_unit }}</text>
+  </svg>
+  <div class="table-scroll">
+    <table>
+      <caption>{{ title }} — the chart's figures as text.</caption>
+      <thead>
+        <tr>
+          <th scope="col">#</th>
+          <th scope="col">Model</th>
+          <th scope="col" class="numeric">{{ x_label }}</th>
+          <th scope="col" class="numeric">{{ y_label }}</th>
+          <th scope="col">Source</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for point in points %}
+        <tr>
+          <td class="numeric">{{ loop.index }}</td>
+          <td class="mono">{{ point.label }}</td>
+          <td class="numeric">{{ '%.4g' % point.x }} <span class="unit">{{ point.x_unit }}</span></td>
+          <td class="numeric">{{ '%.4g' % point.y }} <span class="unit">{{ point.y_unit }}</span></td>
+          <td><a href="/runs/{{ point.run_id }}">run {{ point.run_id[:8] }}</a></td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</figure>
+{% else %}
+<div class="empty-state">
+  <h3>{{ title }}</h3>
+  <p>Nothing to plot yet: this needs a model with both a quality figure and a
+    {{ x_label }} figure from a completed run. Run <code>native.performance</code> and one quality
+    suite against the same model, then come back.</p>
+</div>
+{% endif %}

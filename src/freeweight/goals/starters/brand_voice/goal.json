@@ -1,0 +1,146 @@
+{
+  "slug": "brand_voice",
+  "name": "House style compliance",
+  "goal_pack_version": "1.0.0",
+  "schema_version": "1.0",
+  "intent": "Copy that obeys a defined house style: our words, our register, our shape, our reading level. The point of this pack is that a style guide is mostly a list, and a list is a rule.",
+  "contributes_to": "instruction_following",
+  "created_by": "freeweight",
+  "criteria": [
+    {
+      "key": "banned_terms",
+      "name": "No banned terms",
+      "intent": "The style guide's own do-not-use list. A hard gate: using a banned term is disqualifying, not gradual.",
+      "rung": "rule",
+      "weight": 0.2,
+      "gate": true,
+      "rule": {
+        "type": "forbidden_phrases",
+        "case_sensitive": false,
+        "phrases": [
+          "best-in-class",
+          "world-class",
+          "synergy",
+          "revolutionary",
+          "cutting-edge",
+          "disruptive",
+          "utilize",
+          "solutioning",
+          "empower your",
+          "unlock",
+          "guru",
+          "ninja",
+          "rockstar"
+        ],
+        "max_hits": 3
+      }
+    },
+    {
+      "key": "required_disclosures",
+      "name": "Required disclosures present",
+      "intent": "Everything the guide says must appear, appears. A list again.",
+      "rung": "rule",
+      "weight": 0.15,
+      "rule": {
+        "type": "required_phrases",
+        "case_sensitive": false,
+        "min_occurrences": 1,
+        "phrases": [
+          "support",
+          "documentation"
+        ]
+      }
+    },
+    {
+      "key": "register",
+      "name": "Plain, unhyped register",
+      "intent": "The guide bans hype adverbs and demands ordinary words. Both are countable.",
+      "rung": "rule",
+      "weight": 0.15,
+      "rule": {
+        "type": "vocabulary_profile",
+        "banned_register": [
+          "amazing",
+          "incredible",
+          "effortlessly",
+          "simply",
+          "just",
+          "obviously",
+          "literally",
+          "insanely"
+        ],
+        "type_token_ratio": {
+          "min": 0.3
+        }
+      }
+    },
+    {
+      "key": "reading_level",
+      "name": "Reading level in band",
+      "intent": "The guide sets grade 8-12. A formula answers that exactly, for free, every time.",
+      "rung": "rule",
+      "weight": 0.1,
+      "rule": {
+        "type": "readability",
+        "metric": "flesch_kincaid_grade",
+        "min": 7.0,
+        "max": 12.0,
+        "tolerance": 3.0
+      }
+    },
+    {
+      "key": "shape",
+      "name": "Documented shape",
+      "intent": "Headings, a short list, no code. The guide is explicit and so is this.",
+      "rung": "rule",
+      "weight": 0.1,
+      "rule": {
+        "type": "structure",
+        "headings": {
+          "min": 1,
+          "max": 4
+        },
+        "max_heading_depth": 3,
+        "list_items": {
+          "min": 2,
+          "max": 8
+        },
+        "code_blocks": {
+          "max": 0
+        }
+      }
+    },
+    {
+      "key": "tone_fit",
+      "name": "Tone fits the persona",
+      "intent": "What is left once the rules have run: does it sound like us. Judged, and only 30% of the weight, which is the lesson.",
+      "rung": "judge",
+      "weight": 0.3,
+      "scale": {
+        "points": 5,
+        "descriptors": {
+          "5": "Reads as the house persona throughout: direct, warm, never salesy, never stiff.",
+          "4": "Mostly on persona, with one passage that drifts formal or chatty.",
+          "3": "Recognisably the brand in places; generic marketing prose elsewhere.",
+          "2": "Generic throughout, with the persona surfacing once.",
+          "1": "Could have been written for any company; nothing of the persona survives."
+        }
+      }
+    }
+  ],
+  "judge": {
+    "jury_size": 3,
+    "models": [],
+    "repetitions": 3,
+    "randomize_order": true,
+    "allow_remote": false,
+    "temperature": 0.0
+  },
+  "calibration": {
+    "target_samples": 12,
+    "min_samples": 8,
+    "holdout_fraction": 0.4,
+    "partition_seed": 20260828,
+    "min_agreement": 0.4
+  }
+}

@@ -1,0 +1,58 @@
+{% extends "base.html" %}
+{% block title %}Rules — FreeWeight{% endblock %}
+{% block content %}
+<h2>{{ draft.name }}</h2>
+{% include "partials/_wizard_steps.html" %}
+<h3>3. {{ step.heading }}</h3>
+<p class="muted">
+  For each criterion, FreeWeight offers the rules that could carry part of it, with the parameters
+  pre-filled. Accept, edit or skip each one — nothing is applied until you say so.
+</p>
+
+<div class="notice" role="status">
+  <p class="band">{{ shift.sentence() }}</p>
+</div>
+
+{% if error %}
+<div class="error-state" role="alert"><p>{{ error }}</p></div>
+{% endif %}
+
+{% if proposals %}
+{% for proposal in proposals %}
+<h3 id="{{ proposal.criterion }}-{{ proposal.rule_type }}">
+  {{ proposal.criterion }} &rarr; <code>{{ proposal.rule_type }}</code>
+  {% if proposal.accepted %}<span class="status status-completed">accepted</span>{% endif %}
+</h3>
+<p class="muted">{{ proposal.explanation }}</p>
+{% if not proposal.accepted %}
+<form method="post" action="/goals/new/{{ draft.draft_id }}/rules">
+  <input type="hidden" name="action" value="accept">
+  <input type="hidden" name="criterion" value="{{ proposal.criterion }}">
+  <input type="hidden" name="rule_type" value="{{ proposal.rule_type }}">
+  <div class="field">
+    <label for="p-{{ proposal.criterion }}-{{ proposal.rule_type }}">Parameters (editable JSON)</label>
+    <textarea id="p-{{ proposal.criterion }}-{{ proposal.rule_type }}" name="parameters"
+              rows="6" cols="70">{{ proposal.parameters | tojson(indent=2) }}</textarea>
+  </div>
+  <p>
+    <button type="submit">Accept this rule</button>
+    <span class="unit">Skipping is simply not accepting: leave it and move on.</span>
+  </p>
+</form>
+{% else %}
+<pre>{{ proposal.parameters | tojson(indent=2) }}</pre>
+{% endif %}
+{% endfor %}
+{% else %}
+<div class="empty-state">
+  <p>No rule matches how you described these criteria. That is a normal answer — some qualities
+    genuinely need a judge — and the calibration step is what will tell you how well the jury
+    agrees with you about them.</p>
+</div>
+{% endif %}
+
+<form method="post" action="/goals/new/{{ draft.draft_id }}/rules">
+  <input type="hidden" name="action" value="next">
+  <p><button type="submit" data-variant="primary">Next: your tasks</button></p>
+</form>
+{% endblock %}

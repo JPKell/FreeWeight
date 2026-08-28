@@ -20,9 +20,9 @@ Everything here is additive within v1. The committed OpenAPI snapshot is diff-ch
 
 | Endpoint | Notes |
 |---|---|
-| `GET /machines` · `GET /machines/{id}` | Static profiles; the current machine is flagged |
+| `GET /machines` · `GET /machines/{id}` | Static profiles; the current machine is flagged. **Never writes** — machines are recorded when a run is created, so polling this cannot make one look freshly used, and the list is legitimately empty before anything has been measured |
 | `GET /models` | Filter by `provider_kind`, `family`, `quantization`, `has_results`; sort by `last_seen_at`, `canonical_id` |
-| `POST /models/discover` | Re-discovers through ModelRack; returns added/updated/unchanged counts and any alias resolutions observed |
+| `POST /models/discover` | Re-discovers through ModelRack; returns added/updated/unchanged/total counts. The counts, not the models: a client that wants the list asks for it, and a discovery that returned every model would bury *what changed* |
 | `GET /models/{model_ref}` | Identity, latest descriptor, descriptor history, evidence summary |
 | `GET /models/{model_ref}/results` | Paginated results for this model, filterable by suite and runtime profile |
 | `GET /models?canonical_id=…` | Lookup by identity; `?provider_kind=&provider_model_name=&artifact_digest=` is the exact-triple form |
@@ -37,8 +37,8 @@ still accept a canonical ID, a bare name or an unambiguous prefix.
 
 | Endpoint | Notes |
 |---|---|
-| `GET /benchmarks` | Installed suites with version, category, runner, requirements, dataset status |
-| `GET /benchmarks/{key}` | Manifest, tests, metric definitions, prompt references, dataset hashes |
+| `GET /benchmarks` | Installed suites with version, category, runner, requirements, dataset hashes, `headline_metric` and test count. Read from the registry the **run engine executes from**, so a suite listed here is one `POST /runs` accepts — a listing assembled separately would eventually disagree |
+| `GET /benchmarks/{key}` | Manifest, tests, metric definitions, prompt references, dataset hashes. `404` names what *is* installed |
 
 ## 3a. Goals (user-authored suites)
 
@@ -61,7 +61,7 @@ ADR-0032.
 | `POST /goals/{slug}/calibration/grades` | Submit grades. Idempotent per `(sample, criterion)`; partial submission is normal and progress survives interruption |
 | `POST /goals/{slug}/calibration/run` | Score the **holdout** with the configured jury and compute agreement. Returns a run id; progress streams over the run event SSE like any other run |
 | `GET /goals/{slug}/calibration/report` | `kappa_w`, `rho`, `mae`, `bias`, `n_anchor`, `n_holdout`, inter-juror alpha, per criterion and weighted; gate verdict; `judge_validity_factor`; the worst-diverging holdout samples with both rationales |
-| `GET /goals/{slug}/export` | `benchmark.goal_pack` — a single SetSpec envelope, hash-pinned |
+| `GET /goals/{slug}/export` | `benchmark.goal_pack` — a single SetSpec envelope describing the pack. **Not** the round-trip format: `POST /goals/import` reads the *bundle* that `freeweight goals export` writes ([spec §7.3](spec.md)) |
 | `POST /goals/import` | Import a pack. Size-capped, containment-checked, schema-validated, hash-verified before any write; **never overwrites in place** — a colliding slug is rejected with the existing `goal_hash` named |
 | `GET /goals/starters` | The four shipped starter packs with their approximate deterministic weight |
 | `POST /goals/starters/{key}/fork` | Copy a starter to a new slug. The copy is `unforked` until its criteria or tasks are edited |
@@ -87,7 +87,7 @@ Two behaviours worth stating at the API level, because a client will otherwise g
   "model": "ollama/qwen3.5:9b-q8_0",
   "suites": ["native.performance", "native.tool_use"],
   "tests": null,
-  "runtime_profile": {"context_size": 32768, "kv_cache_precision": "f16"},
+  "runtime": {"context_size": 32768},
   "gpu_index": 0,
   "execution": {"measured_repetitions": 3, "warmup_repetitions": 1,
                 "test_timeout_seconds": 600, "seed": 42, "store_prompts": false},
@@ -100,6 +100,17 @@ Response `201` with the run object, including `reproducibility_fingerprint` and 
 `effective_config`. Validation happens before the run is persisted, so a rejected request creates
 nothing.
 
+`runtime` overrides the `[runtime]` configuration section **for this run**, field by field — the
+fields it omits keep their configured values. It accepts `context_size`, `gpu_layers`, `threads`,
+`batch_size` and `keep_alive`; an unrecognised key is a `VALIDATION_ERROR` naming it rather than a
+silently ignored one, because a runtime setting that is accepted and not applied produces a run
+whose record describes conditions it was never served under. Every field set here is hashed into
+`runtime_profile_hash` and therefore separates results
+(ADR-0023).
+
+`POST /runs/{id}/repeat` reuses the **original run's stored profile**, not the current
+configuration.
+
 Notable errors: `MODEL_NOT_FOUND`, `BENCHMARK_NOT_FOUND`, `DATASET_MISSING`,
 `DATASET_HASH_MISMATCH`, `PROVIDER_UNAVAILABLE`, `INSUFFICIENT_RESOURCES`, `RUN_ALREADY_RUNNING`
 (when a GPU workload is active and queueing is disabled), `SANDBOX_UNAVAILABLE` (only when every
@@ -110,7 +121,7 @@ selected test requires a sandbox).
 | `GET /runs` | Filter by `status`, `model`, `suite`, `machine`, `label`, date range; cursor pagination |
 | `GET /runs/{id}` | Run with tests, aggregate metrics, degradations and the fingerprint document |
 | `POST /runs/{id}/cancel` | 202 when accepted; 409 `RUN_NOT_CANCELLABLE` for terminal runs |
-| `POST /runs/{id}/repeat` | Creates a new run with the identical effective config; `?check=true` diffs afterwards; refuses with a reason when the environment cannot satisfy it, unless `force=true` |
+| `POST /runs/{id}/repeat` | Creates a new run with the identical effective config, reusing the original's frozen `ExecutionConfig` and runtime profile rather than re-resolving them; `?force=true` proceeds past a blocker and records the divergence; `?label=` names the new run |
 | `GET /runs/{id}/events` | SSE with `Last-Event-ID` replay |
 | `GET /runs/{id}/tests` · `GET /runs/{id}/tests/{test_id}/samples` | Drill-down; samples are cursor-paginated |
 
@@ -129,10 +140,53 @@ run.failed         test.skipped                          run.interrupted
 |---|---|
 | `GET /results` | Metric-level query: filter by model, suite, metric key, machine, runtime profile, date |
 | `GET /results/compare` | `?subjects=a,b,c&suite=…` — aligned metrics with comparability verdicts and, where a comparison is not permitted, the reason |
-| `GET /results/export` | `?format=json|jsonl|csv&scope=run|model|suite|comparison|all&include_samples=…&include_prompts=…` — streams; SetSpec-wrapped for JSON/JSONL |
+| `GET /results/export` | `?format=json|jsonl|csv&scope=run|model|suite|comparison|all&include_samples=…&include_prompts=…&include_prompt_text=…&since=…&until=…` — streams; JSON/JSONL are wrapped in a `freeweight.export` envelope (§12) |
 
 The compare endpoint never averages across a boundary marked "separate"; it returns the groups and
 the field-level fingerprint diff that separates them.
+
+**A comparison of one model at three or more served contexts carries a `context_sweep`.** Not
+requested — derived: a user who has run the same model at several `context_size` values has already
+produced the measurement, and this is the surface that notices. It differences each run's
+`model_vram_bytes` into a cost function, `weights_bytes + bytes_per_token × context`, with the `r²`
+of the fit beside it so a sweep taken on a busy GPU shows rather than quietly biasing the slope.
+`null` for every other comparison, which is the ordinary case.
+
+This is a **study across runs**, not a benchmark result, and it cannot be either the other way
+round: `size_vram` scales with the context a model was *loaded* at, so a sweep of prompt lengths
+inside one run measures KV fill rather than KV cost, and a benchmark is one run under one profile
+(ADR-0034 §6).
+
+`subjects` accepts **either** a run reference or a model reference. A run subject is guarded by
+`suite`: naming a run of a different suite is refused by name. A *model* subject requires `suite`,
+and resolves to that model's latest completed run of it — naming a model with no `suite` is
+`VALIDATION_ERROR`, because "latest" would otherwise mean something different per subject.
+
+`GET /results/export` refuses a selection wider than **500 runs** rather than truncating one. A
+truncated export that did not say it was truncated would be a lie about what was measured, and the
+document has no pagination because it is a document, not a page. The refusal names the count and
+points at the window.
+
+**`since` and `until` bound the export by run creation time, and the window is half-open** —
+`since, until)`. That is what makes windowing *complete* rather than merely smaller: a run created
+exactly at the boundary belongs to the window that starts there and not to the one that ends there,
+so consecutive windows tile without duplicating a run or dropping one between them. A history
+larger than one document is therefore exported as several that reassemble exactly. Every document
+states the window it covers, so a reader can tell a slice from a whole.
+
+**`include_prompts=true` exports prompt *identity*** — each sample's `prompt_id`,
+`prompt_version`, `prompt_hash` and `rendered_prompt_hash`. That is the right default: a database of
+measurements should not become a second copy of the prompt pack, and [prompt standards
+§4 makes the identity sufficient to re-render —
+*on the machine that has the pack*. A reader elsewhere does not, which is the difference between an
+export that is auditable and one that is merely referential.
+
+**`include_prompt_text=true` closes that gap** with a **prompt appendix**: each distinct rendered
+prompt once, keyed by its `rendered_prompt_hash`, under `payload.prompt_appendix`. Cheap, because
+prompts repeat across thousands of samples. It is built by **re-rendering** from the installed
+suites rather than by reading stored text — prompt text is not stored — so it also *verifies*: a
+prompt offered under a given hash is one whose current text produces that hash. A prompt edited
+since the run simply does not appear, and the reader gets no text rather than the wrong text.
 
 ## 6. Evidence (the LoadCoach integration point)
 
@@ -177,6 +231,16 @@ Models and machines are never removed by a result deletion.
 |---|---|
 | `GET /settings` · `PUT /settings` | Runtime-changeable settings only. Attempts to change a security-relevant setting return 403 `FORBIDDEN` naming the config-only key |
 
+**"Applies to work started from now on" is exact, and narrower than it sounds.** A stored value is
+read when the application builds the sampler and the scheduler, so it is in force from the next
+start. It does **not** re-interval a telemetry sampler that is already running, and it does not
+re-read execution defaults between two runs of a serving process.
+
+That is the safe direction to be wrong in: changing a measurement's conditions while it is being
+measured is worse than a setting that takes effect later. A run's effective configuration is frozen
+at creation and recorded, so a reader can always see which values a given run was measured under —
+including the sampler interval.
+
 ## 9. Authentication
 
 Loopback with no configured tokens: open. Otherwise `Authorization: Bearer <token>` with scopes
@@ -211,3 +275,58 @@ endpoints — including `/evidence` — need only `read`.
    is auditable; "confidence 0.31" is not.
 5. Treat FreeWeight being unreachable as **degraded**: keep the last import, mark it stale, and say so
    in every routing explanation.
+
+## 11. Error codes and HTTP statuses
+
+Every non-2xx response uses the one error envelope from
+API Standards §4 — `{"error": {"code", "message",
+"details", "request_id", "timestamp"}}` — never wrapped in a SetSpec envelope, because an error
+describes one request rather than a document that outlives it
+(ADR-0025).
+
+The codes are listed in [spec §13](spec.md); this is the status each one carries.
+
+| Status | Codes |
+|---|---|
+| 400 | `VALIDATION_ERROR`, `SCHEMA_VERSION_UNSUPPORTED`, `GOAL_INVALID`, `GOAL_PACK_INCOMPATIBLE`, `GOAL_PATH_UNSAFE`, `GOAL_HASH_MISMATCH`, `COMPARISON_REFUSED` |
+| 401 | `UNAUTHENTICATED` |
+| 403 | `FORBIDDEN`, `REMOTE_JUDGE_NOT_PERMITTED` |
+| 404 | `NOT_FOUND`, `MODEL_NOT_FOUND`, `RUN_NOT_FOUND`, `BENCHMARK_NOT_FOUND`, `GOAL_NOT_FOUND`, `COMPARISON_SUBJECT_NOT_FOUND` |
+| 405 | `METHOD_NOT_ALLOWED` |
+| 409 | `CONFLICT`, `RUN_NOT_CANCELLABLE`, `RUN_ALREADY_RUNNING`, `CALIBRATION_REQUIRED`, `CALIBRATION_INSUFFICIENT`, `JUDGE_SELF_JUDGING_REFUSED`, `PROMPT_OVERRIDE_REFUSED` |
+| 413 | `PAYLOAD_TOO_LARGE` |
+| 415 | `UNSUPPORTED_MEDIA_TYPE` |
+| 421 | `MISDIRECTED_REQUEST` |
+| 500 | `CONFIGURATION_ERROR`, `INTERNAL_ERROR` |
+| 502 | `PROVIDER_PROTOCOL_ERROR` |
+| 503 | `DEPENDENCY_UNAVAILABLE`, `PROVIDER_UNAVAILABLE`, `JUDGE_UNAVAILABLE` |
+| 504 | `PROVIDER_TIMEOUT` |
+
+Three of these are worth a client's attention because the obvious reading is wrong:
+
+* **`403 FORBIDDEN` from `PUT /settings`** is not an authentication failure. It means the key is
+  config-only — a security-relevant setting that a running process may not change — and the response
+  names the key. Re-authenticating will not help; editing the configuration file will.
+* **`409 CALIBRATION_INSUFFICIENT` is not the gate.** It means fewer than `min_samples` grades exist,
+  so agreement has never been measured. A goal that *failed* the gate returns `200`.
+* **`503 JUDGE_UNAVAILABLE` is a run-level outcome, not an outage.** No jury could be assembled;
+  rule criteria still scored and the partial result says so.
+
+## 12. Exported document schemas
+
+| Schema | Owner | Emitted by |
+|---|---|---|
+| `benchmark.result`, `benchmark.run_summary` | SetSpec | Embedded in exports and evidence |
+| `capability.evidence`, `benchmark.evidence_bundle` | SetSpec | `GET /evidence`, `GET /evidence/export` |
+| `benchmark.goal_pack`, `benchmark.calibration_report` | SetSpec | `GET /goals/{slug}/export`, `GET /goals/{slug}/calibration/report` |
+| **`freeweight.export`** | **FreeWeight** | `GET /results/export`, `freeweight results export` |
+
+`freeweight.export` is an **application-owned document**, in FreeWeight's own namespace because
+SetSpec does not describe it and must not have to: its shape follows this endpoint's query model
+(`scope`, `include_samples`, `include_prompts`), and no shared schema can carry keyed metric rows or
+raw samples (ADR-0035). It **embeds** a real
+`benchmark.run_summary` per run under `summary`, so the shared contract is exercised rather than
+paraphrased.
+
+It is not a cross-application contract. A consumer integrating with FreeWeight uses the evidence
+bundle (§6, §10), which is versioned for exactly that purpose.

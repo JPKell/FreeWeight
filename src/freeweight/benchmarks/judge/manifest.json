@@ -4,6 +4,7 @@
   "version": "1.0.0",
   "category": "judging",
   "runner": "native",
+  "headline_metric": "judge_quality_score",
   "scorer": "judge_bias",
   "capabilities": [
     "judging"

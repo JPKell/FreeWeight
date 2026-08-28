@@ -1,0 +1,70 @@
+{
+  "prompt_id": "goals.summary_faithfulness.lisbon",
+  "version": "1.0.0",
+  "schema_version": "1.0",
+  "purpose": "A starter summarisation prompt with an annotated source. Replace it with your own sources.",
+  "task": "goal.summary_faithfulness",
+  "capability": "summarization",
+  "system": null,
+  "template": "Summarise the following report in under 120 words, as connected prose.\n\nThe Lisbon distribution centre began using handheld scanners in January 2026. Before the change, a picker walked an average of 14 kilometres per shift; afterwards, 9 kilometres. Picking accuracy rose from 97.1 per cent to 99.4 per cent. Miguel Antunes, the centre's operations lead, attributes most of the accuracy gain to the scanner refusing a scan that does not match the pick list, rather than to the shorter walk. The centre employs 240 people.",
+  "variables": {},
+  "response": {
+    "format": "text",
+    "json_schema_ref": null,
+    "expectations": []
+  },
+  "model_requirements": {
+    "min_context_tokens": 4096,
+    "requires_capabilities": [],
+    "recommended_temperature": 0.2
+  },
+  "metadata": {
+    "author": "freeweight",
+    "created_at": "2026-08-28T00:00:00Z",
+    "changed_at": "2026-08-28T00:00:00Z",
+    "change_reason": "Shipped starter task.",
+    "supersedes": null,
+    "tags": [
+      "goal",
+      "starter"
+    ],
+    "goal_task": {
+      "key": "lisbon_scanners",
+      "name": "Lisbon scanner rollout",
+      "is_starter": true,
+      "source": {
+        "text": "The Lisbon distribution centre began using handheld scanners in January 2026. Before the change, a picker walked an average of 14 kilometres per shift; afterwards, 9 kilometres. Picking accuracy rose from 97.1 per cent to 99.4 per cent. Miguel Antunes, the centre's operations lead, attributes most of the accuracy gain to the scanner refusing a scan that does not match the pick list, rather than to the shorter walk. The centre employs 240 people.",
+        "entities": [
+          "Lisbon",
+          "Miguel Antunes",
+          "January 2026"
+        ],
+        "claims": [
+          {
+            "id": "walking",
+            "text": "Walking fell from 14 km to 9 km per shift.",
+            "any_of": [
+              "14",
+              "9 kilometres"
+            ]
+          },
+          {
+            "id": "accuracy",
+            "text": "Accuracy rose from 97.1 to 99.4 per cent.",
+            "any_of": [
+              "99.4"
+            ]
+          },
+          {
+            "id": "cause",
+            "text": "The lead attributes the gain to the scanner refusing bad scans.",
+            "any_of": [
+              "refus",
+              "reject"
+            ]
+          }
+        ]
+      }
+    }
+  }
+}
