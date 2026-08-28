@@ -118,9 +118,7 @@ class TestTheShippedPack:
     def test_every_record_renders_with_its_documented_variables(self) -> None:
         library = load_pack()
         for record in library.all_records():
-            variables = {
-                name: _example_value(spec.type_name) for name, spec in record.variables.items()
-            }
+            variables = {name: _example_value(spec) for name, spec in record.variables.items()}
             rendered = record.render(variables)
             assert rendered.user
             assert rendered.rendered_sha256.startswith("sha256:")
@@ -128,9 +126,7 @@ class TestTheShippedPack:
     def test_rendering_is_byte_identical_twice(self) -> None:
         library = load_pack()
         record = library.get(library.ids()[0])
-        variables = {
-            name: _example_value(spec.type_name) for name, spec in record.variables.items()
-        }
+        variables = {name: _example_value(spec) for name, spec in record.variables.items()}
         assert record.render(variables) == record.render(variables)
 
     def test_no_prompt_lives_in_python_source(self) -> None:
@@ -142,8 +138,20 @@ class TestTheShippedPack:
             assert "You are a" not in text, f"{module} looks like it embeds a system prompt"
 
 
-def _example_value(type_name: str) -> Any:
-    return {"string": "example", "integer": 1, "number": 1.0, "boolean": True}[type_name]
+def _example_value(spec: Any) -> Any:
+    """One value that satisfies a variable's declaration, bounds included.
+
+    Bound-aware because a record is entitled to declare one: ``goals.judge.rubric`` restricts its
+    ``scale_points`` to 3..7, and a fixture that ignored the declaration would fail a record for
+    being *more* precisely specified than the others.
+    """
+    base = {"string": "example", "integer": 1, "number": 1.0, "boolean": True}[spec.type_name]
+    if spec.type_name in {"integer", "number"}:
+        if spec.minimum is not None:
+            base = max(base, spec.minimum)
+        if spec.maximum is not None:
+            base = min(base, spec.maximum)
+    return base
 
 
 class TestRecordValidation:

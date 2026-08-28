@@ -1,0 +1,47 @@
+{
+  "corpus": "long_context_needles",
+  "normalize": ["case", "whitespace", "punctuation"],
+  "tests": [
+    {
+      "key": "depth_sweep",
+      "name": "Retrieval by context length",
+      "shape": "depth",
+      "context_lengths": [2000, 4000, 8000, 16000, 32000],
+      "position_percent": 50,
+      "measurement_class": "warm",
+      "metric_keys": [
+        "retrieval_accuracy",
+        "effective_context_tokens",
+        "longest_tested_context_tokens"
+      ]
+    },
+    {
+      "key": "position_sweep",
+      "name": "Retrieval by needle position",
+      "shape": "position",
+      "context_lengths": [8000],
+      "positions": [10, 25, 50, 75, 90],
+      "measurement_class": "warm",
+      "metric_keys": ["retrieval_accuracy"]
+    },
+    {
+      "key": "distractor_sweep",
+      "name": "Retrieval under near-miss distractors",
+      "shape": "distractors",
+      "context_lengths": [8000],
+      "position_percent": 50,
+      "distractor_counts": [0, 3, 6],
+      "measurement_class": "warm",
+      "metric_keys": ["distractor_accuracy"]
+    },
+    {
+      "key": "distributed_reasoning",
+      "name": "Two facts, far apart",
+      "shape": "reasoning",
+      "context_lengths": [4000, 8000],
+      "positions": [10, 90],
+      "measurement_class": "warm",
+      "metric_keys": ["distributed_reasoning_accuracy"]
+    }
+  ]
+}

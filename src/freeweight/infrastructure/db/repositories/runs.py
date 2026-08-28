@@ -161,6 +161,10 @@ class BenchmarkRepository:
         dataset_hashes_json: Any,
         license: str | None,  # noqa: A002 — the column and the manifest field are both `license`
         now: datetime,
+        goal_id: str | None = None,
+        goal_hash: str | None = None,
+        prompt_subset_hash: str | None = None,
+        prompt_refs_json: Any = None,
     ) -> BenchmarkSuite:
         """Return the row for ``(key, version)``, installing it on first use.
 
@@ -181,6 +185,12 @@ class BenchmarkRepository:
             dataset_hashes_json: Pinned dataset hashes, JSON-safe.
             license: The suite's licence.
             now: The instant to record as ``installed_at`` on first insert.
+            goal_id: The goal this suite projects, for ``runner = 'goal'``; ``None`` otherwise.
+            goal_hash: That goal's measurement-defining hash, which separates results exactly as
+                a benchmark version does (ADR-0032 §4).
+            prompt_subset_hash: The hash over only the prompts this suite declares — the
+                fingerprint input, never the pack hash (ADR-0028 §1).
+            prompt_refs_json: Those prompts' ``(prompt_id, version, sha256)`` triples.
 
         Returns:
             The stored suite row.
@@ -199,6 +209,10 @@ class BenchmarkRepository:
             dataset_hashes_json=dataset_hashes_json,
             license=license,
             installed_at=now,
+            goal_id=goal_id,
+            goal_hash=goal_hash,
+            prompt_subset_hash=prompt_subset_hash,
+            prompt_refs_json=prompt_refs_json,
         )
         session.add(suite)
         session.flush()

@@ -1,0 +1,125 @@
+{
+  "key": "native.judge",
+  "name": "Judging",
+  "version": "1.0.0",
+  "category": "judging",
+  "runner": "native",
+  "scorer": "judge_bias",
+  "capabilities": [
+    "judging"
+  ],
+  "requires": {
+    "provider_capabilities": [],
+    "sandbox": false,
+    "network": false
+  },
+  "dataset_hashes": {
+    "judge_comparisons": "sha256:dcf8e7e22eae8b8b549f54583375c47b2d47c151bedbec192fa020d96443d1cb"
+  },
+  "prompt_ids": [
+    {
+      "prompt_id": "benchmarks.judge.answer",
+      "version": "1.0.0",
+      "sha256": "sha256:d9ba1bccc515c3f57b0dbf4edd55e05fe77722aa23807dcbc1e488c0d105b8e4"
+    },
+    {
+      "prompt_id": "benchmarks.judge.pairwise",
+      "version": "1.0.0",
+      "sha256": "sha256:b830620853cf4ba6878b6653b0c863743337aa92aab0fd8ba997aed2f7b6820e"
+    }
+  ],
+  "prompt_subset_hash": "sha256:0b7a6bb89c9e7b9fe9fcab83e6db597e4e44e2b19723e092cc2fe740e60c50b0",
+  "target_device": "any",
+  "metrics": [
+    {
+      "key": "pairwise_accuracy",
+      "unit": "ratio",
+      "higher_is_better": true,
+      "aggregation": "mean",
+      "description": "Share of presentations that chose the answer the corpus calls better.",
+      "source": "detail"
+    },
+    {
+      "key": "swap_consistency",
+      "unit": "ratio",
+      "higher_is_better": true,
+      "aggregation": "mean",
+      "description": "Share of pairs whose verdict survived exchanging the two positions.",
+      "source": "detail"
+    },
+    {
+      "key": "position_preference_rate",
+      "unit": "ratio",
+      "higher_is_better": false,
+      "aggregation": "mean",
+      "description": "Among the pairs whose verdict the swap moved, the share where the first position won. A direction, not a magnitude: the magnitude is one minus swap_consistency, and a consistent pair has no direction to report.",
+      "source": "detail"
+    },
+    {
+      "key": "repetition_agreement_rate",
+      "unit": "ratio",
+      "higher_is_better": true,
+      "aggregation": "mean",
+      "description": "Share of repeated presentations that matched the modal verdict.",
+      "source": "detail"
+    },
+    {
+      "key": "verbosity_preference_rate",
+      "unit": "ratio",
+      "higher_is_better": false,
+      "aggregation": "mean",
+      "description": "Share of presentations that preferred the longer, weaker answer.",
+      "source": "detail"
+    },
+    {
+      "key": "style_preference_rate",
+      "unit": "ratio",
+      "higher_is_better": false,
+      "aggregation": "mean",
+      "description": "Share of presentations that preferred one of two answers whose content is identical.",
+      "source": "detail"
+    },
+    {
+      "key": "transitivity_violation_rate",
+      "unit": "ratio",
+      "higher_is_better": false,
+      "aggregation": "mean",
+      "description": "Share of triples where A beat B and B beat C but A did not beat C.",
+      "source": "detail"
+    },
+    {
+      "key": "self_preference_delta",
+      "unit": "ratio",
+      "higher_is_better": false,
+      "aggregation": "mean",
+      "description": "How much more often the judge preferred its own answer once told it was its own.",
+      "source": "detail"
+    },
+    {
+      "key": "self_preference_anonymized",
+      "unit": "ratio",
+      "higher_is_better": false,
+      "aggregation": "mean",
+      "description": "Share of blinded presentations that preferred the judge's own answer.",
+      "source": "detail"
+    },
+    {
+      "key": "self_preference_attributed",
+      "unit": "ratio",
+      "higher_is_better": false,
+      "aggregation": "mean",
+      "description": "Share of attributed presentations that preferred the judge's own answer.",
+      "source": "detail"
+    },
+    {
+      "key": "judge_quality_score",
+      "unit": "ratio",
+      "higher_is_better": true,
+      "aggregation": "mean",
+      "description": "The suite's headline: each case's contribution to 'how good is this model at judging', with every bias entering as one minus its rate.",
+      "source": "score"
+    }
+  ],
+  "license": "project",
+  "description": "Seven tests measuring a model as a judge: pairwise correctness, position bias, repetition stability, verbosity bias, style bias, transitivity and self-preference. Every figure is produced by counting verdicts, never by reading them."
+}

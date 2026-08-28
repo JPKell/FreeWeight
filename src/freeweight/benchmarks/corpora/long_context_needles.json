@@ -1,0 +1,125 @@
+{
+  "corpus_id": "native.long_context.needles",
+  "version": "1.0.0",
+  "description": "A pool of neutral filler sentences, the facts buried in them, per-needle near-miss distractors, and two-fact chains for distributed reasoning. The filler is deliberately dull and free of the tokens the needles carry, so a model cannot answer from the haystack alone; the distractors belong to the needle they surround, because a distractor about a different fact distracts from nothing.",
+  "filler": [
+    "The depot inspection team meets on the first working day of each month.",
+    "Pallets are wrapped before they leave the marshalling area, without exception.",
+    "The night shift hands over to the morning shift in the west office.",
+    "Forklift batteries are rotated through the charging bay in a fixed order.",
+    "Cold storage is inspected by the same contractor who maintains the loading bay doors.",
+    "Deliveries arriving without a manifest are held in the quarantine aisle.",
+    "The site's fire drill is announced by a long tone followed by two short ones.",
+    "Visitors sign in at the gatehouse and are escorted while on the yard.",
+    "Damaged crates are photographed before they are broken down for recycling.",
+    "The stock reconciliation report is circulated after the weekly count.",
+    "Aisle markings are repainted whenever they become difficult to read.",
+    "Radio channels are assigned per team and are not shared between shifts.",
+    "The mezzanine is used for slow-moving lines and seasonal overflow.",
+    "Empty containers are stacked no more than four high against the north wall.",
+    "The maintenance log lives in the workshop and is completed at the end of each task.",
+    "Personal protective equipment is issued at the gatehouse and returned on departure.",
+    "Trailers are chocked before any loading begins.",
+    "The yard is swept at the end of the late shift.",
+    "Temperature readings are taken from the same three points every day.",
+    "Spill kits are positioned at every corner of the main aisle.",
+    "Outbound consignments are checked against the picking sheet twice.",
+    "The label printer in the packing area is reserved for outbound work.",
+    "Returns are logged before they are inspected, never afterwards.",
+    "A supervisor signs off any movement between bonded and general stock.",
+    "The staff canteen closes half an hour before the late shift begins.",
+    "Bicycles are stored in the rack beside the gatehouse and not on the yard.",
+    "Site inductions are repeated for anyone who has been away for a full season.",
+    "The compactor is emptied whenever the indicator reaches the marked line.",
+    "Hand scanners are docked overnight so that they are charged for the morning.",
+    "Pick faces are replenished from the reserve locations directly above them.",
+    "The goods-in office keeps a paper copy of every signed delivery note.",
+    "Any near miss is reported before the end of the shift in which it happened.",
+    "Racking is inspected annually by an external engineer.",
+    "The training room doubles as the muster point briefing area.",
+    "Shrink wrap is ordered in bulk and stored in the consumables cage.",
+    "Broken pallets are separated from serviceable ones at the point of use.",
+    "The site plan on the wall of the west office is the authoritative copy.",
+    "Contractors work to a permit that names the area and the hours.",
+    "Aisle lighting is on a sensor and stays on for a fixed period after movement.",
+    "The dock levellers are tested each week and the test is recorded."
+  ],
+  "needles": [
+    {
+      "id": "vault_code",
+      "fact": "The maintenance vault access code is 4718.",
+      "question": "What is the maintenance vault access code?",
+      "answer": "4718",
+      "distractors": [
+        "The maintenance vault access code was changed at some point last year.",
+        "Access codes are held by the site manager and the maintenance lead.",
+        "The workshop key safe uses a four-digit code that is not the vault's.",
+        "An old notice by the vault still lists a code that no longer works.",
+        "The vault code is not to be written down anywhere on the yard.",
+        "Codes for the consumables cage are issued separately."
+      ]
+    },
+    {
+      "id": "inspector",
+      "fact": "The racking inspector for this site is Delia Marchetti.",
+      "question": "Who is the racking inspector for this site?",
+      "answer": "Delia Marchetti",
+      "distractors": [
+        "A previous racking inspector left the contract when it was retendered.",
+        "Inspection contracts are awarded for a fixed term and then retendered.",
+        "The dock leveller inspector is a different contractor entirely.",
+        "The fire equipment inspector visits twice a year.",
+        "A trainee accompanies the racking inspector on every visit.",
+        "The inspector's report is countersigned by the site manager."
+      ]
+    },
+    {
+      "id": "bay_number",
+      "fact": "Hazardous goods are received at bay 23 and nowhere else.",
+      "question": "At which bay are hazardous goods received?",
+      "answer": "23",
+      "distractors": [
+        "Bay numbering was revised when the extension was built.",
+        "General goods are received at any free bay between 1 and 20.",
+        "Bay 22 is out of service until its leveller is replaced.",
+        "The bay used for returns is decided by the goods-in office each morning.",
+        "Cold-chain deliveries were formerly received at a different bay.",
+        "Bay allocation is posted on the goods-in whiteboard each day."
+      ]
+    },
+    {
+      "id": "callsign",
+      "fact": "The duty supervisor's radio callsign is Kestrel.",
+      "question": "What is the duty supervisor's radio callsign?",
+      "answer": "Kestrel",
+      "distractors": [
+        "Radio callsigns are reviewed whenever the duty rota changes.",
+        "The gatehouse callsign is fixed and does not change with the rota.",
+        "A previous duty supervisor used a different callsign entirely.",
+        "Callsigns are never reused between the yard and the warehouse teams.",
+        "The maintenance lead's callsign is assigned by the workshop.",
+        "Channel assignments are listed beside the radio dock, callsigns are not."
+      ]
+    }
+  ],
+  "reasoning": [
+    {
+      "id": "who_holds_code",
+      "facts": [
+        "The maintenance vault access code is held only by the duty supervisor.",
+        "The duty supervisor on Thursdays is Roland Achebe."
+      ],
+      "question": "Who holds the maintenance vault access code on a Thursday?",
+      "answer": "Roland Achebe"
+    },
+    {
+      "id": "which_bay",
+      "facts": [
+        "Cold-chain consignments are received at the same bay as hazardous goods.",
+        "Hazardous goods are received at bay 23 and nowhere else."
+      ],
+      "question": "At which bay are cold-chain consignments received?",
+      "answer": "23"
+    }
+  ]
+}

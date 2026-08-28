@@ -1,0 +1,33 @@
+{
+  "corpus": "critique_answers",
+  "tests": [
+    {
+      "key": "flawed_answers",
+      "name": "Answers carrying an injected error",
+      "answer_is_correct": false,
+      "measurement_class": "warm",
+      "metric_keys": [
+        "post_correction_accuracy",
+        "original_accuracy",
+        "correction_uplift",
+        "error_detection_recall",
+        "criticism_precision",
+        "valid_correction_rate"
+      ]
+    },
+    {
+      "key": "sound_answers",
+      "name": "Answers that are already right",
+      "answer_is_correct": true,
+      "measurement_class": "warm",
+      "metric_keys": [
+        "post_correction_accuracy",
+        "original_accuracy",
+        "correction_uplift",
+        "regression_rate",
+        "hallucinated_criticism_rate",
+        "criticism_precision"
+      ]
+    }
+  ]
+}

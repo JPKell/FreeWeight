@@ -36,10 +36,12 @@ from baseaicore import UNSUPPORTED, Measurement, is_supported
 
 from freeweight.domain.metrics import (
     AGGREGATE_METRIC_KEYS,
+    DEFAULT_EFFECTIVE_CONTEXT_THRESHOLD,
     SAMPLE_METRICS,
     MeasurementClass,
     MetricResult,
     SampleFacts,
+    effective_context_tokens,
     output_tokens_per_success,
     percentile,
     quality_per_1k_output_tokens,
@@ -224,14 +226,25 @@ def _values_for(
     the key would otherwise silently fall through to the headline score, which is a different
     number wearing this metric's name.
 
+    A metric that **declares** ``source = "detail"`` skips step 3 entirely. Step 3's fallback is
+    only safe for a key no scorer would ever record; a conditional rate whose denominator can be
+    empty for every sample in a test — ``precision`` when a model reported nothing at all — would
+    otherwise become the mean score at precisely the moment its real value mattered most. A metric
+    declaring ``source = "score"`` skips step 2 for the mirror-image reason.
+
     Returns:
         ``(values, excluded)`` — what contributed, and how many samples did not.
     """
-    derive = SAMPLE_METRICS.get(metric.key)
-    from_detail = derive is None and any(
-        _detail_number(facts, metric.key) is not None
-        for facts in samples
-        if facts.status == "completed"
+    declared = metric.source
+    derive = SAMPLE_METRICS.get(metric.key) if declared == "auto" else None
+    from_detail = declared == "detail" or (
+        declared == "auto"
+        and derive is None
+        and any(
+            _detail_number(facts, metric.key) is not None
+            for facts in samples
+            if facts.status == "completed"
+        )
     )
     values: list[float] = []
     excluded = 0
@@ -284,6 +297,8 @@ def _aggregate_only(
     """
     completed = [facts for facts in samples if facts.status == "completed"]
     excluded = len(samples) - len(completed)
+    if metric.key == "effective_context_tokens":
+        return _effective_context(completed, excluded)
     successes = sum(1 for facts in completed if is_success(facts))
     output_total = _total(completed, "output_tokens")
     input_total = _total(completed, "input_tokens")
@@ -299,6 +314,48 @@ def _aggregate_only(
         case _:  # "successes_per_million_output_tokens"
             result = successes_per_million_output_tokens(successes, output_total)
     return result, len(completed), excluded
+
+
+CONTEXT_TOKENS_DETAIL_KEY = "context_tokens"
+"""Where a long-context sample records the context length it was actually run at."""
+
+CONTEXT_THRESHOLD_DETAIL_KEY = "effective_context_threshold"
+"""Where a long-context sample records the threshold its suite was configured with.
+
+Read from the sample rather than from configuration, because the threshold that produced a stored
+number is a property of *that run* — re-reading today's setting would silently redraw the line
+under a result taken last month (benchmark catalog §3.12)."""
+
+
+def _effective_context(
+    completed: Sequence[SampleFacts], excluded: int
+) -> tuple[MetricResult, int, int]:
+    """Compute ``effective_context_tokens`` over one set of completed samples.
+
+    Each contributing sample carries the context length it ran at and its own accuracy; the
+    lengths are averaged into one accuracy per length and handed to
+    :func:`~freeweight.domain.metrics.effective_context_tokens`. A sample that recorded no context
+    length cannot say which length it measured and is excluded rather than assigned one.
+
+    Returns:
+        ``(result, sample_count, excluded_count)``.
+    """
+    accuracies: dict[int, list[float]] = {}
+    threshold = DEFAULT_EFFECTIVE_CONTEXT_THRESHOLD
+    used = 0
+    skipped = excluded
+    for facts in completed:
+        length = facts.detail.get(CONTEXT_TOKENS_DETAIL_KEY)
+        if isinstance(length, bool) or not isinstance(length, int) or not is_supported(facts.score):
+            skipped += 1
+            continue
+        declared = facts.detail.get(CONTEXT_THRESHOLD_DETAIL_KEY)
+        if isinstance(declared, int | float) and not isinstance(declared, bool):
+            threshold = float(declared)
+        accuracies.setdefault(length, []).append(float(facts.score))
+        used += 1
+    mean_by_length = {length: sum(values) / len(values) for length, values in accuracies.items()}
+    return effective_context_tokens(mean_by_length, threshold_fraction=threshold), used, skipped
 
 
 def _total(samples: Sequence[SampleFacts], field_name: str) -> Measurement:

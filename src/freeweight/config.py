@@ -37,8 +37,11 @@ __all__ = [
     "ENV_PREFIX",
     "LOOPBACK_HOSTS",
     "AuthSettings",
+    "CalibrationSettings",
     "ConfigurationError",
+    "GoalSettings",
     "InsecureBindingError",
+    "JudgeSettings",
     "LoadedSettings",
     "LoggingSettings",
     "ProviderSettings",
@@ -49,6 +52,7 @@ __all__ = [
     "TelemetrySettings",
     "config_dir",
     "data_dir",
+    "prompt_override_dir",
     "load_settings",
     "resolve_config_path",
     "state_dir",
@@ -202,6 +206,98 @@ class ExecutionSettings(BaseModel):
     store_responses: bool = False
 
 
+class GoalSettings(BaseModel):
+    """Where user-authored goal packs live, and the bounds on what one may contain (spec §12).
+
+    ``root`` is deliberately under the *config* directory rather than the data directory: a goal
+    pack is hand-editable, git-trackable JSON the user owns
+    ([ADR-0031 §6](../../docs/adr/0031-user-defined-goal-benchmarks.md)), not application state.
+
+    ``max_pack_bytes`` and ``rule_timeout_ms`` are the two bounds spec §14 names on user-authored
+    content: an import is size-capped before a byte is written, and a criterion's rule runs under
+    a timeout so a catastrophic pattern fails the criterion rather than the process.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    root: str | None = None
+    max_pack_bytes: int = Field(default=5_242_880, gt=0)
+    rule_timeout_ms: int = Field(default=250, gt=0)
+
+    @model_validator(mode="after")
+    def _apply_config_dir_default(self) -> GoalSettings:
+        """Resolve ``root`` against the XDG config directory when it is not set."""
+        if self.root is None:
+            self.root = str(config_dir() / "goals")
+        return self
+
+    @property
+    def root_path(self) -> Path:
+        """``root`` as a path, expanded."""
+        return Path(self.root or (config_dir() / "goals")).expanduser()
+
+
+class JudgeSettings(BaseModel):
+    """The default jury a goal's judged criteria are scored by (spec §12).
+
+    Every field here is a *default*; a goal pack's own ``judge`` block overrides it, and the
+    resolved configuration is a ``goal_hash`` input because a different jury is a different
+    instrument (ADR-0032 §4).
+
+    ``allow_remote`` is only half the remote opt-in: ``providers.allow_remote`` is the other half
+    and both are required (ADR-0031 §4). Neither can be satisfied by accident.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    jury_size: int = Field(default=3, ge=1)
+    models: tuple[str, ...] = ()
+    repetitions: int = Field(default=3, ge=1)
+    randomize_order: bool = True
+    blind_candidate_identity: bool = True
+    refuse_self_judging: bool = True
+    allow_remote: bool = False
+    temperature: float = Field(default=0.0, ge=0.0, le=2.0)
+
+    _split_models = field_validator("models", mode="before")(_split_csv)
+
+
+class CalibrationSettings(BaseModel):
+    """How judged criteria are calibrated against the author's grades (spec §12).
+
+    ``n_holdout_target`` is the shrinkage denominator of
+    [ADR-0032 §2](../../docs/adr/0032-judge-validity-and-user-capability-namespace.md): six
+    holdout samples at ``kappa_w`` 0.71 yield a validity factor of 0.55, not 0.71. It is
+    configuration and it is recorded on every calibration report with the policy version, exactly
+    as ADR-0017's own parameters are.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    target_samples: int = Field(default=12, ge=1)
+    min_samples: int = Field(default=8, ge=1)
+    holdout_fraction: float = Field(default=0.4, gt=0.0, lt=1.0)
+    partition_seed: int = 0
+    min_agreement: float = Field(default=0.40, ge=-1.0, le=1.0)
+    n_holdout_target: int = Field(default=10, ge=1)
+
+    @model_validator(mode="after")
+    def _check_sample_counts(self) -> CalibrationSettings:
+        """Refuse a minimum above the target.
+
+        Raises:
+            ValueError: ``min_samples`` exceeds ``target_samples``. The target is what the wizard
+                asks for and the minimum is what it will accept; a minimum above it would refuse
+                every set the wizard collected.
+        """
+        if self.min_samples > self.target_samples:
+            raise ValueError(
+                f"calibration.min_samples ({self.min_samples}) is above "
+                f"calibration.target_samples ({self.target_samples})."
+            )
+        return self
+
+
 class AuthSettings(BaseModel):
     """Bearer tokens. Empty is the loopback-default, unauthenticated posture (ADR-0014)."""
 
@@ -238,6 +334,9 @@ class Settings(BaseModel):
     providers: ProvidersSettings = Field(default_factory=ProvidersSettings)
     telemetry: TelemetrySettings = Field(default_factory=TelemetrySettings)
     execution: ExecutionSettings = Field(default_factory=ExecutionSettings)
+    goals: GoalSettings = Field(default_factory=GoalSettings)
+    judge: JudgeSettings = Field(default_factory=JudgeSettings)
+    calibration: CalibrationSettings = Field(default_factory=CalibrationSettings)
     auth: AuthSettings = Field(default_factory=AuthSettings)
     logging: LoggingSettings = Field(default_factory=LoggingSettings)
 
@@ -257,6 +356,17 @@ def config_dir() -> Path:
     base = os.environ.get("XDG_CONFIG_HOME")
     root = Path(base).expanduser() if base else Path.home() / ".config"
     return root / "freeweight"
+
+
+def prompt_override_dir() -> Path:
+    """Return ``$XDG_CONFIG_HOME/freeweight/prompts``, the user's prompt override directory.
+
+    Prompt standards §6's one override location. It is a *derived* path rather than a
+    configuration key on purpose: an override already invalidates comparison with results produced
+    by the shipped prompt, and making its location configurable would add a second thing a reader
+    of a result has to know before they can tell which prompt produced it.
+    """
+    return config_dir() / "prompts"
 
 
 def data_dir() -> Path:
@@ -500,6 +610,29 @@ allow_remote = false
 interval_ms = 1000
 persist_during_runs = true
 calibrate_overhead = true
+
+[goals]
+# root defaults to <config>/goals: hand-editable, git-trackable goal packs (ADR-0031 §6).
+max_pack_bytes = 5242880    # import size cap, enforced before a byte is written
+rule_timeout_ms = 250       # per criterion, per sample
+
+[judge]
+jury_size = 3               # distinct local models; 1 disables the jury and says so in the result
+models = []                 # empty = auto-select from installed models
+repetitions = 3
+randomize_order = true
+blind_candidate_identity = true
+refuse_self_judging = true  # a juror never judges its own output
+allow_remote = false        # requires providers.allow_remote as well
+temperature = 0.0
+
+[calibration]
+target_samples = 12
+min_samples = 8             # below this: CALIBRATION_INSUFFICIENT, not a failed gate
+holdout_fraction = 0.4
+partition_seed = 0
+min_agreement = 0.40        # weighted kappa_w below this emits no evidence at all
+n_holdout_target = 10       # shrinkage denominator for judge_validity_factor (ADR-0032 §2)
 
 [auth]
 tokens = []                 # required for a non-loopback bind

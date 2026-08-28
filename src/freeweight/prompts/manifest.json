@@ -10,9 +10,34 @@
       "sha256": "sha256:150e3096d6401bdf229d21cc175134102ebffcdddaf266d3f1d006f51589afee"
     },
     {
+      "prompt_id": "benchmarks.audit.detect_defects",
+      "version": "1.0.0",
+      "sha256": "sha256:b88680f9ba304bcbaecc185ee72f0c6dae512b3b38eefa6ab8cbd3ab2c2d7602"
+    },
+    {
+      "prompt_id": "benchmarks.critique.review",
+      "version": "1.0.0",
+      "sha256": "sha256:f8cee9d21d3076f143ee84afeb0023313b02e5acaaba4001ffd299e73cc5dd61"
+    },
+    {
       "prompt_id": "benchmarks.instruction_following.constrained",
       "version": "1.0.0",
       "sha256": "sha256:9432aced57043c1f8bff0139177f9739f8e38c3b9df11c4121c5722ad477d8a9"
+    },
+    {
+      "prompt_id": "benchmarks.judge.answer",
+      "version": "1.0.0",
+      "sha256": "sha256:d9ba1bccc515c3f57b0dbf4edd55e05fe77722aa23807dcbc1e488c0d105b8e4"
+    },
+    {
+      "prompt_id": "benchmarks.judge.pairwise",
+      "version": "1.0.0",
+      "sha256": "sha256:b830620853cf4ba6878b6653b0c863743337aa92aab0fd8ba997aed2f7b6820e"
+    },
+    {
+      "prompt_id": "benchmarks.long_context.retrieve",
+      "version": "1.0.0",
+      "sha256": "sha256:f97a5bc119ee53ced1a26ef2e27d584e81c618d75a62343ffef7d9625aa13c47"
     },
     {
       "prompt_id": "benchmarks.performance.probe",
@@ -43,7 +68,17 @@
       "prompt_id": "benchmarks.tool_use.task",
       "version": "1.0.0",
       "sha256": "sha256:dd3c4723e0506d7de8dbfc0639be5499eb027dfda106a4575513efb9acd050c0"
+    },
+    {
+      "prompt_id": "goals.judge.pairwise",
+      "version": "1.0.0",
+      "sha256": "sha256:3768a5bf7ca4587dd053992a534fa6683c7934f9e5275beb3257d9d1a1cba135"
+    },
+    {
+      "prompt_id": "goals.judge.rubric",
+      "version": "1.0.0",
+      "sha256": "sha256:8aeb2f27038e46c3e04aadb14e373b382231ce5f7a199770b96180463a4d86e3"
     }
   ],
-  "pack_sha256": "sha256:941aa3280c3855c8c5e2be326a8a8d4bdb7d93fe00b3e4df109c6e9efcff8ead"
+  "pack_sha256": "sha256:3afc6733aa783d7b70e71bc62c62cb1ba450856d7af9e6b99cf2293048725b4d"
 }

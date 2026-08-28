@@ -1,0 +1,56 @@
+{
+  "prompt_id": "goals.judge.pairwise",
+  "version": "1.0.0",
+  "schema_version": "1.0",
+  "purpose": "Ask one juror to compare a candidate answer against one of the author's reference answers on a single criterion, for a criterion declared in pairwise mode.",
+  "task": "goal.judge",
+  "capability": "reasoning",
+  "system": "You are comparing two answers against somebody else's rubric, not against your taste. Judge only which answer better satisfies the criterion; do not rewrite either. Answer with JSON and nothing else.",
+  "template": "TASK THE WRITERS WERE GIVEN\n{{ task }}\n\nCRITERION: {{ criterion_name }}\n{{ criterion_intent }}\n\n{{ answers }}\n\nWhich answer better satisfies the criterion? Answer as JSON in exactly this shape:\n{\"choice\": \"A\" or \"B\" or \"tie\", \"reason\": \"<one sentence>\"}",
+  "variables": {
+    "task": {
+      "type": "string",
+      "required": true,
+      "description": "The task both answers respond to."
+    },
+    "criterion_name": {
+      "type": "string",
+      "required": true,
+      "description": "The criterion's display name."
+    },
+    "criterion_intent": {
+      "type": "string",
+      "required": false,
+      "default": "",
+      "description": "The author's own note about what the criterion means."
+    },
+    "answers": {
+      "type": "string",
+      "required": true,
+      "description": "The labelled answer block, built by the harness so that a swapped presentation differs from its original in order alone."
+    }
+  },
+  "response": {
+    "format": "json",
+    "json_schema_ref": null,
+    "expectations": [
+      "A single JSON object carrying 'choice' as 'A', 'B' or 'tie'."
+    ]
+  },
+  "model_requirements": {
+    "min_context_tokens": 8192,
+    "requires_capabilities": [],
+    "recommended_temperature": 0.0
+  },
+  "metadata": {
+    "author": "suite",
+    "created_at": "2026-08-27T00:00:00Z",
+    "changed_at": "2026-08-27T00:00:00Z",
+    "change_reason": "First version: pairwise mode is the better choice when the author has exemplars but no vocabulary for why they are good (Subjective Goals §3.4), and it reuses native.judge's own bias controls.",
+    "supersedes": null,
+    "tags": [
+      "goal",
+      "judge"
+    ]
+  }
+}

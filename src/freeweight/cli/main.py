@@ -14,6 +14,8 @@ import typer
 
 from freeweight.cli.commands import config as config_commands
 from freeweight.cli.commands import db as db_commands
+from freeweight.cli.commands import goals as goals_commands
+from freeweight.cli.commands import judges as judges_commands
 from freeweight.cli.commands import models as models_commands
 from freeweight.cli.commands import prompts as prompts_commands
 from freeweight.cli.commands import runs as runs_commands
@@ -62,5 +64,11 @@ app.command(name="doctor", help="Diagnose a broken installation.")(system_comman
 app.add_typer(config_commands.app, name="config", help="Configuration inspection and management.")
 app.add_typer(db_commands.app, name="db", help="Database migration and maintenance.")
 app.add_typer(models_commands.app, name="models", help="Model discovery and inspection.")
+app.add_typer(
+    goals_commands.app, name="goals", help="Author, inspect and move user-authored goals."
+)
+app.add_typer(
+    judges_commands.app, name="judges", help="Inspect judge eligibility and dry-run a jury."
+)
 app.add_typer(runs_commands.app, name="run", help="Start, inspect and cancel benchmark runs.")
 app.add_typer(prompts_commands.app, name="prompts", help="Inspect and rebuild the prompt pack.")

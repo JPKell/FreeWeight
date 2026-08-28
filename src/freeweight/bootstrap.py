@@ -19,8 +19,9 @@ from fastapi import FastAPI
 from freeweight.config import LoadedSettings, load_settings
 from freeweight.observability.logging import configure_logging
 from freeweight.services.database import Database, ensure_ready
+from freeweight.services.goals import load_goals
 from freeweight.services.machine import profile_machine
-from freeweight.services.runs import shipped_prompt_library
+from freeweight.services.runs import active_prompt_library
 from freeweight.services.telemetry import build_collector
 from freeweight.web.app import create_app
 
@@ -60,7 +61,10 @@ def bootstrap() -> Application:
         ConfigurationError: Configuration is invalid, or an unsafe bind/auth combination is
             configured.
         PromptPackInvalid: A prompt record is malformed, or the pack manifest does not describe
-            the records on disk.
+            the records on disk. An override the user installed counts: they asked for it.
+        GoalPackInvalid: A goal pack under ``goals.root`` is malformed, or its lint reports an
+            error. A goal is a benchmark, and a benchmark whose definition is wrong must not be
+            runnable at all.
         MigrationRequired: The database is behind head and ``storage.auto_migrate`` is false.
         SchemaAhead: The database was written by a newer application version.
         DatabaseUnavailable: The configured database could not be reached at all.
@@ -72,7 +76,10 @@ def bootstrap() -> Application:
     # Before the database, deliberately: a build whose prompts do not validate cannot produce a
     # correct measurement, and finding that out after migrating a database is worse than finding
     # it out first. Cached, so nothing loads the pack a second time.
-    shipped_prompt_library()
+    active_prompt_library()
+    # And the user's goal packs, for the same reason and with the same consequence: a
+    # malformed pack is a startup failure, not a mid-run surprise (ADR-0031 §6, Phase 8A).
+    goals = load_goals(loaded.settings.goals.root_path)
     database_url = loaded.settings.storage.database_url
     if database_url is not None:
         # Always true by the time Settings has validated (StorageSettings fills it in), but the
@@ -95,7 +102,7 @@ def bootstrap() -> Application:
             # short-lived collector: the long-lived one the telemetry bar samples from belongs to
             # the web lifespan, for the same reason the database handle above does.
             profile_machine(database, build_collector())
-    return Application(loaded_settings=loaded, app=create_app(loaded.settings))
+    return Application(loaded_settings=loaded, app=create_app(loaded.settings, goals=goals))
 
 
 def create_app_from_environment() -> FastAPI:

@@ -8,7 +8,7 @@ app without touching environment variables or the filesystem. The zero-argument
 
 from __future__ import annotations
 
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Sequence
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -20,7 +20,8 @@ from freeweight.__about__ import __version__
 from freeweight.config import LOOPBACK_HOSTS, Settings
 from freeweight.infrastructure.providers.factory import build_provider
 from freeweight.services.database import Database
-from freeweight.services.runs import build_registry
+from freeweight.services.goals import LoadedGoal
+from freeweight.services.runs import build_registry, build_registry_for
 from freeweight.services.scheduler import RunScheduler
 from freeweight.services.telemetry import TelemetryService, build_collector
 from freeweight.web.errors import register_exception_handlers
@@ -30,6 +31,8 @@ from freeweight.web.middleware import (
     RequestIdMiddleware,
 )
 from freeweight.web.rendering import render
+from freeweight.web.routes import calibration as calibration_routes
+from freeweight.web.routes import goals as goals_routes
 from freeweight.web.routes import machines as machines_routes
 from freeweight.web.routes import models as models_routes
 from freeweight.web.routes import runs as runs_routes
@@ -96,7 +99,10 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
         build_collector(), interval_seconds=settings.telemetry.interval_ms / 1000
     )
     app.state.telemetry = telemetry
-    app.state.registry = build_registry()
+    # Rebuilt here, not reused from ``create_app``: this is the first point in the lifecycle
+    # that may touch the filesystem, and the user's goal packs live there. A goal installed
+    # after the process started still needs a restart; a goal installed before it does not.
+    app.state.registry = build_registry_for(settings)
     scheduler = RunScheduler(
         database,
         app.state.provider,
@@ -106,6 +112,9 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
         # for ``nvidia-smi``.
         collector=telemetry.collector,
         telemetry=settings.telemetry,
+        # The whole configuration, because a goal run with judged criteria assembles a jury from
+        # ``[judge]``, ``[calibration]`` and ``providers.allow_remote``.
+        settings=settings,
     )
     app.state.scheduler = scheduler
     # Both background threads are started *inside* the try, so that a failure in the second one
@@ -126,16 +135,22 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
         app.state.scheduler = None
 
 
-def create_app(settings: Settings) -> FastAPI:
+def create_app(settings: Settings, *, goals: Sequence[LoadedGoal] = ()) -> FastAPI:
     """Build the FastAPI application for the given settings.
 
     Registers, from outermost to innermost: the request-ID middleware, Host-header validation,
     the request body size limit, the standard error envelope handlers, the ``/api/v1`` system and
     run routes, static assets, and the HTML pages (the shell, machines, models and runs).
 
-    Still a pure function of ``Settings`` — it opens nothing. The database handle is created by
+    Still a pure function of its arguments — it opens nothing. The database handle is created by
     the lifespan, which runs only when the application is actually served (or when a test enters
-    ``TestClient`` as a context manager).
+    ``TestClient`` as a context manager); the user's goal packs are read by
+    :func:`freeweight.bootstrap.bootstrap` and handed in, for the same reason.
+
+    Args:
+        settings: The resolved configuration.
+        goals: The user's goal packs, already loaded and validated. Empty is a normal state and is
+            what a test that builds an app directly gets.
     """
     app = FastAPI(
         title="FreeWeight",
@@ -153,7 +168,8 @@ def create_app(settings: Settings) -> FastAPI:
     # built here rather than in the lifespan: a route that renders the list of runnable suites
     # then works in a test that never entered the lifespan. The lifespan rebuilds it so that the
     # scheduler and the routes share one instance.
-    app.state.registry = build_registry()
+    app.state.goals = tuple(goals)
+    app.state.registry = build_registry(goals=goals, rule_timeout_ms=settings.goals.rule_timeout_ms)
 
     app.add_middleware(RequestIdMiddleware)
     app.add_middleware(HostValidationMiddleware, allowed_hosts=_resolve_allowed_hosts(settings))
@@ -163,6 +179,8 @@ def create_app(settings: Settings) -> FastAPI:
 
     app.include_router(system_routes.router, prefix="/api/v1")
     app.include_router(runs_routes.api_router, prefix="/api/v1")
+    app.include_router(goals_routes.api_router, prefix="/api/v1")
+    app.include_router(calibration_routes.api_router, prefix="/api/v1")
     app.include_router(machines_routes.router)
     app.include_router(models_routes.router)
     app.include_router(runs_routes.router)

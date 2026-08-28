@@ -134,6 +134,17 @@ def start(  # noqa: PLR0913 — every parameter is a documented run option, not 
             help="Queue the run and exit instead of executing it in this process.",
         ),
     ] = False,
+    allow_prompt_override: Annotated[
+        bool,
+        typer.Option(
+            "--allow-prompt-override/--no-allow-prompt-override",
+            help=(
+                "Proceed when this suite renders a prompt your override directory replaces. "
+                "The override is recorded in the run's reproducibility fingerprint, which "
+                "separates its results from runs of the shipped prompt."
+            ),
+        ),
+    ] = False,
     config: _ConfigOption = None,
     json_output: _JsonOption = False,
 ) -> None:
@@ -153,11 +164,11 @@ def start(  # noqa: PLR0913 — every parameter is a documented run option, not 
     """
     from baseaicore import SuiteError
 
-    from freeweight.services.runs import ExecutionConfig, build_registry, create_run
+    from freeweight.services.runs import ExecutionConfig, build_registry_for, create_run
     from freeweight.services.scheduler import RunScheduler
 
     with _open_backend(config) as (settings, database, provider):
-        registry = build_registry()
+        registry = build_registry_for(settings)
         # One collector for the whole command: the run is created against the machine it profiles
         # and executed with telemetry sampled from the same instrument.
         collector = _collector()
@@ -173,6 +184,7 @@ def start(  # noqa: PLR0913 — every parameter is a documented run option, not 
                     settings.execution, measured_repetitions=repetitions
                 ),
                 label=label,
+                allow_prompt_override=allow_prompt_override,
             )
         except SuiteError as exc:
             typer.echo(f"Error: {exc.message} ({exc.code})", err=True)
@@ -195,6 +207,7 @@ def start(  # noqa: PLR0913 — every parameter is a documented run option, not 
             registry=registry,
             collector=collector,
             telemetry=settings.telemetry,
+            settings=settings,
         )
         try:
             while True:
@@ -393,11 +406,11 @@ def repeat(  # noqa: PLR0913 — every parameter is a documented option, not inc
     from baseaicore import SuiteError
 
     from freeweight.domain.provenance import diff_documents
-    from freeweight.services.runs import build_registry, get_run, repeat_run
+    from freeweight.services.runs import build_registry_for, get_run, repeat_run
     from freeweight.services.scheduler import RunScheduler
 
     with _open_backend(config) as (settings, database, provider):
-        registry = build_registry()
+        registry = build_registry_for(settings)
         collector = _collector()
         try:
             original = get_run(database, run_id).run
@@ -436,6 +449,7 @@ def repeat(  # noqa: PLR0913 — every parameter is a documented option, not inc
             registry=registry,
             collector=collector,
             telemetry=settings.telemetry,
+            settings=settings,
         )
         try:
             while True:

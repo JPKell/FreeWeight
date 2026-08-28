@@ -1,0 +1,144 @@
+{
+  "corpus_id": "native.critique.known_correctness",
+  "version": "1.0.0",
+  "description": "Question, candidate response and known correctness. Half the candidates are right and half carry one recorded error, so error-detection recall and the hallucinated-criticism rate are measured on the halves where each has a meaning -- and so a critic that flags everything is visible as one that broke the answers it was given.",
+  "normalize": [
+    "case",
+    "whitespace",
+    "punctuation"
+  ],
+  "entries": [
+    {
+      "id": "arith_percent",
+      "question": "A jacket costs 80 pounds and is reduced by 15 per cent. What is the sale price, in pounds?",
+      "candidate_answer": "68",
+      "gold_answers": [
+        "68",
+        "68.00",
+        "68 pounds"
+      ],
+      "answer_is_correct": true,
+      "injected_error": null
+    },
+    {
+      "id": "arith_percent_wrong",
+      "question": "A jacket costs 80 pounds and is reduced by 15 per cent. What is the sale price, in pounds?",
+      "candidate_answer": "65",
+      "gold_answers": [
+        "68",
+        "68.00",
+        "68 pounds"
+      ],
+      "answer_is_correct": false,
+      "injected_error": "Subtracted 15 rather than 15 per cent."
+    },
+    {
+      "id": "units_speed",
+      "question": "A train covers 180 kilometres in 90 minutes. What is its average speed in kilometres per hour?",
+      "candidate_answer": "120",
+      "gold_answers": [
+        "120",
+        "120 km/h",
+        "120 kph"
+      ],
+      "answer_is_correct": true,
+      "injected_error": null
+    },
+    {
+      "id": "units_speed_wrong",
+      "question": "A train covers 180 kilometres in 90 minutes. What is its average speed in kilometres per hour?",
+      "candidate_answer": "2",
+      "gold_answers": [
+        "120",
+        "120 km/h",
+        "120 kph"
+      ],
+      "answer_is_correct": false,
+      "injected_error": "Answered in kilometres per minute and did not convert."
+    },
+    {
+      "id": "logic_syllogism",
+      "question": "Every auditor on the team is also a developer. Priya is an auditor on the team. Is Priya a developer? Answer yes or no.",
+      "candidate_answer": "yes",
+      "gold_answers": [
+        "yes"
+      ],
+      "answer_is_correct": true,
+      "injected_error": null
+    },
+    {
+      "id": "logic_converse_error",
+      "question": "Every auditor on the team is also a developer. Sam is a developer on the team. Is Sam necessarily an auditor? Answer yes or no.",
+      "candidate_answer": "yes",
+      "gold_answers": [
+        "no"
+      ],
+      "answer_is_correct": false,
+      "injected_error": "Affirmed the converse of the stated implication."
+    },
+    {
+      "id": "counting_letters",
+      "question": "How many times does the letter 'a' appear in the word 'catamaran'? Answer with a number.",
+      "candidate_answer": "4",
+      "gold_answers": [
+        "4",
+        "four"
+      ],
+      "answer_is_correct": true,
+      "injected_error": null
+    },
+    {
+      "id": "counting_letters_wrong",
+      "question": "How many times does the letter 'a' appear in the word 'catamaran'? Answer with a number.",
+      "candidate_answer": "3",
+      "gold_answers": [
+        "4",
+        "four"
+      ],
+      "answer_is_correct": false,
+      "injected_error": "Missed the final occurrence."
+    },
+    {
+      "id": "ordering_dates",
+      "question": "Which is earlier, 3 March 2021 or 12 February 2021? Answer with the date.",
+      "candidate_answer": "12 February 2021",
+      "gold_answers": [
+        "12 February 2021",
+        "12 february 2021"
+      ],
+      "answer_is_correct": true,
+      "injected_error": null
+    },
+    {
+      "id": "ordering_dates_wrong",
+      "question": "Which is earlier, 3 March 2021 or 12 February 2021? Answer with the date.",
+      "candidate_answer": "3 March 2021",
+      "gold_answers": [
+        "12 February 2021",
+        "12 february 2021"
+      ],
+      "answer_is_correct": false,
+      "injected_error": "Compared the day numbers rather than the months."
+    },
+    {
+      "id": "algebra_solve",
+      "question": "Solve for x: 4x + 6 = 26. Answer with the number only.",
+      "candidate_answer": "5",
+      "gold_answers": [
+        "5"
+      ],
+      "answer_is_correct": true,
+      "injected_error": null
+    },
+    {
+      "id": "algebra_solve_wrong",
+      "question": "Solve for x: 4x + 6 = 26. Answer with the number only.",
+      "candidate_answer": "8",
+      "gold_answers": [
+        "5"
+      ],
+      "answer_is_correct": false,
+      "injected_error": "Divided before subtracting the constant."
+    }
+  ]
+}

@@ -1,0 +1,160 @@
+{
+  "corpus_id": "native.audit.mutations",
+  "version": "1.0.0",
+  "description": "Known-correct, unit-testable Python functions, each shipped twice: once as written and once with exactly one mutation whose line, class, severity and enclosing function are recorded. The clean half is not filler -- a corpus of nothing but defects would score a model that flags every line as perfect.",
+  "categories": [
+    "missing_return",
+    "off_by_one",
+    "removed_guard",
+    "removed_resource_cleanup",
+    "swapped_arguments",
+    "wrong_boolean_operator",
+    "wrong_comparison_operator",
+    "wrong_loop_boundary"
+  ],
+  "severities": [
+    "low",
+    "medium",
+    "high"
+  ],
+  "mutated": [
+    {
+      "id": "last_n_off_by_one",
+      "path": "pkg/sequences.py",
+      "language": "python",
+      "code": "def last_n(values, n):\n    \"\"\"Return the final n values, in order.\"\"\"\n    if n <= 0:\n        return []\n    start = len(values) - n - 1\n    return values[start:]\n",
+      "defects": [
+        {
+          "line": 5,
+          "category": "off_by_one",
+          "severity": "medium",
+          "function": "last_n"
+        }
+      ]
+    },
+    {
+      "id": "is_valid_wrong_boolean",
+      "path": "pkg/auth.py",
+      "language": "python",
+      "code": "def is_valid(user):\n    \"\"\"Whether the user may sign in: active accounts that are not locked.\"\"\"\n    return user.is_active or not user.is_locked\n",
+      "defects": [
+        {
+          "line": 3,
+          "category": "wrong_boolean_operator",
+          "severity": "high",
+          "function": "is_valid"
+        }
+      ]
+    },
+    {
+      "id": "total_price_missing_return",
+      "path": "pkg/pricing.py",
+      "language": "python",
+      "code": "def total_price(items, tax_rate):\n    \"\"\"Return the taxed total for a basket of items.\"\"\"\n    subtotal = 0.0\n    for item in items:\n        subtotal += item.price * item.quantity\n    subtotal * (1.0 + tax_rate)\n",
+      "defects": [
+        {
+          "line": 6,
+          "category": "missing_return",
+          "severity": "high",
+          "function": "total_price"
+        }
+      ]
+    },
+    {
+      "id": "average_removed_guard",
+      "path": "pkg/statistics.py",
+      "language": "python",
+      "code": "def average(values):\n    \"\"\"Return the arithmetic mean of values, or 0.0 when there are none.\"\"\"\n    return sum(values) / len(values)\n",
+      "defects": [
+        {
+          "line": 3,
+          "category": "removed_guard",
+          "severity": "high",
+          "function": "average"
+        }
+      ]
+    },
+    {
+      "id": "clamp_swapped_arguments",
+      "path": "pkg/ranges.py",
+      "language": "python",
+      "code": "def clamp(value, low, high):\n    \"\"\"Clamp value into the inclusive range [low, high].\"\"\"\n    return max(high, min(low, value))\n",
+      "defects": [
+        {
+          "line": 3,
+          "category": "swapped_arguments",
+          "severity": "high",
+          "function": "clamp"
+        }
+      ]
+    },
+    {
+      "id": "take_while_under_wrong_comparison",
+      "path": "pkg/sequences.py",
+      "language": "python",
+      "code": "def take_while_under(values, limit):\n    \"\"\"Return the leading values that are strictly below limit.\"\"\"\n    taken = []\n    for value in values:\n        if value <= limit:\n            taken.append(value)\n        else:\n            break\n    return taken\n",
+      "defects": [
+        {
+          "line": 5,
+          "category": "wrong_comparison_operator",
+          "severity": "medium",
+          "function": "take_while_under"
+        }
+      ]
+    },
+    {
+      "id": "read_first_line_no_cleanup",
+      "path": "pkg/files.py",
+      "language": "python",
+      "code": "def read_first_line(path):\n    \"\"\"Return the first line of the text file at path.\"\"\"\n    handle = open(path, encoding=\"utf-8\")\n    line = handle.readline()\n    return line\n",
+      "defects": [
+        {
+          "line": 3,
+          "category": "removed_resource_cleanup",
+          "severity": "medium",
+          "function": "read_first_line"
+        }
+      ]
+    },
+    {
+      "id": "pairwise_sums_wrong_boundary",
+      "path": "pkg/sequences.py",
+      "language": "python",
+      "code": "def pairwise_sums(values):\n    \"\"\"Return the sum of each adjacent pair of values.\"\"\"\n    sums = []\n    for index in range(len(values)):\n        sums.append(values[index] + values[index + 1])\n    return sums\n",
+      "defects": [
+        {
+          "line": 4,
+          "category": "wrong_loop_boundary",
+          "severity": "high",
+          "function": "pairwise_sums"
+        }
+      ]
+    }
+  ],
+  "clean": [
+    {
+      "id": "last_n_clean",
+      "path": "pkg/sequences.py",
+      "language": "python",
+      "code": "def last_n(values, n):\n    \"\"\"Return the final n values, in order.\"\"\"\n    if n <= 0:\n        return []\n    start = max(0, len(values) - n)\n    return values[start:]\n"
+    },
+    {
+      "id": "is_valid_clean",
+      "path": "pkg/auth.py",
+      "language": "python",
+      "code": "def is_valid(user):\n    \"\"\"Whether the user may sign in: active accounts that are not locked.\"\"\"\n    return user.is_active and not user.is_locked\n"
+    },
+    {
+      "id": "normalize_whitespace_clean",
+      "path": "pkg/text.py",
+      "language": "python",
+      "code": "def normalize_whitespace(text):\n    \"\"\"Collapse every run of whitespace in text into a single space.\"\"\"\n    return \" \".join(text.split())\n"
+    },
+    {
+      "id": "chunked_clean",
+      "path": "pkg/sequences.py",
+      "language": "python",
+      "code": "def chunked(values, size):\n    \"\"\"Split values into consecutive chunks of at most size items.\"\"\"\n    if size <= 0:\n        raise ValueError(\"size must be a positive number of items\")\n    return [values[start : start + size] for start in range(0, len(values), size)]\n"
+    }
+  ]
+}

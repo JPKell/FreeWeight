@@ -1,0 +1,45 @@
+{
+  "prompt_id": "benchmarks.long_context.retrieve",
+  "version": "1.0.0",
+  "schema_version": "1.0",
+  "purpose": "Bury one or two stated facts in a long document and ask a single short question about them, so accuracy can be read against context length, needle position and distractor volume by exact match.",
+  "task": "benchmark.long_context",
+  "capability": "long_context",
+  "system": "Answer using only the document you are given. Reply with the answer alone: no explanation, no restatement of the question, no quotation.",
+  "template": "DOCUMENT\n{{ context }}\n\nQUESTION\n{{ question }}\n\nAnswer with the answer alone.",
+  "variables": {
+    "context": {
+      "type": "string",
+      "required": true,
+      "description": "The assembled document: filler sentences with the needle placed at the configured depth, plus any distractors."
+    },
+    "question": {
+      "type": "string",
+      "required": true,
+      "description": "The single short question whose answer is the buried fact."
+    }
+  },
+  "response": {
+    "format": "text",
+    "json_schema_ref": null,
+    "expectations": [
+      "The answer alone, with no surrounding prose."
+    ]
+  },
+  "model_requirements": {
+    "min_context_tokens": 2048,
+    "requires_capabilities": [],
+    "recommended_temperature": 0.0
+  },
+  "metadata": {
+    "author": "suite",
+    "created_at": "2026-08-27T00:00:00Z",
+    "changed_at": "2026-08-27T00:00:00Z",
+    "change_reason": "First version: native.long_context needs a prompt whose only variable across the depth, position and distractor sweeps is the document, so a change in accuracy is attributable to the context rather than to the instruction.",
+    "supersedes": null,
+    "tags": [
+      "benchmark",
+      "long_context"
+    ]
+  }
+}

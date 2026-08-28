@@ -1,0 +1,45 @@
+{
+  "prompt_id": "benchmarks.critique.review",
+  "version": "1.0.0",
+  "schema_version": "1.0",
+  "purpose": "Ask for a verdict on one candidate answer, plus a correction when the verdict is that it is wrong, in a shape whose correctness can be decided against the corpus's gold answers.",
+  "task": "benchmark.critique",
+  "capability": "reasoning",
+  "system": "You are reviewing someone else's answer to a question. Decide whether it is correct. Many of the answers you are shown are already correct; say so when they are. Answer with JSON and nothing else.",
+  "template": "QUESTION\n{{ question }}\n\nCANDIDATE ANSWER\n{{ candidate_answer }}\n\nAnswer as JSON in exactly this shape:\n{\"verdict\": \"correct\" or \"incorrect\", \"reason\": \"<one sentence>\", \"corrected_answer\": \"<the correct answer, only when the verdict is incorrect>\"}",
+  "variables": {
+    "question": {
+      "type": "string",
+      "required": true,
+      "description": "The original question the candidate answer responds to."
+    },
+    "candidate_answer": {
+      "type": "string",
+      "required": true,
+      "description": "The answer under review, exactly as the corpus records it."
+    }
+  },
+  "response": {
+    "format": "json",
+    "json_schema_ref": null,
+    "expectations": [
+      "A single JSON object carrying 'verdict', and 'corrected_answer' when the verdict is 'incorrect'."
+    ]
+  },
+  "model_requirements": {
+    "min_context_tokens": 4096,
+    "requires_capabilities": [],
+    "recommended_temperature": 0.0
+  },
+  "metadata": {
+    "author": "suite",
+    "created_at": "2026-08-27T00:00:00Z",
+    "changed_at": "2026-08-27T00:00:00Z",
+    "change_reason": "First version: native.critique needs a declared verdict rather than a prose review, because inferring 'this critic disagreed' from a paragraph would make the scorer a judge of the model it measures.",
+    "supersedes": null,
+    "tags": [
+      "benchmark",
+      "critique"
+    ]
+  }
+}

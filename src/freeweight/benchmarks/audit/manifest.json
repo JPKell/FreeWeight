@@ -1,0 +1,97 @@
+{
+  "key": "native.audit",
+  "name": "Auditing",
+  "version": "1.0.0",
+  "category": "auditing",
+  "runner": "native",
+  "scorer": "audit",
+  "capabilities": [
+    "auditing",
+    "code_review"
+  ],
+  "requires": {
+    "provider_capabilities": [],
+    "sandbox": false,
+    "network": false
+  },
+  "dataset_hashes": {
+    "audit_code": "sha256:d969369f874c0c410bbf87ed79befba3041e179f6fd0ae65b8a5dc3089757506"
+  },
+  "prompt_ids": [
+    {
+      "prompt_id": "benchmarks.audit.detect_defects",
+      "version": "1.0.0",
+      "sha256": "sha256:b88680f9ba304bcbaecc185ee72f0c6dae512b3b38eefa6ab8cbd3ab2c2d7602"
+    }
+  ],
+  "prompt_subset_hash": "sha256:44e45b24190238ce45c637b53e1aba8e6859dcfcc9b428f4a0901f5e7a13e753",
+  "target_device": "any",
+  "metrics": [
+    {
+      "key": "defect_detection_score",
+      "unit": "ratio",
+      "higher_is_better": true,
+      "aggregation": "mean",
+      "description": "Per-case F1 over the injected defects, averaged. The mutated half's headline.",
+      "source": "score"
+    },
+    {
+      "key": "precision",
+      "unit": "ratio",
+      "higher_is_better": true,
+      "aggregation": "mean",
+      "description": "Share of reported findings that matched an injected defect. Absent for a case that reported nothing.",
+      "source": "detail"
+    },
+    {
+      "key": "recall",
+      "unit": "ratio",
+      "higher_is_better": true,
+      "aggregation": "mean",
+      "description": "Share of injected defects that were found. Absent on clean code, which has none.",
+      "source": "detail"
+    },
+    {
+      "key": "f1",
+      "unit": "ratio",
+      "higher_is_better": true,
+      "aggregation": "mean",
+      "description": "Harmonic mean of precision and recall, per case.",
+      "source": "detail"
+    },
+    {
+      "key": "line_localization_accuracy",
+      "unit": "ratio",
+      "higher_is_better": true,
+      "aggregation": "mean",
+      "description": "Share of found defects reported on the exact line. Absent where nothing was found.",
+      "source": "detail"
+    },
+    {
+      "key": "function_localization_accuracy",
+      "unit": "ratio",
+      "higher_is_better": true,
+      "aggregation": "mean",
+      "description": "Share of found defects attributed to the right function.",
+      "source": "detail"
+    },
+    {
+      "key": "clean_code_silence_rate",
+      "unit": "ratio",
+      "higher_is_better": true,
+      "aggregation": "mean",
+      "description": "Share of known-correct files the model reported no defect in.",
+      "source": "score"
+    },
+    {
+      "key": "clean_code_false_positive_rate",
+      "unit": "ratio",
+      "higher_is_better": false,
+      "aggregation": "mean",
+      "description": "Share of known-correct files the model reported at least one defect in. Shown next to recall, always.",
+      "source": "detail"
+    }
+  ],
+  "license": "project",
+  "description": "Mutation-based auditing over known-correct Python, with the clean originals included deliberately: a model that reports many possible problems must not score well, and the clean half is where that is measured."
+}

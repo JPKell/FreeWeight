@@ -40,7 +40,8 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, ClassVar
 
 from baseaicore import NotFoundError, ValidationError, canonical_json, sha256_of
-from jinja2 import Environment, StrictUndefined, TemplateError, meta
+from jinja2 import StrictUndefined, TemplateError, meta
+from jinja2.sandbox import SandboxedEnvironment
 
 if TYPE_CHECKING:
     from collections.abc import Iterable, Mapping, Sequence
@@ -60,6 +61,7 @@ __all__ = [
     "VariableSpec",
     "build_manifest",
     "load_pack",
+    "load_record",
     "pack_hash",
     "prompt_record_hash",
     "prompt_subset_hash",
@@ -260,7 +262,12 @@ class PromptRecord:
                 else environment.from_string(self.system).render(**resolved)
             )
             user = environment.from_string(self.template).render(**resolved)
-        except TemplateError as exc:
+        except (TemplateError, TypeError) as exc:
+            # ``TypeError`` is caught alongside Jinja2's own errors because a template that tries
+            # to ``include`` a file raises one from the loader-less environment rather than a
+            # ``TemplateError``. Every exception from inside ``from_string(...).render(...)`` is a
+            # problem with the template, and a caller that receives a bare ``TypeError`` from a
+            # user's goal pack cannot tell what refused it.
             raise PromptRenderError(
                 f"Prompt {self.prompt_id!r} v{self.version} failed to render: {exc}",
                 details={"prompt_id": self.prompt_id, "version": self.version},
@@ -308,16 +315,26 @@ class PromptReference:
         return {"prompt_id": self.prompt_id, "version": self.version, "sha256": self.sha256}
 
 
-def _environment() -> Environment:
+def _environment() -> SandboxedEnvironment:
     """Build the one Jinja2 environment prompts render in.
 
-    ``StrictUndefined`` (prompt standards §2.1) and ``autoescape=False``: a prompt is plain text
-    sent to a model, and HTML-escaping it would silently change the instruction. No loader is
-    configured, so a template cannot ``include`` or ``extend`` a file — user-authored goal
-    templates render through this same environment at Phase 8, and a template with filesystem
-    reach would be an arbitrary-read primitive (spec §14).
+    Three properties, and every one of them is load-bearing once *user-authored* content renders
+    here — which it does from Phase 8A onward, and which is why spec §14 calls goal content
+    "untrusted input to FreeWeight's own renderer":
+
+    * **Sandboxed.** :class:`~jinja2.sandbox.SandboxedEnvironment` refuses attribute access to
+      dunder attributes, so ``{{ ''.__class__.__mro__ }}`` — the first step of every Jinja2
+      escape to ``open`` and to the network — raises instead of resolving. A goal pack imported
+      from another machine is somebody else's file.
+    * **No loader.** A template cannot ``include`` or ``extend``, so it has no filesystem reach of
+      its own either.
+    * **``StrictUndefined``** (prompt standards §2.1): a referenced-but-unsupplied variable is an
+      error, never an empty string.
+
+    ``autoescape=False`` because a prompt is plain text sent to a model, and HTML-escaping it
+    would silently change the instruction.
     """
-    return Environment(undefined=StrictUndefined, autoescape=False)  # noqa: S701 — see docstring
+    return SandboxedEnvironment(undefined=StrictUndefined, autoescape=False)  # noqa: S701 — plain text, see docstring
 
 
 def prompt_record_hash(body: Mapping[str, Any]) -> str:
@@ -457,6 +474,31 @@ def _declared_and_used(record: PromptRecord, path: Path) -> None:
         )
 
 
+def load_record(path: Path, *, source: str = "pack") -> PromptRecord:
+    """Parse and validate one prompt record file.
+
+    The public entry point to the same loader :func:`load_pack` uses record by record. A goal
+    pack's tasks and its judge rubric are prompt records
+    ([ADR-0031 §6](../../../../docs/adr/0031-user-defined-goal-benchmarks.md)) but they do not
+    live in a pack with a manifest, so they are loaded one at a time — through *this* function
+    rather than through a second parser, which is what makes "user-authored goal content renders
+    under the same ``StrictUndefined`` sandbox as shipped prompts" (spec §14) true by construction
+    rather than by intention.
+
+    Args:
+        path: The record file.
+        source: What to mark the record as — ``"pack"``, ``"user_override"`` or ``"goal_pack"``.
+
+    Returns:
+        The parsed record.
+
+    Raises:
+        PromptPackInvalid: The file is not valid JSON, is missing a required field, declares an
+            unsupported ``schema_version``, or its declarations and templates disagree.
+    """
+    return _load_record(path, source=source)
+
+
 def _load_record(path: Path, *, source: str) -> PromptRecord:
     """Parse and validate one record file.
 
@@ -513,15 +555,27 @@ class PromptLibrary:
     Args:
         pack_id: The pack's identity, from its manifest.
         pack_version: The pack's version, from its manifest.
-        records: Every record in the pack.
+        records: Every record in the pack, overrides applied.
+        shipped: The records as installed, before any override. Kept so a benchmark manifest can
+            be verified against what shipped rather than against what the user replaced: an
+            override *deliberately* differs from the manifest (prompt standards §6), and a
+            verification that compared against the effective record would make dropping one file
+            into the override directory stop the whole application from starting.
 
     Raises:
         PromptPackInvalid: Two records declare the same ``(prompt_id, version)``.
     """
 
-    __slots__ = ("_by_id", "pack_id", "pack_version")
+    __slots__ = ("_by_id", "_shipped", "pack_id", "pack_version")
 
-    def __init__(self, *, pack_id: str, pack_version: str, records: Sequence[PromptRecord]) -> None:
+    def __init__(
+        self,
+        *,
+        pack_id: str,
+        pack_version: str,
+        records: Sequence[PromptRecord],
+        shipped: Sequence[PromptRecord] = (),
+    ) -> None:
         """Index ``records`` by id and version."""
         by_id: dict[str, dict[str, PromptRecord]] = {}
         for record in records:
@@ -535,6 +589,47 @@ class PromptLibrary:
         self.pack_id = pack_id
         self.pack_version = pack_version
         self._by_id = by_id
+        self._shipped = {record.prompt_id: record for record in (shipped or records)}
+
+    @property
+    def overridden_ids(self) -> tuple[str, ...]:
+        """Every prompt id a user override replaced, sorted.
+
+        Recorded on every run that rendered one and refused outright unless the run asked for it
+        (prompt standards §6): an overridden prompt invalidates comparison with results produced
+        by the shipped one, so a run has to say so before it is allowed to happen.
+        """
+        return tuple(
+            sorted(
+                prompt_id
+                for prompt_id, versions in self._by_id.items()
+                if any(record.source == "user_override" for record in versions.values())
+            )
+        )
+
+    def shipped_references(
+        self, wanted: Iterable[tuple[str, str | None]]
+    ) -> tuple[PromptReference, ...]:
+        """Return the triples for the records as *installed*, ignoring any override.
+
+        Args:
+            wanted: The ``(prompt_id, version)`` pairs to resolve.
+
+        Returns:
+            One reference per pair, taken from the shipped record where one exists and from the
+            effective record otherwise (a goal pack's own prompts ship with no installed twin).
+
+        Raises:
+            PromptNotFound: One of the pairs names no record at all.
+        """
+        resolved: list[PromptReference] = []
+        for prompt_id, version in wanted:
+            shipped = self._shipped.get(prompt_id)
+            if shipped is not None and (version is None or shipped.version == version):
+                resolved.append(shipped.reference)
+            else:
+                resolved.append(self.get(prompt_id, version=version).reference)
+        return tuple(resolved)
 
     def ids(self) -> tuple[str, ...]:
         """Every prompt id in the pack, sorted."""
@@ -674,6 +769,7 @@ def load_pack(root: Path = PACK_ROOT, *, override_root: Path | None = None) -> P
         pack_id=str(manifest.get("pack_id", "")),
         pack_version=str(manifest.get("pack_version", "")),
         records=records,
+        shipped=shipped,
     )
 
 

@@ -77,15 +77,22 @@ from modelrack.streaming import StreamCompleted, StreamFailed, ThinkingDelta, To
 
 from freeweight.__about__ import __version__
 from freeweight.benchmarks.agent import benchmark as agent_benchmark
+from freeweight.benchmarks.audit import benchmark as audit_benchmark
+from freeweight.benchmarks.critique import benchmark as critique_benchmark
 from freeweight.benchmarks.echo import benchmark as echo_benchmark
+from freeweight.benchmarks.goal.runner import build_goal_benchmark
 from freeweight.benchmarks.instruction_following import benchmark as instruction_following_benchmark
+from freeweight.benchmarks.judge import benchmark as judge_benchmark
+from freeweight.benchmarks.long_context import benchmark as long_context_benchmark
 from freeweight.benchmarks.performance import benchmark as performance_benchmark
 from freeweight.benchmarks.structured_output import benchmark as structured_output_benchmark
 from freeweight.benchmarks.token_economy import benchmark as token_economy_benchmark
 from freeweight.benchmarks.tool_recovery import benchmark as tool_recovery_benchmark
 from freeweight.benchmarks.tool_use import benchmark as tool_use_benchmark
+from freeweight.config import Settings, prompt_override_dir
 from freeweight.domain.aggregation import SampleGroup, aggregate_run
 from freeweight.domain.benchmark import Benchmark, BenchmarkRegistry, BenchmarkTest
+from freeweight.domain.goals.criteria import DEFAULT_RULE_TIMEOUT_MS
 from freeweight.domain.metrics import MeasurementClass, SampleFacts
 from freeweight.domain.provenance import (
     Degradation,
@@ -112,6 +119,8 @@ from freeweight.domain.scorers.tools import (
 )
 from freeweight.domain.scoring import ScoreResult
 from freeweight.infrastructure.db.errors import DatabaseUnavailable
+from freeweight.infrastructure.db.repositories.calibration import JudgeVerdictRepository
+from freeweight.infrastructure.db.repositories.goals import CriterionScoreRepository
 from freeweight.infrastructure.db.repositories.model_descriptors import ModelDescriptorRepository
 from freeweight.infrastructure.db.repositories.models import ModelRepository
 from freeweight.infrastructure.db.repositories.runs import (
@@ -124,6 +133,7 @@ from freeweight.infrastructure.db.repositories.runs import (
     ToolCallRepository,
 )
 from freeweight.services.events import RunEventPublisher
+from freeweight.services.goals import LoadedGoal
 from freeweight.services.machine import profile_machine
 from freeweight.services.prompts import PromptLibrary, load_pack
 from freeweight.services.telemetry_recording import (
@@ -186,6 +196,19 @@ class InsufficientResources(SuiteError):
     """
 
     code: ClassVar[str] = "INSUFFICIENT_RESOURCES"
+
+
+class PromptOverrideRefused(ConflictError):
+    """A run would render a prompt the user has replaced, and did not ask to.
+
+    Its own stable code rather than a generic conflict: the remedy is a specific flag, and a
+    caller that cannot tell this apart from "a run is already active" cannot suggest it.
+
+    Attributes:
+        code: ``"PROMPT_OVERRIDE_REFUSED"``.
+    """
+
+    code: ClassVar[str] = "PROMPT_OVERRIDE_REFUSED"
 
 
 class RepeatRefused(ConflictError):
@@ -537,28 +560,62 @@ def shipped_prompt_library() -> PromptLibrary:
     return load_pack()
 
 
-def build_registry(library: PromptLibrary | None = None) -> BenchmarkRegistry:
+@lru_cache(maxsize=1)
+def active_prompt_library() -> PromptLibrary:
+    """Load this build's prompt pack **with the user's overrides applied**, once per process.
+
+    Prompt standards §6's override directory, wired here rather than in
+    :func:`shipped_prompt_library` so that the two stay distinguishable: ``freeweight prompts
+    show`` describes what shipped, and a run renders what is installed *plus* whatever the user
+    dropped into ``$XDG_CONFIG_HOME/freeweight/prompts/``.
+
+    An override does not stop the application from starting — a benchmark manifest is verified
+    against the shipped records (:func:`freeweight.benchmarks.loading.verify_prompts`) — but it
+    does stop a *run*, unless that run passes ``--allow-prompt-override``. An overridden prompt
+    invalidates comparison with results produced by the shipped one, so the refusal is the point.
+
+    Raises:
+        PromptPackInvalid: The shipped pack is malformed, or an override file is not a valid
+            prompt record. An override that cannot be parsed is a startup failure exactly as a
+            shipped record is: the user asked for it to be used.
+    """
+    return load_pack(override_root=prompt_override_dir())
+
+
+def build_registry(
+    library: PromptLibrary | None = None,
+    goals: Sequence[LoadedGoal] = (),
+    *,
+    rule_timeout_ms: int = DEFAULT_RULE_TIMEOUT_MS,
+) -> BenchmarkRegistry:
     """Build the registry of benchmarks this build can run.
 
     The one list. A suite that is not named here cannot be run, which is the point: benchmark
     availability is a deliberate, reviewable fact rather than a consequence of which modules
-    happened to be imported. The five Phase 7 quality suites are on this list, which is the whole
-    of what "adding a suite" means.
+    happened to be imported. Phase 7's five quality suites and Phase 8's four judgement-dependent
+    ones are on this list, which is the whole of what "adding a suite" means.
+
+    Goal suites are the exception to "the one list", and deliberately so: they are authored by
+    the user, so the list of them is whatever is installed under ``goals.root`` rather than
+    something a reviewer approves. They are still built here, through one function, so that the
+    web application, the CLI and the scheduler cannot end up with different sets of runnable
+    benchmarks (ADR-0031 §1).
 
     Args:
-        library: The prompt pack the suites render from, or ``None`` for this build's own. Every
-            suite gets the *same* library instance, so two suites can never disagree about a
-            prompt's hash.
+        library: The prompt pack the suites render from, or ``None`` for this build's own, with
+            the user's overrides applied. Every suite gets the *same* library instance, so two
+            suites can never disagree about a prompt's hash.
+        goals: The loaded goal packs, or none. Each becomes one ``goal.<slug>`` suite.
 
     Returns:
         The registry.
 
     Raises:
         ValueError: A suite's manifest declares a ``prompt_subset_hash`` that does not match the
-            installed pack. Refused at registry-build time — which is startup — because a suite
-            whose provenance is wrong must not be runnable at all.
+            installed pack, or a goal declares no tasks. Refused at registry-build time — which is
+            startup — because a suite whose provenance is wrong must not be runnable at all.
     """
-    pack = library if library is not None else shipped_prompt_library()
+    pack = library if library is not None else active_prompt_library()
     registry = BenchmarkRegistry(
         [
             echo_benchmark.build(),
@@ -569,10 +626,45 @@ def build_registry(library: PromptLibrary | None = None) -> BenchmarkRegistry:
             tool_use_benchmark.build(pack),
             tool_recovery_benchmark.build(pack),
             agent_benchmark.build(pack),
+            audit_benchmark.build(pack),
+            critique_benchmark.build(pack),
+            judge_benchmark.build(pack),
+            long_context_benchmark.build(pack),
+            *(build_goal_benchmark(goal, rule_timeout_ms=rule_timeout_ms) for goal in goals),
         ]
     )
     _check_declared_capabilities(registry)
     return registry
+
+
+def build_registry_for(settings: Settings, *, strict: bool = False) -> BenchmarkRegistry:
+    """Build the registry for one installation, its user-authored goals included.
+
+    The composition roots — :func:`freeweight.bootstrap.bootstrap`, the web lifespan and every CLI
+    command that starts a run — call this rather than :func:`build_registry` directly, so that all
+    three end up with the same set of runnable benchmarks. A goal that is installed but only
+    reachable from the web UI would be a goal whose CLI runs silently measured something else.
+
+    Args:
+        settings: The resolved configuration; ``goals.root`` and ``goals.rule_timeout_ms`` are
+            read from it.
+        strict: ``True`` refuses the whole set when any pack is invalid, which is what startup
+            wants: a malformed pack is a startup failure, not a mid-run surprise. ``False`` skips
+            an unparseable pack, which is what a *listing* wants — nine working goals must not be
+            hidden by a tenth with a typo in it, and ``goals validate`` is where the tenth is
+            explained.
+
+    Returns:
+        The registry.
+
+    Raises:
+        GoalPackInvalid: ``strict`` is set and a pack is malformed or fails its lint.
+    """
+    from freeweight.services.goals import list_goals, load_goals
+
+    root = settings.goals.root_path
+    goals = load_goals(root) if strict else list_goals(root)
+    return build_registry(goals=goals, rule_timeout_ms=settings.goals.rule_timeout_ms)
 
 
 def _check_declared_capabilities(registry: BenchmarkRegistry) -> None:
@@ -697,11 +789,24 @@ def _install_benchmark(
 ) -> tuple[str, dict[str, str]]:
     """Install this suite version and its tests if they are not installed already.
 
+    A goal suite additionally carries the columns the data model gives it: ``goal_id``, so a
+    result joins back to the rubric that produced it, and ``goal_hash``, which separates results
+    exactly as a benchmark version does (ADR-0032 §4). The hash is *also* inside the suite's
+    version string (:func:`~freeweight.benchmarks.goal.runner.goal_suite_version`), which is what
+    makes the separation structural rather than merely recorded.
+
     Returns:
         ``(suite_id, {test_key: test_row_id})``.
     """
     repository = BenchmarkRepository()
     manifest = benchmark.manifest
+    goal_id: str | None = None
+    goal_slug = manifest.body.get("goal_slug")
+    if manifest.runner == "goal" and isinstance(goal_slug, str):
+        from freeweight.infrastructure.db.repositories.goals import GoalRepository
+
+        stored = GoalRepository().get_by_slug(session, goal_slug)
+        goal_id = stored.id if stored is not None else None
     suite = repository.install_suite(
         session,
         key=manifest.key,
@@ -714,6 +819,10 @@ def _install_benchmark(
         dataset_hashes_json=_json_safe(dict(manifest.dataset_hashes)),
         license=manifest.license,
         now=now,
+        goal_id=goal_id,
+        goal_hash=manifest.body.get("goal_hash"),
+        prompt_subset_hash=manifest.prompt_subset_hash,
+        prompt_refs_json=_json_safe([dict(entry) for entry in manifest.prompt_ids]),
     )
     test_ids: dict[str, str] = {}
     for test in benchmark.tests:
@@ -754,6 +863,7 @@ def create_run(
     execution: ExecutionConfig,
     label: str | None = None,
     extra_degradations: Sequence[Degradation] | None = None,
+    allow_prompt_override: bool = False,
     clock: Clock = utc_now,
 ) -> RunSummary:
     """Validate a run request, persist it as ``queued``, and return it.
@@ -780,12 +890,20 @@ def create_run(
         extra_degradations: Conditions to record on the run before it starts — in practice the
             divergences a ``--force``d repeat chose to proceed past, so the new run's provenance
             says it is not the same measurement rather than quietly claiming it is.
+        allow_prompt_override: Whether to proceed when a prompt this suite declares has been
+            replaced from the user's override directory. ``False`` refuses the run: an overridden
+            prompt invalidates comparison with results produced by the shipped one, so the run has
+            to say it means it (prompt standards §6). When ``True``, the overridden prompt ids
+            become a reproducibility-fingerprint input, so the results separate rather than
+            silently merging with runs of the shipped prompt.
         clock: Returns the current instant; injected for deterministic tests.
 
     Returns:
         The queued run.
 
     Raises:
+        PromptOverrideRefused: A prompt this suite declares is overridden and
+            ``allow_prompt_override`` was not passed.
         BenchmarkNotFound: ``suite_key`` names no registered suite.
         ModelNotFound: ``model_ref`` resolves to no stored model. Discovery has to have run first
             — a run records the descriptor snapshot it measured against, and there is none for a
@@ -797,6 +915,20 @@ def create_run(
     from modelrack.errors import ModelNotFound
 
     benchmark = registry.get(suite_key)
+    overrides = _declared_overrides(benchmark)
+    if overrides and not allow_prompt_override:
+        raise PromptOverrideRefused(
+            f"Suite {suite_key!r} renders {list(overrides)}, which your override directory "
+            f"({prompt_override_dir()}) replaces. A benchmark run with an overridden prompt is "
+            "refused unless --allow-prompt-override is passed, because its results are not "
+            "comparable with results produced by the shipped prompt.",
+            details={"suite": suite_key, "overridden_prompts": list(overrides)},
+        )
+    if benchmark.manifest.runner == "goal" and not execution.store_responses:
+        # Spec §12: a judged score the person who defined the rubric cannot re-read is not
+        # auditable, which defeats the purpose. Forced on for goal runs and left alone for every
+        # other suite, where the privacy default stands.
+        execution = dataclasses.replace(execution, store_responses=True)
     machine_profile = profile_machine(database, collector, clock=clock)
     capabilities = _provider_capabilities(provider)
     now = clock()
@@ -849,8 +981,24 @@ def create_run(
             benchmark=benchmark,
             execution=execution,
             served=served,
+            prompt_overrides=overrides,
         )
         degradations = [degradation.as_json() for degradation in (extra_degradations or ())]
+        if overrides:
+            # Marked on the run itself, not only inside the fingerprint document: prompt standards
+            # §6 requires an override to be visible "in every record that used them", and a
+            # degradation is the record field a reader already scans for "why is this run not
+            # comparable with the others".
+            degradations.append(
+                Degradation(
+                    kind="prompt_overridden",
+                    detail={
+                        "prompt_ids": list(overrides),
+                        "override_root": str(prompt_override_dir()),
+                        "prompt_source": "user_override",
+                    },
+                ).as_json()
+            )
         run = RunRepository().insert(
             session,
             machine_id=machine.id,
@@ -895,6 +1043,21 @@ def _provider_capabilities(provider: Provider) -> Any:  # noqa: ANN401 — Provi
         return provider.capabilities()
     except ProviderError:
         return ProviderCapabilities()
+
+
+def _declared_overrides(benchmark: Benchmark) -> tuple[str, ...]:
+    """Return the prompts this suite declares that a user override has replaced.
+
+    Only the suite's *own* prompts, never the whole pack: an override of a record this benchmark
+    does not render changes nothing about this benchmark's results, and refusing the run over one
+    would be the pack-hash mistake ADR-0028 §1 exists to prevent, wearing a different hat.
+    """
+    declared = {str(entry["prompt_id"]) for entry in benchmark.manifest.prompt_ids}
+    if not declared:
+        return ()
+    return tuple(
+        prompt_id for prompt_id in active_prompt_library().overridden_ids if prompt_id in declared
+    )
 
 
 def _benchmark_library(benchmark: Benchmark) -> PromptLibrary | None:
@@ -958,6 +1121,7 @@ def _fingerprint_document(  # noqa: PLR0913 — every argument is a fingerprint 
     benchmark: Benchmark,
     execution: ExecutionConfig,
     served: ServedContext,
+    prompt_overrides: Sequence[str] = (),
 ) -> dict[str, Any]:
     """Assemble one run's fingerprint document from resolved inputs.
 
@@ -988,6 +1152,10 @@ def _fingerprint_document(  # noqa: PLR0913 — every argument is a fingerprint 
             # The per-benchmark subset, never the pack hash: editing a prompt this suite does not
             # use must separate nothing (ADR-0028 §1).
             "prompt_subset_hash": manifest.prompt_subset_hash,
+            # Present **only** when an override was actually used (prompt standards §6). Adding
+            # the key unconditionally would change every existing run's fingerprint, and a run
+            # that used no override is the same measurement it was before this phase.
+            **({"prompt_overrides": list(prompt_overrides)} if prompt_overrides else {}),
         },
         execution={
             "effective_parameters": execution.to_json(),
@@ -1303,6 +1471,7 @@ def execute_run(  # noqa: PLR0913 — the executor needs every collaborator it i
     *,
     collector: TelemetryCollector | None = None,
     telemetry: TelemetrySettings | None = None,
+    settings: Settings | None = None,
     clock: Clock = utc_now,
 ) -> RunStatus:
     """Execute one claimed run to a terminal state, and return that state.
@@ -1335,6 +1504,13 @@ def execute_run(  # noqa: PLR0913 — the executor needs every collaborator it i
             produces a run with no telemetry rows and an idle check that did not happen, both
             visible rather than assumed.
         telemetry: The ``[telemetry]`` settings, or ``None`` for this build's defaults.
+        settings: The whole resolved configuration, or ``None``. Needed only by a **goal** run
+            with judged criteria, which has to assemble a jury: ``[judge]`` for its size and
+            sampling, ``[calibration]`` for the shrinkage denominator, and
+            ``providers.allow_remote`` for half of the remote opt-in. ``None`` is a real state and
+            not a degraded one — a goal scored entirely by rules never needs any of it, and its
+            judged criteria skip with ``judge_unavailable`` exactly as they do when no model can
+            serve them.
         clock: Returns the current instant; injected for deterministic tests.
 
     Returns:
@@ -1349,6 +1525,7 @@ def execute_run(  # noqa: PLR0913 — the executor needs every collaborator it i
             run_id,
             collector=collector,
             telemetry=telemetry,
+            settings=settings,
             clock=clock,
         )
     except _Cancelled:
@@ -1395,6 +1572,7 @@ class _RunContext:
     and a run resumed after someone edited ``config.toml`` must still be the run that was queued.
     """
 
+    run_id: str
     suite_key: str
     suite_id: str
     config: ExecutionConfig
@@ -1403,6 +1581,12 @@ class _RunContext:
     served_context: int | None
     gpu_index: int
     multi_gpu_visible: bool
+    criterion_ids: Mapping[str, str] = field(default_factory=dict)
+    """``{criterion_key: goal_criteria row id}`` for a goal run; empty for every other suite.
+
+    Resolved once, here, rather than per sample: a goal's criteria do not change during a run —
+    the suite version carries the goal hash, so a change would be a different suite — and looking
+    them up per sample would put three joins in the hot path for a value that cannot move."""
 
 
 def _read_context(database: Database, run_id: str) -> _RunContext:
@@ -1417,7 +1601,13 @@ def _read_context(database: Database, run_id: str) -> _RunContext:
         model = ModelRepository().get_by_id(session, run.model_id)
         if model is None:  # pragma: no cover — a RESTRICT foreign key makes this unreachable
             raise DatabaseUnavailable(f"Run {run_id!r} points at a model that is not stored.")
+        criterion_ids: dict[str, str] = {}
+        if suite.runner == "goal" and suite.goal_id:
+            from freeweight.infrastructure.db.repositories.goals import GoalRepository
+
+            criterion_ids = GoalRepository().criterion_ids(session, suite.goal_id)
         return _RunContext(
+            run_id=run_id,
             suite_key=suite.key,
             suite_id=suite.id,
             config=ExecutionConfig.from_json(run.effective_config_json),
@@ -1430,6 +1620,7 @@ def _read_context(database: Database, run_id: str) -> _RunContext:
             served_context=run.served_context,
             gpu_index=run.gpu_index if run.gpu_index is not None else 0,
             multi_gpu_visible=bool(run.multi_gpu_visible),
+            criterion_ids=criterion_ids,
         )
 
 
@@ -1542,6 +1733,104 @@ def _record_degradations(
         )
 
 
+def _bind_goal_jury(
+    database: Database,
+    provider: Provider,
+    benchmark: Benchmark,
+    *,
+    context: _RunContext,
+    settings: Settings | None,
+) -> Benchmark:
+    """Bind a jury to a goal benchmark for *this* run's candidate model.
+
+    The candidate is not known when the registry is built — one registry serves every model — but
+    it is exactly what decides who may judge: a juror never judges its own output (ADR-0031 §4).
+    So the jury is assembled here, once per run, and the goal's scorer is rebound to it.
+
+    Returns the benchmark **unchanged** in four cases, each of which is a real state rather than a
+    failure: the suite is not a goal, the goal has no judged criterion, no configuration was
+    supplied, or the goal has never been calibrated in a way this run can use. In every one of
+    them the judged criteria skip with ``judge_unavailable``, the rule criteria still score, and
+    the partial result says so (spec §13).
+    """
+    if benchmark.manifest.runner != "goal" or settings is None:
+        return benchmark
+    from freeweight.benchmarks.goal.runner import GoalScorer
+    from freeweight.services.calibration import anchors_for_slug, validity_factor_for_slug
+    from freeweight.services.jury import build_jury
+
+    tests = list(benchmark.tests)
+    scorer = tests[0].scorer if tests else None
+    if not isinstance(scorer, GoalScorer) or not scorer.pack.judged_criteria:
+        return benchmark
+    try:
+        available = [descriptor.identity.canonical_id for descriptor in provider.list_models()]
+        remote = {descriptor.identity.canonical_id: False for descriptor in provider.list_models()}
+    except ProviderError as exc:
+        logger.warning("goal.jury_models_unavailable", extra={"code": exc.code})
+        return benchmark
+    jury = build_jury(
+        provider,
+        pack=scorer.pack,
+        library=active_prompt_library(),
+        settings=settings.judge,
+        candidate_canonical_id=context.model_canonical_id,
+        available=available,
+        allow_remote_provider=settings.providers.allow_remote,
+        anchors=anchors_for_slug(database, scorer.pack),
+        seed=context.config.seed,
+        remote=remote,
+    )
+    # The jury this run will actually be measured by, recorded on the run itself. Self-judging is
+    # refused and **recorded**, not silently discounted (ADR-0031 §4), and a jury smaller than the
+    # goal asked for is a degradation the result has to carry — which is what makes "the refusal
+    # appears in the run record" true rather than only true of the calibration report.
+    _record_degradations(
+        database,
+        context.run_id,
+        [
+            Degradation(
+                kind="judge_set",
+                detail={
+                    **jury.refusal_detail(),
+                    "judge_validity_factor": validity_factor_for_slug(database, scorer.pack),
+                },
+            ),
+            *(
+                [
+                    Degradation(
+                        kind="jury_reduced",
+                        detail={
+                            "jurors": list(jury.assembly.jurors),
+                            "requested_size": jury.assembly.requested_size,
+                            "self_judging_refused": list(jury.assembly.self_judging_refused),
+                        },
+                    )
+                ]
+                if jury.assembly.reduced
+                else []
+            ),
+        ],
+    )
+    bound = dataclasses.replace(
+        scorer,
+        judge=jury,
+        judge_validity_factor=validity_factor_for_slug(database, scorer.pack),
+    )
+    # ``SuiteBenchmark`` and ``SuiteTest`` are the concrete types a goal benchmark is built from;
+    # ``Benchmark`` and ``BenchmarkTest`` are the protocols the run engine consumes. Rebinding is
+    # a rebuild of the concrete pair, which is why the names are imported here rather than
+    # widening the protocols to promise a ``replace``.
+    from freeweight.benchmarks.loading import SuiteBenchmark, SuiteTest
+
+    rebound = tuple(
+        dataclasses.replace(test, scorer=bound) for test in tests if isinstance(test, SuiteTest)
+    )
+    if len(rebound) != len(tests):  # pragma: no cover — a goal suite is built from SuiteTests
+        return benchmark
+    return SuiteBenchmark(manifest=benchmark.manifest, tests=rebound)
+
+
 def _execute_run_inner(  # noqa: PLR0913 — mirrors execute_run's collaborators
     database: Database,
     provider: Provider,
@@ -1551,11 +1840,14 @@ def _execute_run_inner(  # noqa: PLR0913 — mirrors execute_run's collaborators
     *,
     collector: TelemetryCollector | None,
     telemetry: TelemetrySettings | None,
+    settings: Settings | None = None,
     clock: Clock,
 ) -> RunStatus:
     """Drive one run through its phases. See :func:`execute_run` for the contract."""
     context = _read_context(database, run_id)
-    benchmark = registry.get(context.suite_key)
+    benchmark = _bind_goal_jury(
+        database, provider, registry.get(context.suite_key), context=context, settings=settings
+    )
     config = context.config
     publisher.publish(
         run_id,
@@ -2062,7 +2354,7 @@ def _execute_test(  # noqa: PLR0913 — one test's execution needs all of its co
                         database,
                         provider,
                         run_test_id=run_test_id,
-                        identity=context.identity,
+                        context=context,
                         test=test,
                         case=case,
                         repetition=repetition,
@@ -2173,7 +2465,7 @@ def _run_one_case(  # noqa: PLR0913 — one sample needs its whole context
     provider: Provider,
     *,
     run_test_id: str,
-    identity: ModelIdentity,
+    context: _RunContext,
     test: BenchmarkTest,
     case: Any,  # noqa: ANN401 — freeweight.domain.benchmark.BenchmarkCase, imported lazily
     repetition: int,
@@ -2206,7 +2498,7 @@ def _run_one_case(  # noqa: PLR0913 — one sample needs its whole context
             database,
             provider,
             run_test_id=run_test_id,
-            identity=identity,
+            context=context,
             test=test,
             case=case,
             repetition=repetition,
@@ -2214,7 +2506,7 @@ def _run_one_case(  # noqa: PLR0913 — one sample needs its whole context
             clock=clock,
             interaction=interaction,
         )
-    request = _build_request(identity, case, config)
+    request = _build_request(context.identity, case, config)
     started_ns = monotonic_ns()
     result: Any = None
     error_code: str | None = None
@@ -2240,6 +2532,7 @@ def _run_one_case(  # noqa: PLR0913 — one sample needs its whole context
             error_code, error_text = exc.code, exc.message
     wall_ms = elapsed_ms(started_ns)
 
+    verdict: ScoreResult | None = None
     if result is None:
         values = _sample_values(
             run_test_id=run_test_id,
@@ -2257,7 +2550,7 @@ def _run_one_case(  # noqa: PLR0913 — one sample needs its whole context
         )
     else:
         try:
-            verdict: ScoreResult | None = test.scorer.score(case, result.text)
+            verdict = test.scorer.score(case, result.text)
         except Exception as exc:  # noqa: BLE001 — a scorer defect fails one sample, not the run
             logger.warning("sample.scorer_error", extra={"test": test.key}, exc_info=exc)
             verdict = None
@@ -2297,7 +2590,8 @@ def _run_one_case(  # noqa: PLR0913 — one sample needs its whole context
             # to the socket than this module can — and this observation fills in where it does not.
             values["client_ttft_ms"] = float(observed_ttft)
     with database.write() as session:
-        SampleRepository().insert(session, **values)
+        sample = SampleRepository().insert(session, **values)
+        _store_criterion_scores(session, sample.id, verdict, context, now=values["created_at"])
     return values
 
 
@@ -2306,7 +2600,7 @@ def _run_interactive_case(  # noqa: PLR0913 — one sample needs its whole conte
     provider: Provider,
     *,
     run_test_id: str,
-    identity: ModelIdentity,
+    context: _RunContext,
     test: BenchmarkTest,
     case: Any,  # noqa: ANN401 — freeweight.domain.benchmark.BenchmarkCase
     repetition: int,
@@ -2346,7 +2640,7 @@ def _run_interactive_case(  # noqa: PLR0913 — one sample needs its whole conte
         """Produce the next assistant turn under this run's frozen execution parameters."""
         result = provider.generate(
             GenerationRequest(
-                identity=identity,
+                identity=context.identity,
                 messages=tuple(messages),
                 sampling=SamplingParameters(
                     temperature=config.temperature,
@@ -2413,7 +2707,104 @@ def _run_interactive_case(  # noqa: PLR0913 — one sample needs its whole conte
             ToolCallRepository().insert_many(
                 session, _tool_call_rows(sample.id, case, transcript, now=values["created_at"])
             )
+        _store_criterion_scores(session, sample.id, verdict, context, now=values["created_at"])
     return values
+
+
+def _store_criterion_scores(
+    session: Session,
+    sample_id: str,
+    verdict: ScoreResult | None,
+    context: _RunContext,
+    *,
+    now: datetime,
+) -> None:
+    """Write one goal sample's ``criterion_scores`` rows, in the sample's own transaction.
+
+    Data model §2's per-criterion record: what a goal's headline number drills to. Written here
+    rather than by the scorer for the same two reasons the tool-call rows are — a
+    :class:`~freeweight.domain.scoring.ScoreResult` has nowhere to put a row, and a suite is
+    entitled to its evidence on the record even when its scorer refused to produce a number.
+
+    In the **same transaction as the sample**, so a composite can never be read back with fewer
+    criteria than the sample it belongs to.
+
+    A skipped or errored criterion is written with ``raw_score = NULL``; the check constraint
+    ``ck_criterion_scores_score_null_unless_scored`` makes that structural rather than a
+    convention (ADR-0016).
+
+    A judged criterion additionally writes its ``judge_verdicts`` — one row per juror per
+    repetition, refusals included — in the same transaction. Kept in full rather than summarized:
+    the jury's dispersion *is* the measurement's error bar, and averaging it at write time would
+    destroy the thing being characterized.
+
+    Args:
+        session: The session the sample was just written in.
+        sample_id: The stored sample.
+        verdict: The scorer's result, or ``None`` when scoring never ran.
+        context: The run's context, carrying ``{criterion_key: row id}``.
+        now: The sample's own timestamp.
+    """
+    if not context.criterion_ids or verdict is None:
+        return
+    declared = verdict.detail.get("criteria")
+    if not isinstance(declared, list) or not declared:
+        return
+    rows = [
+        {
+            "sample_id": sample_id,
+            "goal_criterion_id": context.criterion_ids[str(entry["key"])],
+            "criterion_key": str(entry["key"]),
+            "rung": str(entry["rung"]),
+            "raw_score": entry.get("raw_score"),
+            "weight": float(entry["weight"]),
+            "gated": bool(entry.get("gated", False)),
+            "status": str(entry["status"]),
+            "skip_reason": entry.get("skip_reason"),
+            "detail_json": _json_safe(entry.get("detail") or {}),
+            "created_at": now,
+        }
+        for entry in declared
+        if isinstance(entry, dict) and str(entry.get("key", "")) in context.criterion_ids
+    ]
+    if not rows:
+        return
+    stored = CriterionScoreRepository().insert_many(session, rows)
+    verdicts: list[dict[str, Any]] = []
+    by_key = {str(entry["key"]): entry for entry in declared if isinstance(entry, dict)}
+    for score in stored:
+        entry = by_key.get(score.criterion_key, {})
+        detail = entry.get("detail") if isinstance(entry, dict) else None
+        recorded = detail.get("judge_verdicts") if isinstance(detail, dict) else None
+        if not isinstance(recorded, list):
+            continue
+        verdicts.extend(
+            {
+                "criterion_score_id": score.id,
+                "juror_model_id": None,
+                "juror_canonical_id": str(item.get("juror_canonical_id", "")),
+                "juror_ordinal": int(item.get("juror_ordinal", 0)),
+                "repetition": int(item.get("repetition", 1)),
+                "grade": item.get("grade"),
+                "pairwise_choice": item.get("pairwise_choice"),
+                "presentation_order": str(item.get("presentation_order", "candidate_first")),
+                "rationale": item.get("rationale"),
+                "rationale_sha256": item.get("rationale_sha256"),
+                "prompt_id": item.get("prompt_id"),
+                "prompt_version": item.get("prompt_version"),
+                "judge_prompt_sha256": item.get("judge_prompt_sha256"),
+                "remote": bool(item.get("remote", False)),
+                "latency_ms": item.get("latency_ms"),
+                "input_tokens": item.get("input_tokens"),
+                "output_tokens": item.get("output_tokens"),
+                "refused_reason": item.get("refused_reason"),
+                "created_at": now,
+            }
+            for item in recorded
+            if isinstance(item, dict)
+        )
+    if verdicts:
+        JudgeVerdictRepository().insert_many(session, verdicts)
 
 
 def _tool_call_rows(
@@ -2762,6 +3153,7 @@ def repeat_run(  # noqa: PLR0913 — a repeat takes everything a fresh run does,
     run_ref: str,
     force: bool = False,
     label: str | None = None,
+    allow_prompt_override: bool = False,
     clock: Clock = utc_now,
 ) -> RunSummary:
     """Queue a new run with a recorded run's identical effective configuration.
@@ -2781,6 +3173,9 @@ def repeat_run(  # noqa: PLR0913 — a repeat takes everything a fresh run does,
         run_ref: The run to repeat: a full ULID or an unambiguous prefix.
         force: Proceed past every blocker, recording the divergence on the new run.
         label: A label for the new run; defaults to naming the run it repeats.
+        allow_prompt_override: Passed through to :func:`create_run`. A repeat of a run that was
+            allowed to use an override still has to say so: the flag is a statement about *this*
+            run, and carrying it implicitly would let an override arrive by inheritance.
         clock: Returns the current instant; injected for deterministic tests.
 
     Returns:
@@ -2829,6 +3224,7 @@ def repeat_run(  # noqa: PLR0913 — a repeat takes everything a fresh run does,
         execution=config,
         label=label if label is not None else f"repeat of {original_id[:10]}",
         extra_degradations=degradations,
+        allow_prompt_override=allow_prompt_override,
         clock=clock,
     )
 
@@ -2856,6 +3252,10 @@ def _observed_document(  # noqa: PLR0913 — mirrors the inputs create_run resol
             a run cannot be repeated against a model this installation has forgotten.
     """
     benchmark = registry.get(suite_key)
+    # The same override list ``create_run`` would compute, so that a repeat's observed document
+    # and the original's recorded one describe the same measurement. The *refusal* stays in
+    # ``create_run``: this function only describes what the environment would produce.
+    overrides = _declared_overrides(benchmark)
     machine_profile = profile_machine(database, collector, clock=clock)
     capabilities = _provider_capabilities(provider)
     with _translated(), database.read() as session:
@@ -2890,6 +3290,7 @@ def _observed_document(  # noqa: PLR0913 — mirrors the inputs create_run resol
                 benchmark=benchmark,
                 execution=config,
                 served=served,
+                prompt_overrides=overrides,
             )
         )
         return document

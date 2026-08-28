@@ -41,8 +41,10 @@ __all__ = [
     "MeasurementClass",
     "MetricResult",
     "SampleFacts",
+    "DEFAULT_EFFECTIVE_CONTEXT_THRESHOLD",
     "chunk_latencies_ms",
     "decode_tokens_per_second",
+    "effective_context_tokens",
     "inter_chunk_ms_mean",
     "inter_chunk_ms_p50",
     "inter_chunk_ms_p95",
@@ -384,6 +386,69 @@ def successes_per_million_output_tokens(successes: int, output_tokens: Measureme
     return MetricResult(successes / (float(output_tokens) / 1_000_000.0))
 
 
+DEFAULT_EFFECTIVE_CONTEXT_THRESHOLD = 0.8
+"""The share of the short-context baseline an accuracy must keep to count as usable context.
+
+Benchmark catalog §3.12's default, and the reason the threshold is *recorded* on every result: a
+model's effective context is a property of the model and of where the line was drawn, and two
+numbers drawn at different lines are not comparable."""
+
+REASON_NO_CONTEXT_BASELINE = "no_short_context_baseline"
+"""The shortest context tested scored zero, so there is nothing for longer contexts to decay from.
+
+This is what distinguishes a model that fails *at depth* from one that fails *everywhere*. The
+first has a baseline and loses it somewhere; the second never had one, and reporting its effective
+context as the shortest length tested would claim it works there."""
+
+REASON_NO_CONTEXT_OBSERVATIONS = "no_context_observations"
+"""No completed sample recorded both a context length and an accuracy."""
+
+
+def effective_context_tokens(
+    accuracy_by_context: Mapping[int, float], *, threshold_fraction: float
+) -> MetricResult:
+    """The largest tested context whose accuracy still clears the short-context baseline.
+
+    Benchmark catalog §3.12: "the largest tested context where accuracy is at least a configurable
+    fraction — default 80 % — of the short-context baseline, with the threshold recorded". The
+    baseline is the *shortest* context tested, because that is the closest thing this suite has to
+    the model working without a long-context handicap.
+
+    Args:
+        accuracy_by_context: Mean accuracy in ``0.0..1.0``, keyed by the context length in tokens
+            the samples were run at.
+        threshold_fraction: The share of the baseline an accuracy must keep. Typically
+            :data:`DEFAULT_EFFECTIVE_CONTEXT_THRESHOLD`.
+
+    Returns:
+        The effective context in tokens. ``UNSUPPORTED`` with
+        :data:`REASON_NO_CONTEXT_OBSERVATIONS` when nothing was measured, and with
+        :data:`REASON_NO_CONTEXT_BASELINE` when the shortest context scored zero — a model that
+        answered nothing anywhere has no effective context, and reporting the shortest length
+        tested would be a claim that it works there.
+
+    Raises:
+        ValueError: ``threshold_fraction`` is outside ``0.0..1.0``. A threshold above one can
+            never be met and a negative one is met by everything; both would silently make the
+            figure meaningless rather than wrong in a visible way.
+    """
+    if not 0.0 <= threshold_fraction <= 1.0:
+        raise ValueError(
+            f"effective-context threshold must be within 0.0..1.0; got {threshold_fraction!r}."
+        )
+    if not accuracy_by_context:
+        return unavailable(REASON_NO_CONTEXT_OBSERVATIONS)
+    lengths = sorted(accuracy_by_context)
+    baseline = accuracy_by_context[lengths[0]]
+    if baseline <= 0.0:
+        return unavailable(REASON_NO_CONTEXT_BASELINE)
+    threshold = baseline * threshold_fraction
+    passing = [length for length in lengths if accuracy_by_context[length] >= threshold]
+    if not passing:  # pragma: no cover — the baseline always clears its own threshold
+        return unavailable(REASON_NO_CONTEXT_BASELINE)
+    return MetricResult(float(max(passing)))
+
+
 SAMPLE_METRICS: Mapping[str, Callable[[SampleFacts], MetricResult]] = {
     # Counts and durations the provider reported, passed through so they aggregate like any other
     # metric rather than being read straight off a column by three different callers.
@@ -425,6 +490,7 @@ AGGREGATE_METRIC_KEYS: frozenset[str] = frozenset(
         "total_tokens_per_success",
         "quality_per_1k_output_tokens",
         "successes_per_million_output_tokens",
+        "effective_context_tokens",
     }
 )
 """Metric keys that exist only over a *set* of samples (benchmark catalog §3.3).

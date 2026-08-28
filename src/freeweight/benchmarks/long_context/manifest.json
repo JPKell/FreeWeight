@@ -1,0 +1,71 @@
+{
+  "key": "native.long_context",
+  "name": "Long Context",
+  "version": "1.0.0",
+  "category": "long_context",
+  "runner": "native",
+  "scorer": "long_context_retrieval",
+  "capabilities": [
+    "long_context"
+  ],
+  "requires": {
+    "provider_capabilities": [],
+    "sandbox": false,
+    "network": false
+  },
+  "dataset_hashes": {
+    "long_context_needles": "sha256:6a211703fe7ad37b5b0c6f49bd07c4a6417b81518cdc7ad40f024592c3dfdd8d"
+  },
+  "prompt_ids": [
+    {
+      "prompt_id": "benchmarks.long_context.retrieve",
+      "version": "1.0.0",
+      "sha256": "sha256:f97a5bc119ee53ced1a26ef2e27d584e81c618d75a62343ffef7d9625aa13c47"
+    }
+  ],
+  "prompt_subset_hash": "sha256:d81c0ccf167872ecdaec275a4931dcbfa7b976a406dd0092cc1a965c9a8fae11",
+  "target_device": "any",
+  "metrics": [
+    {
+      "key": "retrieval_accuracy",
+      "unit": "ratio",
+      "higher_is_better": true,
+      "aggregation": "mean",
+      "description": "Share of cases whose buried fact was returned exactly.",
+      "source": "score"
+    },
+    {
+      "key": "effective_context_tokens",
+      "unit": "tokens",
+      "higher_is_better": true,
+      "aggregation": "max",
+      "description": "The largest tested context whose accuracy still reaches the configured share of the shortest-context baseline. Displayed beside the advertised context, never instead of it."
+    },
+    {
+      "key": "longest_tested_context_tokens",
+      "unit": "tokens",
+      "higher_is_better": true,
+      "aggregation": "max",
+      "description": "The longest context this sweep actually probed. A property of the measurement, not of the model: when effective_context_tokens equals it, the model did not fail anywhere the sweep looked, and the figure is a floor rather than a limit.",
+      "source": "detail"
+    },
+    {
+      "key": "distractor_accuracy",
+      "unit": "ratio",
+      "higher_is_better": true,
+      "aggregation": "mean",
+      "description": "Retrieval accuracy in the presence of near-miss distractor sentences.",
+      "source": "score"
+    },
+    {
+      "key": "distributed_reasoning_accuracy",
+      "unit": "ratio",
+      "higher_is_better": true,
+      "aggregation": "mean",
+      "description": "Share of two-fact chains answered correctly when the facts sit far apart.",
+      "source": "score"
+    }
+  ],
+  "license": "project",
+  "description": "Needle retrieval swept across context length, needle position and distractor volume, plus two-fact chains at distance. Advertised context and effective context are always reported as separate numbers."
+}

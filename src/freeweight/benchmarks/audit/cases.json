@@ -1,0 +1,26 @@
+{
+  "corpus": "audit_code",
+  "tests": [
+    {
+      "key": "mutation_corpus",
+      "name": "Injected defects",
+      "source": "mutated",
+      "measurement_class": "warm",
+      "metric_keys": [
+        "defect_detection_score",
+        "precision",
+        "recall",
+        "f1",
+        "line_localization_accuracy",
+        "function_localization_accuracy"
+      ]
+    },
+    {
+      "key": "clean_samples",
+      "name": "Known-correct code",
+      "source": "clean",
+      "measurement_class": "warm",
+      "metric_keys": ["clean_code_silence_rate", "clean_code_false_positive_rate"]
+    }
+  ]
+}

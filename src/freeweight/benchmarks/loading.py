@@ -133,12 +133,18 @@ def verify_prompts(manifest: BenchmarkManifest, pack: PromptLibrary) -> None:
         manifest: The suite's manifest.
         pack: The installed prompt pack.
 
+    Compared against the records as **installed**, never against the records as overridden. A
+    user override deliberately differs from the manifest (prompt standards §6) and is refused at
+    *run start* rather than at registry build: an override that stopped the application from
+    starting would make the one user-editable surface in the system unusable, which is the
+    opposite of what §6 is for.
+
     Raises:
         ValueError: The declared ``prompt_subset_hash`` does not match what the pack's declared
             prompts hash to. Refused rather than recomputed — see the module docstring.
         PromptNotFound: The manifest declares a prompt the installed pack does not have.
     """
-    references = pack.references(
+    references = pack.shipped_references(
         (entry["prompt_id"], entry.get("version")) for entry in manifest.prompt_ids
     )
     actual = prompt_subset_hash(references)
@@ -167,6 +173,7 @@ def metric_definitions(manifest: BenchmarkManifest) -> dict[str, MetricDefinitio
             higher_is_better=bool(entry["higher_is_better"]),
             aggregation=str(entry["aggregation"]),
             description=str(entry.get("description", "")),
+            source=str(entry.get("source", "auto")),
         )
         for entry in manifest.body.get("metrics", ())
     }

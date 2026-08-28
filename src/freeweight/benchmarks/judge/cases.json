@@ -1,0 +1,67 @@
+{
+  "corpus": "judge_comparisons",
+  "tests": [
+    {
+      "key": "pairwise_correctness",
+      "name": "Pairwise correctness",
+      "family": "pairs",
+      "kind": "pairwise",
+      "measurement_class": "warm",
+      "metric_keys": ["judge_quality_score", "pairwise_accuracy"]
+    },
+    {
+      "key": "position_bias",
+      "name": "Position bias",
+      "family": "pairs",
+      "kind": "position",
+      "measurement_class": "warm",
+      "metric_keys": ["judge_quality_score", "swap_consistency", "position_preference_rate"]
+    },
+    {
+      "key": "repetition_stability",
+      "name": "Repetition stability",
+      "family": "pairs",
+      "kind": "repetition",
+      "repetitions": 3,
+      "measurement_class": "warm",
+      "metric_keys": ["judge_quality_score", "repetition_agreement_rate"]
+    },
+    {
+      "key": "verbosity_bias",
+      "name": "Verbosity bias",
+      "family": "verbosity",
+      "kind": "verbosity",
+      "measurement_class": "warm",
+      "metric_keys": ["judge_quality_score", "verbosity_preference_rate"]
+    },
+    {
+      "key": "style_bias",
+      "name": "Style bias",
+      "family": "style",
+      "kind": "style",
+      "measurement_class": "warm",
+      "metric_keys": ["judge_quality_score", "style_preference_rate"]
+    },
+    {
+      "key": "transitivity",
+      "name": "Transitivity",
+      "family": "triples",
+      "kind": "transitivity",
+      "measurement_class": "warm",
+      "metric_keys": ["judge_quality_score", "transitivity_violation_rate"]
+    },
+    {
+      "key": "self_preference",
+      "name": "Self-preference",
+      "family": "self_preference",
+      "kind": "self_preference",
+      "measurement_class": "warm",
+      "metric_keys": [
+        "judge_quality_score",
+        "self_preference_delta",
+        "self_preference_anonymized",
+        "self_preference_attributed"
+      ]
+    }
+  ]
+}

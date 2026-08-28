@@ -43,7 +43,7 @@ if TYPE_CHECKING:
     from modelrack.provider import Provider
     from sweatmeter import TelemetryCollector
 
-    from freeweight.config import TelemetrySettings
+    from freeweight.config import Settings, TelemetrySettings
     from freeweight.domain.benchmark import BenchmarkRegistry
     from freeweight.services.database import Database
 
@@ -116,6 +116,7 @@ class RunScheduler:
         "_provider",
         "_publisher",
         "_registry",
+        "_settings",
         "_stop",
         "_telemetry",
         "_thread",
@@ -129,6 +130,7 @@ class RunScheduler:
         registry: BenchmarkRegistry | None = None,
         collector: TelemetryCollector | None = None,
         telemetry: TelemetrySettings | None = None,
+        settings: Settings | None = None,
         poll_interval_seconds: float = _DEFAULT_POLL_INTERVAL_SECONDS,
         clock: Clock = utc_now,
     ) -> None:
@@ -138,6 +140,7 @@ class RunScheduler:
         self._registry = registry if registry is not None else build_registry()
         self._collector = collector
         self._telemetry = telemetry
+        self._settings = settings
         self._poll_interval_seconds = poll_interval_seconds
         self._clock = clock
         self._publisher = RunEventPublisher(database, clock=clock)
@@ -268,6 +271,7 @@ class RunScheduler:
             run_id,
             collector=self._collector,
             telemetry=self._telemetry,
+            settings=self._settings,
             clock=self._clock,
         )
         logger.info("run.finished", extra={"run_id": run_id, "status": status.value})

@@ -8,6 +8,92 @@ packaging and release standards §3.
 ## [Unreleased]
 
 ### Added
+- **Phase 8: four judgement-dependent suites, and judge infrastructure that measures the judge.**
+  `native.audit` runs a mutation corpus *and its clean originals*, so "a model that reports many
+  possible problems must not score well" is a measurement rather than an aspiration: precision,
+  recall and F1 sit beside a clean-code false-positive rate, and localization is scored apart from
+  detection. `native.critique` reports correction uplift and — as a headline, not a footnote — the
+  regression rate, measured on the half of the corpus whose answers were already right.
+  `native.judge` measures a model *as* a judge across all seven of the catalog's tests: pairwise
+  correctness, position bias, repetition stability, verbosity bias, style bias, transitivity and
+  self-preference, every figure produced by counting verdicts rather than reading them.
+  `native.long_context` sweeps depth, needle position and distractor volume and reports
+  `effective_context_tokens` against a recorded threshold — a number that says nothing at all when
+  a model fails everywhere, rather than reporting its shortest tested context — beside
+  `longest_tested_context_tokens`, so a model that did not fail anywhere the sweep looked reads as
+  a floor rather than as observed degradation.
+- `freeweight.domain.judging`: the selection, blinding, order randomization, repetition, agreement
+  and linkage every judged number stands on, in one place, so that `native.judge` and the goal
+  suites cannot do any of them differently. A juror never judges its own output, and the refusal is
+  recorded rather than discounted.
+- **Phase 8A: goal packs.** A user can hand-write a goal whose criteria are entirely rules, run it
+  against a model, and get a scored, drillable result with **no judge involved anywhere**. Thirteen
+  rung-2 rule types and four rung-3 reference types, each a pure function whose docstring states
+  what it refuses; a composite with hard gates, weights and `score_method_mix`; `goal_hash` over the
+  measurement-defining subset only, so renaming a criterion keeps a year of results together and
+  changing what it checks separates them.
+- `goals`, `goal_criteria`, `goal_tasks` and `criterion_scores` (migration `0005`), with
+  `criterion_scores` written in the same transaction as its sample so a composite can never be read
+  back with fewer criteria than the sample it belongs to. A skipped criterion has `raw_score = NULL`
+  and a check constraint says so.
+- `freeweight goals list|show|init|edit|validate|suggest-rules|export|import` and
+  `GET|POST|PUT|DELETE /api/v1/goals` with `/validate`, `/suggest-rules`, `/tasks`, `/export` and
+  `POST /goals/import`. `PUT` reports the old and new `goal_hash` and how many existing runs the
+  change would separate **before** it is applied; `DELETE` previews what it would orphan and how
+  many of the author's own grades it would destroy.
+- The rubric lint: it flags a judged criterion a rule could check and names the rule, refuses a
+  judged criterion whose scale carries no descriptors, and reports every problem a pack has at once
+  with a severity each. It never rewrites the author's criterion.
+- **Prompt overrides, wired** (prompt standards §6). `$XDG_CONFIG_HOME/freeweight/prompts/` is
+  loaded at startup; a benchmark run that would render an overridden prompt is **refused** unless
+  `--allow-prompt-override` is passed, and when it is, the override becomes a
+  reproducibility-fingerprint input and a recorded degradation — so the results separate rather
+  than silently merging with runs of the shipped prompt.
+- **Phase 8B: calibration, the jury and the gate.** A judged criterion becomes a *measurement*: the
+  author grades, a seeded stratified partition splits the grades into anchors and a holdout, the
+  jury scores the holdout it has never seen, and the agreement is reported with every number.
+  Quadratic-weighted Cohen's kappa, Spearman's rho, mean absolute error and signed bias, none of
+  them ever separated from the `n_holdout` they were computed over; Krippendorff's alpha across
+  jurors; and `judge_validity_factor` with ADR-0032 §2's shrinkage, so six held-out samples at
+  `kappa_w` 0.71 yield 0.55 and not 0.71.
+- `calibration_samples`, `calibration_grades`, `calibration_reports` and `judge_verdicts`
+  (migration `0006`). Grading is resumable and idempotent per `(sample, criterion)`, because
+  grading twelve samples across five criteria is a real sitting; `judge_verdicts` keeps one row per
+  juror per repetition in full, because the jury's dispersion *is* the measurement's error bar.
+- `freeweight goals calibrate|grade|calibration show|report`, `freeweight judges list|validate`,
+  and the calibration and judge endpoints. A goal below the agreement gate is a `200`, not an
+  error: the run completes, every sample is inspectable, the result is badged `uncalibrated`, and
+  the diagnostics name the criteria and the specific held-out samples where the jury diverged from
+  the author — with both rationales. `CALIBRATION_INSUFFICIENT` is a different state with a
+  different remedy, and the code, the API and the copy all keep them apart.
+
+### Changed
+- The Jinja2 environment prompts render in is now sandboxed
+  (`jinja2.sandbox.SandboxedEnvironment`). `StrictUndefined` and a missing loader do not stop
+  `{{ ''.__class__.__mro__ }}` from resolving, and a goal pack imported from another machine is
+  somebody else's file — spec §14 calls it untrusted input to FreeWeight's own renderer, and this
+  is what that requires.
+- The user-supplied regex dialect now refuses **unbounded repetition of a group** —
+  `(?:a|a?)+`, `(a+)+b`, `(a|ab)*c` — at pack-load time. That is where catastrophic backtracking
+  lives, and CPython's regex engine holds the GIL for the whole match, so no in-process timeout can
+  interrupt one once it starts. Bounded repetition and every character-class quantifier are
+  unaffected. See `PHASE8_ISSUES.md` §11.
+- A benchmark manifest's metric may declare `source` (`auto` | `detail` | `score`). `auto` is the
+  default and is the existing three-source resolution order; `detail` removes its final fallback,
+  so a conditional rate whose denominator was empty for *every* sample is reported as unmeasured
+  rather than silently becoming the mean score under that metric's name.
+- A goal suite installs as `<goal_pack_version>+<first 8 hex of goal_hash>`, so a measurement-
+  defining edit cannot land in the previous version's series even when the author did not bump the
+  pack version.
+
+### Fixed
+- Nothing: these phases add behaviour rather than correcting it. The two defects found while
+  building them — an unpartitioned calibration sample being renderable as a judge-prompt exemplar,
+  and a goal slug reaching `mkdtemp` before it was pattern-checked — were introduced and fixed
+  within the same phase, and both are asserted against in
+  `tests/integration/test_calibration_flow.py` and `tests/security/test_goal_pack_import.py`.
+
+### Added
 - Phase 7: five deterministic quality suites. `native.instruction_following` checks
   machine-checkable constraints across format, length, keyword, structure and language classes and
   reports strict, loose and instruction-level accuracy separately; `native.structured_output`

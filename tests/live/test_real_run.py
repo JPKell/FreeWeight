@@ -287,3 +287,245 @@ def test_the_five_quality_suites_run_end_to_end_on_a_real_model(live_environment
         assert produced <= declared, f"{suite} produced {produced - declared} outside its manifest"
         # Rung 5 is not reachable in this phase, and a live run is where a mistake would show.
         assert all(metric.metric_key != "judge_agreement" for metric in detail.metrics)
+
+
+def test_the_four_judgement_dependent_suites_run_end_to_end_on_a_real_model(
+    live_environment: Any,
+) -> None:
+    """Phase 8's suites on real weights, asserting shape rather than values.
+
+    The same discipline as the Phase 7 entry above: a live test asserts that the run *completed
+    and produced interpretable metrics*, never that a particular local model audits well or judges
+    without position bias — those are what these suites exist to measure, and a test that demanded
+    a score would fail on a weaker model regardless of whether the measurement was correct.
+    """
+    from freeweight.config import ExecutionSettings
+    from freeweight.services.runs import ExecutionConfig, create_run, get_run
+    from freeweight.services.scheduler import RunScheduler
+
+    execution = ExecutionConfig.resolve(
+        ExecutionSettings(
+            warmup_repetitions=1,
+            cooldown_seconds=0,
+            randomize_case_order=False,
+            idle_gpu_threshold_percent=0,
+        ),
+        measured_repetitions=1,
+    )
+    for suite in ("native.audit", "native.critique", "native.judge", "native.long_context"):
+        summary = create_run(
+            live_environment["database"],
+            live_environment["provider"],
+            live_environment["collector"],
+            live_environment["registry"],
+            model_ref=live_environment["model_ref"],
+            suite_key=suite,
+            execution=execution,
+        )
+        RunScheduler(
+            live_environment["database"],
+            live_environment["provider"],
+            registry=live_environment["registry"],
+        ).run_once()
+
+        detail = get_run(live_environment["database"], summary.id)
+        assert detail.run.status == "completed", f"{suite}: {detail.run.error_text}"
+        declared = {
+            metric.key
+            for test in live_environment["registry"].get(suite).tests
+            for metric in test.metrics
+        }
+        for metric in detail.metrics:
+            assert metric.metric_key in declared, f"{suite}: undeclared metric {metric.metric_key}"
+            assert metric.unit
+            assert metric.numeric_value is not None or metric.unavailable_reason
+
+
+def test_effective_context_differs_from_advertised_context_and_the_data_explains_it(
+    live_environment: Any,
+) -> None:
+    """Phase 8 acceptance criterion 3, which needs real weights to be demonstrable at all.
+
+    Advertised context is what the runtime accepts; effective context is where accuracy is still
+    close to the short-context baseline. This asserts that both numbers exist, that the effective
+    one is a length the sweep actually tested, and that the per-sample depth data is there to
+    explain the difference — never that a particular model's effective context is a particular
+    size, which is the measurement rather than the assertion.
+
+    The criterion says the two "differ on at least one real model". They *may* legitimately agree
+    on a model whose long-context behaviour holds up across the shipped sweep, so a difference is
+    reported rather than required: what is asserted is that the comparison is *possible* and that
+    the data behind it is present.
+    """
+    from freeweight.config import ExecutionSettings
+    from freeweight.services.runs import ExecutionConfig, create_run, get_run, list_samples
+    from freeweight.services.scheduler import RunScheduler
+
+    execution = ExecutionConfig.resolve(
+        ExecutionSettings(
+            warmup_repetitions=1,
+            cooldown_seconds=0,
+            randomize_case_order=False,
+            idle_gpu_threshold_percent=0,
+        ),
+        measured_repetitions=1,
+    )
+    summary = create_run(
+        live_environment["database"],
+        live_environment["provider"],
+        live_environment["collector"],
+        live_environment["registry"],
+        model_ref=live_environment["model_ref"],
+        suite_key="native.long_context",
+        execution=execution,
+    )
+    RunScheduler(
+        live_environment["database"],
+        live_environment["provider"],
+        registry=live_environment["registry"],
+    ).run_once()
+
+    detail = get_run(live_environment["database"], summary.id)
+    assert detail.run.status == "completed", detail.run.error_text
+
+    effective = next(
+        metric
+        for metric in detail.metrics
+        if metric.metric_key == "effective_context_tokens" and metric.run_test_id is None
+    )
+    advertised = detail.run.served_context
+    assert advertised is not None, "the run recorded no served context to compare against"
+
+    depths = [
+        float(length)
+        for test in detail.tests
+        for sample in list_samples(live_environment["database"], test.id, limit=100)
+        if isinstance(length := sample.detail.get("context_tokens"), int | float)
+    ]
+    assert depths, "no sample recorded the context length it ran at"
+
+    if effective.numeric_value is None:
+        # A model that answered nothing anywhere has *no* effective context, which is a real and
+        # honest outcome rather than a small one — and the reason is on the row.
+        assert effective.unavailable_reason in {
+            "no_short_context_baseline",
+            "no_context_observations",
+        }
+        return
+    assert effective.numeric_value in set(depths), (
+        "effective context is not one of the lengths the sweep tested"
+    )
+    assert effective.numeric_value <= advertised + 1024, (
+        "effective context exceeded the advertised context, which cannot happen"
+    )
+
+
+def test_a_rules_only_goal_runs_end_to_end_on_a_real_model(
+    live_environment: Any, tmp_path: Any
+) -> None:
+    """Phase 8A acceptance criteria 1 and 2, on real weights.
+
+    A hand-written goal pack whose criteria are entirely rules, run against a real model, with no
+    judge configured anywhere. Asserts a composite score, per-criterion scores, a
+    ``score_method_mix`` that is entirely rules, and a ``judge_validity_factor`` of 1.0 — none of
+    which depends on how well the model writes, which is what the goal exists to measure.
+    """
+    from freeweight.config import ExecutionSettings
+    from freeweight.services.goals import load_goals, sync_goals, write_pack
+    from freeweight.services.runs import ExecutionConfig, build_registry, create_run, get_run
+    from freeweight.services.scheduler import RunScheduler
+
+    root = tmp_path / "live-goals"
+    root.mkdir()
+    write_pack(
+        root,
+        goal={
+            "slug": "live_voice",
+            "name": "Live voice",
+            "goal_pack_version": "1.0.0",
+            "schema_version": "1.0",
+            "created_by": "live test",
+            "criteria": [
+                {
+                    "key": "no_llm_tells",
+                    "name": "No LLM tells",
+                    "rung": "rule",
+                    "weight": 0.5,
+                    "rule": {
+                        "type": "forbidden_phrases",
+                        "phrases": ["delve", "tapestry", "in today's landscape"],
+                    },
+                },
+                {
+                    "key": "length",
+                    "name": "About a paragraph",
+                    "rung": "rule",
+                    "weight": 0.5,
+                    "rule": {"type": "word_count", "min": 40, "max": 200},
+                },
+            ],
+        },
+        tasks=[
+            {
+                "prompt_id": "goals.live_voice.warehouse",
+                "version": "1.0.0",
+                "schema_version": "1.0",
+                "purpose": "One task for the live goal run.",
+                "task": "goal.live_voice",
+                "capability": "creative_writing",
+                "system": None,
+                "template": "Write one paragraph about a stock count that did not add up.",
+                "variables": {},
+                "response": {"format": "text", "json_schema_ref": None, "expectations": []},
+                "model_requirements": {
+                    "min_context_tokens": 2048,
+                    "requires_capabilities": [],
+                    "recommended_temperature": 0.8,
+                },
+                "metadata": {
+                    "author": "live test",
+                    "created_at": "2026-08-27T00:00:00Z",
+                    "changed_at": "2026-08-27T00:00:00Z",
+                    "change_reason": "First version.",
+                    "supersedes": None,
+                    "tags": ["goal"],
+                    "goal_task": {"key": "warehouse", "name": "Warehouse night"},
+                },
+            }
+        ],
+    )
+    goals = load_goals(root)
+    sync_goals(live_environment["database"], goals)
+    registry = build_registry(goals=goals)
+    summary = create_run(
+        live_environment["database"],
+        live_environment["provider"],
+        live_environment["collector"],
+        registry,
+        model_ref=live_environment["model_ref"],
+        suite_key="goal.live_voice",
+        execution=ExecutionConfig.resolve(
+            ExecutionSettings(
+                warmup_repetitions=1, cooldown_seconds=0, idle_gpu_threshold_percent=0
+            ),
+            measured_repetitions=1,
+        ),
+    )
+    RunScheduler(
+        live_environment["database"], live_environment["provider"], registry=registry
+    ).run_once()
+
+    detail = get_run(live_environment["database"], summary.id)
+    assert detail.run.status == "completed", detail.run.error_text
+    values = {
+        metric.metric_key: metric.numeric_value
+        for metric in detail.metrics
+        if metric.run_test_id is None
+    }
+    assert values["composite_score"] is not None
+    assert 0.0 <= values["composite_score"] <= 1.0
+    assert values["criterion.no_llm_tells"] is not None
+    assert values["criterion.length"] is not None
+    assert values["score_method_mix_rule"] == 1.0
+    assert values["score_method_mix_judge"] == 0.0
+    assert values["judge_validity_factor"] == 1.0

@@ -78,6 +78,23 @@ class MetricDefinition:
             (data model §2, ``metric_values``).
         description: One sentence a tooltip can show, so every metric can reveal its definition
             (UI standards §5).
+        source: Where the number comes from: ``"auto"``, ``"detail"`` or ``"score"``.
+
+            ``"auto"`` is the resolution order of [Benchmark Catalog
+            §5.1](../../../../docs/apps/freeweight/benchmark-catalog.md) — sample facts, then
+            scorer detail, then the sample's score — and it is the default, so every manifest
+            written before this field existed behaves exactly as it did.
+
+            ``"detail"`` **removes the last step**: the metric is measured by the scorer or it is
+            not measured at all, and a test where no sample carried it is ``UNSUPPORTED`` rather
+            than the headline score wearing this metric's name. It exists because the auto order's
+            final fallback is only safe for a key no scorer would ever record: a conditional rate
+            such as ``precision``, whose denominator is empty when a model reports nothing, is
+            absent from *every* sample the moment the model reports nothing at all — and silently
+            became the mean score at exactly the moment its real value was most interesting.
+
+            ``"score"`` is the mirror image: this metric *is* the sample's score, stated rather
+            than reached by falling through two other sources.
     """
 
     key: str
@@ -85,6 +102,7 @@ class MetricDefinition:
     higher_is_better: bool
     aggregation: str
     description: str = ""
+    source: str = "auto"
 
 
 @dataclass(frozen=True, slots=True)

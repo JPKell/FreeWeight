@@ -12,10 +12,11 @@ from __future__ import annotations
 from alembic import context
 
 from freeweight.infrastructure.db import models as _models  # noqa: F401
+from freeweight.infrastructure.db import models_goals as _models_goals  # noqa: F401
 from freeweight.infrastructure.db import models_runs as _models_runs  # noqa: F401
 from freeweight.infrastructure.db.base import Base
 
-# Both model modules are imported for their side effect of registering their tables on
+# All three model modules are imported for their side effect of registering their tables on
 # ``Base.metadata``. Without them, ``target_metadata`` is empty here and autogenerate — including
 # ``MigrationRunner.check_parity`` — compares a live database against nothing and reports every
 # real table as an extra one to drop. The import is in this module rather than left to whichever

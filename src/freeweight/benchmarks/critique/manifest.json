@@ -1,0 +1,96 @@
+{
+  "key": "native.critique",
+  "name": "Critiquing",
+  "version": "1.0.0",
+  "category": "critiquing",
+  "runner": "native",
+  "scorer": "critique",
+  "capabilities": [
+    "critiquing"
+  ],
+  "requires": {
+    "provider_capabilities": [],
+    "sandbox": false,
+    "network": false
+  },
+  "dataset_hashes": {
+    "critique_answers": "sha256:c728d73671780aa74ff46b71fa8ecbc6b50d9bf8029c28537a0232f98d46851f"
+  },
+  "prompt_ids": [
+    {
+      "prompt_id": "benchmarks.critique.review",
+      "version": "1.0.0",
+      "sha256": "sha256:f8cee9d21d3076f143ee84afeb0023313b02e5acaaba4001ffd299e73cc5dd61"
+    }
+  ],
+  "prompt_subset_hash": "sha256:a6dfab2a7c114b2e27efc3f52237373e662a0c21f4467d1bc4d262b556c0f335",
+  "target_device": "any",
+  "metrics": [
+    {
+      "key": "post_correction_accuracy",
+      "unit": "ratio",
+      "higher_is_better": true,
+      "aggregation": "mean",
+      "description": "Share of cases whose answer was right after the critique. The suite's headline.",
+      "source": "detail"
+    },
+    {
+      "key": "original_accuracy",
+      "unit": "ratio",
+      "higher_is_better": true,
+      "aggregation": "mean",
+      "description": "Share of candidate answers that were already right — the corpus's own composition, reported so uplift can be read.",
+      "source": "detail"
+    },
+    {
+      "key": "correction_uplift",
+      "unit": "ratio",
+      "higher_is_better": true,
+      "aggregation": "mean",
+      "description": "Post-correction accuracy minus original accuracy, measured per case so the mean is the difference of the means.",
+      "source": "detail"
+    },
+    {
+      "key": "regression_rate",
+      "unit": "ratio",
+      "higher_is_better": false,
+      "aggregation": "mean",
+      "description": "Share of already-correct answers the critic made incorrect. A headline metric, not a footnote.",
+      "source": "detail"
+    },
+    {
+      "key": "error_detection_recall",
+      "unit": "ratio",
+      "higher_is_better": true,
+      "aggregation": "mean",
+      "description": "Share of genuinely wrong answers the critic flagged. Absent on cases whose candidate was right.",
+      "source": "detail"
+    },
+    {
+      "key": "criticism_precision",
+      "unit": "ratio",
+      "higher_is_better": true,
+      "aggregation": "mean",
+      "description": "Share of flagged answers that were genuinely wrong. Absent for a case the critic did not flag.",
+      "source": "detail"
+    },
+    {
+      "key": "hallucinated_criticism_rate",
+      "unit": "ratio",
+      "higher_is_better": false,
+      "aggregation": "mean",
+      "description": "Share of already-correct answers the critic flagged anyway.",
+      "source": "detail"
+    },
+    {
+      "key": "valid_correction_rate",
+      "unit": "ratio",
+      "higher_is_better": true,
+      "aggregation": "mean",
+      "description": "Share of offered corrections that were right. Absent where no correction was offered.",
+      "source": "detail"
+    }
+  ],
+  "license": "project",
+  "description": "Question, candidate answer and known correctness. Half the candidates are already right, which is what makes the hallucinated-criticism and regression rates measurable rather than assumed."
+}

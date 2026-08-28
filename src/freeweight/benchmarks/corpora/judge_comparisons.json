@@ -1,0 +1,105 @@
+{
+  "corpus_id": "native.judge.comparisons",
+  "version": "1.0.0",
+  "description": "Answer pairs with a gold preference, a concise/verbose pair whose longer answer is the weaker one, a plain/decorated pair whose content is identical, ordered triples for the transitivity check, and reference answers the model's own work is compared against. Every gold preference is a fact about the corpus, recorded here, never inferred at run time.",
+  "pairs": [
+    {
+      "id": "kv_cache",
+      "question": "Why does a longer prompt slow down the first token of a local model's reply?",
+      "better": "The prompt has to be evaluated before anything is generated: every token is pushed through the model once to build the KV cache. That pass is compute-bound and grows roughly linearly with prompt length, so time-to-first-token rises with the prompt while the per-token decode rate afterwards stays about the same.",
+      "worse": "Longer prompts use more memory, and when memory is full the model has to think harder about each word, which makes the whole reply slower from beginning to end.",
+      "gold": "better"
+    },
+    {
+      "id": "quantization",
+      "question": "What does an 8-bit quantization of a model actually change?",
+      "better": "It stores the weights at lower precision -- eight bits per value rather than sixteen -- so the file and the resident VRAM roughly halve. Arithmetic is usually still done at higher precision after dequantizing, so the speed-up comes mostly from moving fewer bytes, and the cost is a small, measurable loss of accuracy.",
+      "worse": "It removes eight bits from every number so the model is twice as fast and half as accurate. There is no other difference.",
+      "gold": "better"
+    },
+    {
+      "id": "seed",
+      "question": "Does fixing a sampling seed make a model's output reproducible?",
+      "better": "It makes the *sampling* reproducible for a fixed model, prompt and set of sampling parameters on the same backend build. It does not survive a change of quantization, batch size, kernel or hardware, because those change the arithmetic that produced the logits the seed then samples from.",
+      "worse": "Yes. A fixed seed always gives the same answer, on any machine, for any model.",
+      "gold": "better"
+    },
+    {
+      "id": "context_window",
+      "question": "If a model advertises a 128K context, can I rely on it at 100K tokens?",
+      "better": "Not without measuring it. Advertised context is what the runtime will accept; effective context is where accuracy is still close to the short-context baseline, and the two frequently differ. Retrieval accuracy also varies with where in the prompt the relevant fact sits.",
+      "worse": "Yes -- 128K is the tested limit, so anything below it behaves the same as a short prompt.",
+      "gold": "better"
+    }
+  ],
+  "verbosity": [
+    {
+      "id": "gpu_layers",
+      "question": "What does the gpu_layers setting do?",
+      "concise": "It sets how many of the model's transformer layers are placed on the GPU. Layers that do not fit run on the CPU, which is far slower, so the useful setting is the largest number that still fits in VRAM alongside the KV cache.",
+      "verbose": "This is a really important and frequently misunderstood setting, and it is worth taking a moment to understand it properly, because getting it right can make a very substantial difference to your experience. In broad terms, what this setting is doing is influencing how the model is arranged across the various pieces of hardware available to it. There are many considerations here -- memory, throughput, thermal behaviour, driver versions, and the specific runtime you happen to be using -- and all of them interact in ways that can be surprising. Many practitioners find that experimentation is the best guide, and it is generally advisable to try several values and observe the results carefully before settling on one. In short, it controls something about how much work the graphics card does.",
+      "disfavoured": "verbose"
+    },
+    {
+      "id": "temperature",
+      "question": "What does temperature 0 do to sampling?",
+      "concise": "It makes sampling greedy: the highest-probability token is taken every step. The result is still not bit-identical across different backends or batch sizes, because the logits themselves can differ.",
+      "verbose": "Temperature is one of those parameters that everybody adjusts and few people fully explain, so it is worth setting out the landscape. Conceptually, temperature governs the shape of the probability distribution from which the next token is drawn, and by adjusting it you are, in effect, expressing a preference about the balance between predictability and variety in the output you receive. Lower values push things towards the predictable end of that spectrum, while higher values open the door to more unusual continuations. Practitioners have developed a range of heuristics over the years, and reasonable people disagree. When set to zero, the effect is at the extreme end of the predictable direction.",
+      "disfavoured": "verbose"
+    }
+  ],
+  "style": [
+    {
+      "id": "vram_headroom",
+      "question": "How much VRAM headroom should I leave when loading a model?",
+      "plain": "Leave room for the KV cache as well as the weights. The cache grows with context length and batch size, so a model that fits at 4K context can fail at 32K.",
+      "flourish": "**Leave room for the KV cache as well as the weights.** The cache *grows* with context length and batch size -- so a model that fits at 4K context can fail at 32K.\n\n- Weights: fixed\n- KV cache: grows\n\n> Plan for the cache, not just the weights.",
+      "disfavoured": "flourish"
+    },
+    {
+      "id": "cold_warm",
+      "question": "Why measure a cold run and a warm run separately?",
+      "plain": "A cold run includes loading the weights from disk into VRAM; a warm one does not. Averaging them produces a number neither state ever produced.",
+      "flourish": "### Why measure a cold run and a warm run separately?\n\n1. A **cold** run includes loading the weights from disk into VRAM.\n2. A **warm** run does *not*.\n\nAveraging them produces a number **neither state ever produced**. :contentReference",
+      "disfavoured": "flourish"
+    }
+  ],
+  "triples": [
+    {
+      "id": "why_ttft_varies",
+      "question": "Why does time-to-first-token vary between runs of the same prompt?",
+      "best": "Prompt evaluation is compute-bound and shares the GPU with anything else running; the runtime may also have unloaded the model, so a cold run pays a load cost a warm one does not. Both are measurable, which is why runs record their measurement class and the observed utilization.",
+      "middle": "The GPU is sometimes busy with other work, and the model may need loading first, so the first token can take longer on some runs than others.",
+      "worst": "The model is thinking about the answer and sometimes it thinks for longer.",
+      "ordering": [
+        "best",
+        "middle",
+        "worst"
+      ]
+    },
+    {
+      "id": "why_tokens_differ",
+      "question": "Why do two providers report different token counts for the same text?",
+      "best": "They tokenize with different vocabularies, and they draw the boundary between prompt and completion differently -- some count the chat template's control tokens, some do not. Counts are only comparable within one provider and one model family, which is why they are stored with the provider that reported them.",
+      "middle": "Different models use different tokenizers, so the same sentence can be split into a different number of pieces.",
+      "worst": "One of them is wrong; token counts should be the same everywhere.",
+      "ordering": [
+        "best",
+        "middle",
+        "worst"
+      ]
+    }
+  ],
+  "self_preference": [
+    {
+      "id": "sp_effective_context",
+      "question": "In two sentences, explain what effective context length means.",
+      "reference_answer": "Effective context is the largest prompt length at which a model's accuracy is still close to its short-prompt baseline. It is measured rather than advertised, and it is usually smaller than the context the runtime will accept."
+    },
+    {
+      "id": "sp_regression_rate",
+      "question": "In two sentences, explain why a critic's regression rate matters.",
+      "reference_answer": "Regression rate counts the answers that were already right and were made wrong by the critique. Without it, a critic that fixes nine answers and breaks one looks identical to one that fixes nine and breaks none."
+    }
+  ]
+}

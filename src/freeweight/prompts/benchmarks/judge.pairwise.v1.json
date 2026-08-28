@@ -1,0 +1,51 @@
+{
+  "prompt_id": "benchmarks.judge.pairwise",
+  "version": "1.0.0",
+  "schema_version": "1.0",
+  "purpose": "Present two labelled answers to one question and ask for a single declared verdict, so position, verbosity, style, repetition, transitivity and self-preference can each be measured by counting verdicts.",
+  "task": "benchmark.judge",
+  "capability": "reasoning",
+  "system": "You are comparing two answers to the same question. Judge only which answer is better; do not rewrite either. Answer with JSON and nothing else.",
+  "template": "QUESTION\n{{ question }}\n\n{{ answers }}\n{{ attribution }}\nWhich answer is better? Answer as JSON in exactly this shape:\n{\"choice\": \"A\" or \"B\" or \"tie\", \"reason\": \"<one sentence>\"}",
+  "variables": {
+    "question": {
+      "type": "string",
+      "required": true,
+      "description": "The question both answers respond to."
+    },
+    "answers": {
+      "type": "string",
+      "required": true,
+      "description": "The labelled answer block, built by the harness so that a swapped presentation differs from its original in order alone."
+    },
+    "attribution": {
+      "type": "string",
+      "required": false,
+      "default": "",
+      "description": "An optional line naming whose answer is whose. Empty for a blinded presentation; the self-preference test is the only case that fills it, and the difference between the two is the measurement."
+    }
+  },
+  "response": {
+    "format": "json",
+    "json_schema_ref": null,
+    "expectations": [
+      "A single JSON object carrying 'choice' as 'A', 'B' or 'tie'."
+    ]
+  },
+  "model_requirements": {
+    "min_context_tokens": 4096,
+    "requires_capabilities": [],
+    "recommended_temperature": 0.0
+  },
+  "metadata": {
+    "author": "suite",
+    "created_at": "2026-08-27T00:00:00Z",
+    "changed_at": "2026-08-27T00:00:00Z",
+    "change_reason": "First version: native.judge needs one presentation prompt whose only variable across a swap is the order of the answer block, so that a difference in verdict is a difference in position and nothing else.",
+    "supersedes": null,
+    "tags": [
+      "benchmark",
+      "judge"
+    ]
+  }
+}

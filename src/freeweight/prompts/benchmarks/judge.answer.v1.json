@@ -1,0 +1,40 @@
+{
+  "prompt_id": "benchmarks.judge.answer",
+  "version": "1.0.0",
+  "schema_version": "1.0",
+  "purpose": "Obtain the model's own answer to a question, so the self-preference test can later ask it to compare that answer against a reference both anonymously and with attribution.",
+  "task": "benchmark.judge",
+  "capability": "reasoning",
+  "system": "Answer the question directly and briefly. Do not comment on the question or on your own answer.",
+  "template": "{{ question }}",
+  "variables": {
+    "question": {
+      "type": "string",
+      "required": true,
+      "description": "The question to answer, taken from the self-preference corpus."
+    }
+  },
+  "response": {
+    "format": "text",
+    "json_schema_ref": null,
+    "expectations": [
+      "A short direct answer, with no preamble."
+    ]
+  },
+  "model_requirements": {
+    "min_context_tokens": 4096,
+    "requires_capabilities": [],
+    "recommended_temperature": 0.0
+  },
+  "metadata": {
+    "author": "suite",
+    "created_at": "2026-08-27T00:00:00Z",
+    "changed_at": "2026-08-27T00:00:00Z",
+    "change_reason": "First version: the self-preference test measures whether attribution changes a judge's verdict on its own work, which requires the judge to have produced that work in the same run rather than being shown a stand-in.",
+    "supersedes": null,
+    "tags": [
+      "benchmark",
+      "judge"
+    ]
+  }
+}
