@@ -167,8 +167,8 @@ def metric_definitions(manifest: BenchmarkManifest) -> dict[str, MetricDefinitio
         The definitions, by key.
     """
     return {
-        str(entry["key"]): MetricDefinition(
-            key=str(entry["key"]),
+        str(entry["metric_key"]): MetricDefinition(
+            metric_key=str(entry["metric_key"]),
             unit=str(entry["unit"]),
             higher_is_better=bool(entry["higher_is_better"]),
             aggregation=str(entry["aggregation"]),

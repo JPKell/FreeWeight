@@ -139,7 +139,7 @@ class TestCriterion1CliRunCompletes:
         run_metric = next(
             m
             for m in body["metrics"]
-            if m["run_test_id"] is None and m["key"] == "harness_roundtrip_success"
+            if m["run_test_id"] is None and m["metric_key"] == "harness_roundtrip_success"
         )
         assert run_metric["sample_count"] > 0
         assert run_metric["excluded_count"] == 0

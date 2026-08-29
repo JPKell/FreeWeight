@@ -37,7 +37,9 @@ from freeweight.web.routes import calibration as calibration_routes
 from freeweight.web.routes import compare as compare_routes
 from freeweight.web.routes import dashboard as dashboard_routes
 from freeweight.web.routes import database as database_routes
+from freeweight.web.routes import evidence as evidence_routes
 from freeweight.web.routes import goals as goals_routes
+from freeweight.web.routes import grading as grading_routes
 from freeweight.web.routes import machines as machines_routes
 from freeweight.web.routes import models as models_routes
 from freeweight.web.routes import results as results_routes
@@ -156,8 +158,9 @@ def create_app(settings: Settings, *, goals: Sequence[LoadedGoal] = ()) -> FastA
 
     Registers, from outermost to innermost: the request-ID middleware, Host-header validation,
     the request body size limit, the standard error envelope handlers, the ``/api/v1`` system,
-    run, comparison, results, database and settings routes, static assets, and the HTML pages
-    (the shell, dashboard, machines, models, runs, results, compare, database and settings).
+    run, comparison, results, evidence, database and settings routes, static assets, and the HTML
+    pages (the shell, dashboard, machines, models, runs, results, compare, evidence, grading,
+    database and settings).
 
     Still a pure function of its arguments — it opens nothing. The database handle is created by
     the lifespan, which runs only when the application is actually served (or when a test enters
@@ -205,6 +208,7 @@ def create_app(settings: Settings, *, goals: Sequence[LoadedGoal] = ()) -> FastA
     app.include_router(machines_routes.api_router, prefix="/api/v1")
     app.include_router(models_routes.api_router, prefix="/api/v1")
     app.include_router(benchmarks_routes.api_router, prefix="/api/v1")
+    app.include_router(evidence_routes.api_router, prefix="/api/v1")
     app.include_router(machines_routes.router)
     app.include_router(models_routes.router)
     app.include_router(runs_routes.router)
@@ -214,6 +218,8 @@ def create_app(settings: Settings, *, goals: Sequence[LoadedGoal] = ()) -> FastA
     app.include_router(database_routes.router)
     app.include_router(settings_routes.router)
     app.include_router(wizard_routes.router)
+    app.include_router(evidence_routes.router)
+    app.include_router(grading_routes.router)
 
     if _STATIC_DIR.is_dir():
         app.mount("/static", StaticFiles(directory=_STATIC_DIR), name="static")

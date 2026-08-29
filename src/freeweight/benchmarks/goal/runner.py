@@ -60,6 +60,8 @@ __all__ = [
     "build_goal_benchmark",
     "goal_suite_key",
     "goal_suite_version",
+    "outcome_from_detail",
+    "verdict_from_outcomes",
 ]
 
 CATEGORY = "user_defined_goals"
@@ -137,7 +139,7 @@ def _metrics(pack: GoalPack) -> list[dict[str, Any]]:
     """
     declared: list[dict[str, Any]] = [
         {
-            "key": "composite_score",
+            "metric_key": "composite_score",
             "unit": "ratio",
             "higher_is_better": True,
             "aggregation": "mean",
@@ -145,7 +147,7 @@ def _metrics(pack: GoalPack) -> list[dict[str, Any]]:
             "description": "The weighted composite across this goal's criteria, gates applied.",
         },
         {
-            "key": "gated_sample_rate",
+            "metric_key": "gated_sample_rate",
             "unit": "ratio",
             "higher_is_better": False,
             "aggregation": "mean",
@@ -154,7 +156,7 @@ def _metrics(pack: GoalPack) -> list[dict[str, Any]]:
             "on the sample.",
         },
         {
-            "key": "applied_weight_share",
+            "metric_key": "applied_weight_share",
             "unit": "ratio",
             "higher_is_better": True,
             "aggregation": "mean",
@@ -163,7 +165,7 @@ def _metrics(pack: GoalPack) -> list[dict[str, Any]]:
             "Below 1.0 means criteria were skipped, and the sample says which.",
         },
         {
-            "key": "judge_validity_factor",
+            "metric_key": "judge_validity_factor",
             "unit": "ratio",
             "higher_is_better": True,
             "aggregation": "mean",
@@ -174,7 +176,7 @@ def _metrics(pack: GoalPack) -> list[dict[str, Any]]:
     ]
     declared.extend(
         {
-            "key": f"score_method_mix_{rung.value}",
+            "metric_key": f"score_method_mix_{rung.value}",
             "unit": "ratio",
             "higher_is_better": True,
             "aggregation": "mean",
@@ -186,7 +188,7 @@ def _metrics(pack: GoalPack) -> list[dict[str, Any]]:
     )
     declared.extend(
         {
-            "key": f"criterion.{criterion.key}",
+            "metric_key": f"criterion.{criterion.key}",
             "unit": "ratio",
             "higher_is_better": True,
             "aggregation": "mean",
@@ -344,9 +346,44 @@ def _combine(
         The verdict. ``score=None`` with :data:`ERROR_NO_CRITERION_SCORED` when nothing
         contributed — an unmeasured sample, not a bad one.
     """
+    return verdict_from_outcomes(
+        slug=scorer.pack.slug,
+        case_id=case.case_id,
+        outcomes=outcomes,
+        judge_validity_factor=scorer.judge_validity_factor,
+        method=scorer.method,
+    )
+
+
+def verdict_from_outcomes(
+    *,
+    slug: str,
+    case_id: str,
+    outcomes: Sequence[CriterionOutcome],
+    judge_validity_factor: float = 1.0,
+    method: ScoreMethod = ScoreMethod.RULE,
+) -> ScoreResult:
+    """Combine one sample's criterion outcomes into the verdict the run engine stores.
+
+    The one definition of a goal sample's ``result_json``. Three callers share it — the
+    single-phase scorer, the judging phase, and the human-grading service that finishes a rung-4
+    criterion after the run has completed — so a grade recorded a week later produces the same
+    shape, key for key, as a verdict produced during the run.
+
+    Args:
+        slug: The goal's slug, for the error text.
+        case_id: The case being scored.
+        outcomes: Every criterion's outcome, in the goal's declaration order.
+        judge_validity_factor: The goal's calibrated validity factor, written onto the sample.
+        method: The method reported when nothing contributed.
+
+    Returns:
+        The verdict. ``score=None`` with :data:`ERROR_NO_CRITERION_SCORED` when nothing
+        contributed — an unmeasured sample, not a bad one.
+    """
     composite = composite_score(outcomes)
     detail: dict[str, Any] = {
-        "case": case.case_id,
+        "case": case_id,
         **composite.as_detail(),
         "gated_sample_rate": 1.0 if composite.gated_by is not None else 0.0,
         "applied_weight_share": (
@@ -354,7 +391,7 @@ def _combine(
             if composite.declared_weight
             else 0.0
         ),
-        "judge_validity_factor": scorer.judge_validity_factor,
+        "judge_validity_factor": judge_validity_factor,
         **{f"score_method_mix_{rung}": share for rung, share in composite.score_method_mix.items()},
         **{
             f"criterion.{outcome.criterion_key}": float(outcome.raw_score)
@@ -365,12 +402,12 @@ def _combine(
     if composite.composite is None:
         return ScoreResult(
             score=None,
-            method=scorer.method,
+            method=method,
             detail=detail,
             error_code=ERROR_NO_CRITERION_SCORED,
             error_text=(
-                f"No criterion of goal {scorer.pack.slug!r} could be measured on case "
-                f"{case.case_id!r}; every one was skipped or errored."
+                f"No criterion of goal {slug!r} could be measured on case {case_id!r}; every one "
+                "was skipped or errored."
             ),
         )
     return ScoreResult(
@@ -419,7 +456,7 @@ def finish_deferred(
             judged.append(criterion)
             outcomes.append(_unscored(criterion, SkipReason.JUDGE_UNAVAILABLE))
         elif criterion.key in by_key:
-            outcomes.append(_outcome_from_detail(criterion, by_key[criterion.key]))
+            outcomes.append(outcome_from_detail(criterion, by_key[criterion.key]))
         elif criterion.rung.is_deterministic:  # pragma: no cover — generation writes every rule
             outcomes.append(_unscored(criterion, SkipReason.UNSUPPORTED))
         else:
@@ -436,8 +473,20 @@ def finish_deferred(
     return _combine(scorer, case, outcomes)
 
 
-def _outcome_from_detail(criterion: Criterion, entry: Mapping[str, Any]) -> CriterionOutcome:
-    """Rebuild one criterion outcome from the entry a sample stored for it."""
+def outcome_from_detail(criterion: Criterion, entry: Mapping[str, Any]) -> CriterionOutcome:
+    """Rebuild one criterion outcome from the entry a sample stored for it.
+
+    Public because the human-grading service reads a completed sample's stored criteria back
+    the same way the judging phase does, and one reader of that entry is one fewer way for the
+    stored shape to be misread.
+
+    Args:
+        criterion: The criterion the entry belongs to.
+        entry: The stored ``criteria`` entry.
+
+    Returns:
+        The outcome.
+    """
     raw = entry.get("raw_score")
     return CriterionOutcome(
         criterion_key=criterion.key,
@@ -566,7 +615,7 @@ def build_goal_benchmark(
     )
     definitions = tuple(
         MetricDefinition(
-            key=str(entry["key"]),
+            metric_key=str(entry["metric_key"]),
             unit=str(entry["unit"]),
             higher_is_better=bool(entry["higher_is_better"]),
             aggregation=str(entry["aggregation"]),

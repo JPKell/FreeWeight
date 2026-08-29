@@ -454,7 +454,9 @@ class TestAJudgedScoreCarriesItsInstrument:
     def test_the_named_bias_metrics_are_the_ones_the_suite_produces(self) -> None:
         from freeweight.benchmarks.judge.benchmark import load_suite_manifest
 
-        declared = {str(entry["key"]) for entry in load_suite_manifest().body.get("metrics", ())}
+        declared = {
+            str(entry["metric_key"]) for entry in load_suite_manifest().body.get("metrics", ())
+        }
         assert set(BIAS_METRIC_KEYS) <= declared
 
 

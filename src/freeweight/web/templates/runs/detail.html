@@ -17,6 +17,9 @@
   · {{ run.suite_key }} <span class="muted">{{ run.suite_version }}</span>
   · <code>{{ run.model_canonical_id }}</code>
   {% if run.label %} · {{ run.label }}{% endif %}
+  {% if run.suite_key.startswith('goal.') and run.status == 'completed' %}
+  · <a href="/runs/{{ run.id }}/grade">grade its human criteria</a>
+  {% endif %}
 </p>
 {% if run.error_code %}
 <div class="error-state" role="alert">

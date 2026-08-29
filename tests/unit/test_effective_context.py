@@ -35,7 +35,7 @@ from freeweight.domain.metrics import (
 )
 
 _METRIC = MetricDefinition(
-    key="effective_context_tokens",
+    metric_key="effective_context_tokens",
     unit="tokens",
     higher_is_better=True,
     aggregation="max",

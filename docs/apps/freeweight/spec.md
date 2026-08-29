@@ -330,8 +330,21 @@ Configuration Standards. Principal sections:
               holdout_fraction = 0.4   partition_seed = 0
               min_agreement = 0.40                 # weighted kappa_w gate for emitting evidence
               n_holdout_target = 10                # shrinkage denominator (ADR-0032 §2)
+[evidence]    n_target = 30                        # ADR-0017's confidence parameters, every one
+              quality_half_life_days = 90.0   performance_half_life_days = 30.0
+              freshness_floor = 0.3   stale_below = 0.5   name_only_identity_factor = 0.6
+              performance_drift_factor = 0.7   quality_drift_factor = 0.5
+              goal_contribution_weight = 1.0       # a goal's weight inside contributes_to (ADR-0032 §1)
+              capability_weights_path = unset      # custom capability_weights.toml; unset = shipped
 [logging]     level = "INFO"       include_content = false
 ```
+
+**`[evidence]` is ADR-0017's policy, and a change to it is a new policy.** Every parameter is
+recorded on the evidence it produces beside a `policy_version`; customising any of them, or
+pointing `capability_weights_path` at a copy of the shipped
+`capability_weights.toml` ([benchmark catalog §6](benchmark-catalog.md)), derives a distinct
+version from the content, so evidence computed under two policies coexists as two rows rather
+than one row meaning two things (ADR-0022 §3).
 
 Goal runs store full response text by default (`store_prompts`/`store_responses` forced on): a
 judged score that cannot be re-read by the person who defined the rubric is not auditable, which
@@ -381,12 +394,13 @@ content-identity fact does. A 32 000-token sweep and a 128 000-token sweep are t
 are never averaged — a sweep that stopped earlier reports a smaller effective context for reasons
 that have nothing to do with the model.
 
-**The generated configuration reference is owed.** Configuration Standards
-§8 requires a `docs/configuration.md` per application,
-generated from the settings model so it cannot drift, with a CI test that fails on divergence. This
-section is the current authority and is hand-maintained; the sections added since it was written
-(`[goals]`, `[judge]`, `[calibration]`, `[runtime]`) are exactly the ones a generator would have
-kept current for free.
+**The generated configuration reference is the field-level authority.** `docs/configuration.md`
+in the FreeWeight repository is produced from the settings model by
+`scripts/generate_config_reference.py` — key path, environment variable, type, default, range,
+runtime-changeability, security implications and an example per field — and a CI job fails when
+the committed file differs from what the model generates (Configuration Standards
+§8). This section is the summary; where the two
+disagree, the generated document is right and this one is stale.
 
 Benchmark **execution parameters** additionally resolve through the second precedence chain
 (application → suite → test → saved settings → run overrides), and the resolved values are frozen

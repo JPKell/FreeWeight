@@ -132,7 +132,7 @@ class EchoTest:
         """The single metric this test produces."""
         return (
             MetricDefinition(
-                key="harness_roundtrip_success",
+                metric_key="harness_roundtrip_success",
                 unit="ratio",
                 higher_is_better=True,
                 aggregation="mean",

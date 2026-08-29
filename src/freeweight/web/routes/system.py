@@ -25,6 +25,7 @@ from fastapi.responses import JSONResponse, StreamingResponse
 from freeweight.__about__ import __version__
 from freeweight.config import data_dir
 from freeweight.infrastructure.db.errors import DatabaseError
+from freeweight.services.export import EMITTED_SCHEMAS
 from freeweight.services.health import get_health_report
 from freeweight.services.telemetry import format_heartbeat, format_sample_event, snapshot_to_json
 
@@ -80,7 +81,7 @@ async def version() -> dict[str, object]:
     return {
         "application": {"name": "freeweight", "version": __version__, "git_commit": None},
         "api": {"current": "v1", "supported": ["v1"], "deprecated": []},
-        "schemas": {},
+        "schemas": dict(EMITTED_SCHEMAS),
     }
 
 

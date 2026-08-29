@@ -43,6 +43,7 @@ PAGES = (
     "/runs",
     "/results",
     "/compare",
+    "/evidence",
     "/database",
     "/settings",
 )

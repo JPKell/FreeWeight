@@ -325,9 +325,11 @@ reproducibility fingerprint.
   "prompt_subset_hash": "sha256:…",
   "target_device": "gpu",
   "metrics": [
-    {"key": "task_success", "unit": "ratio", "higher_is_better": true, "aggregation": "mean"},
-    {"key": "tool_selection_accuracy", "unit": "ratio", "higher_is_better": true, "aggregation": "mean"},
-    {"key": "unnecessary_tool_call_rate", "unit": "ratio", "higher_is_better": false,
+    {"metric_key": "task_success", "unit": "ratio", "higher_is_better": true,
+     "aggregation": "mean"},
+    {"metric_key": "tool_selection_accuracy", "unit": "ratio", "higher_is_better": true,
+     "aggregation": "mean"},
+    {"metric_key": "unnecessary_tool_call_rate", "unit": "ratio", "higher_is_better": false,
      "aggregation": "mean", "source": "detail"}
   ],
   "license": "project",
@@ -344,7 +346,8 @@ none gets no heatmap column — the honest outcome of nobody having decided — 
 every panel. Goal suites resolve to `composite_score` without declaring anything, because every one
 of them has it.
 
-A metric declares `key`, `unit`, `higher_is_better` and `aggregation`, and may declare **`source`**
+A metric declares `metric_key`, `unit`, `higher_is_better` and `aggregation`, and may declare
+**`source`**
 — `auto` (the default), `detail` or `score` — which pins where its value comes from rather than
 letting resolution fall through §5.1's order. Every manifest written before this field existed
 behaves identically under `auto`.
@@ -354,6 +357,11 @@ command, dataset paths and hashes, required executables, container requirement, 
 
 Rules: benchmark versions are pinned; a dataset never updates silently between comparison runs;
 results from different suite versions are separated, never averaged.
+
+**`metric_key` is spelled the same everywhere** — in this manifest, on every API surface that
+reports a value, and in `metric_values`. Declaring a metric and reporting a value for one are
+different acts, and naming them differently meant a reader moving between a manifest and a result
+had to translate; a contract test now fails the build if either side drifts.
 
 `dataset_hashes` covers whatever installed content the suite's results depend on — a corpus, a case
 file, or a ladder the machine's configuration fits (§3.12). It is the general mechanism for "this

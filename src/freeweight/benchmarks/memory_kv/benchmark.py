@@ -161,14 +161,14 @@ class ContextProbeScorer:
 
 _PREFILL_METRICS: tuple[MetricDefinition, ...] = (
     MetricDefinition(
-        key="prompt_tokens",
+        metric_key="prompt_tokens",
         unit="count",
         higher_is_better=True,
         aggregation="mean",
         description="Prompt tokens the provider reported for this case.",
     ),
     MetricDefinition(
-        key="prompt_eval_ms",
+        metric_key="prompt_eval_ms",
         unit="ms",
         higher_is_better=False,
         aggregation="mean",

@@ -417,18 +417,17 @@ class TestTheGate:
 
     def test_and_capability_evidence_has_no_row(self, database: Any, goal: Any) -> None:
         # Asserted directly. "We emitted it quietly at the floor" is exactly the failure the gate
-        # exists to prevent, so the absence is checked rather than inferred. The table itself does
-        # not exist until Phase 11 builds the evidence pipeline; when it does, this assertion
-        # keeps meaning the same thing.
+        # exists to prevent, so the absence is checked rather than inferred. Phase 11 created the
+        # table, and the assertion means exactly what it meant when the table did not exist: a
+        # goal below its gate has no row here. The end-to-end form — a run of an uncalibrated
+        # goal, recomputed, still yields no row for `user.<slug>` *or* for the capability it
+        # contributes to — is tests/contract/test_evidence_export.py's.
         _seed_grades(database, goal)
         run_calibration(database, goal, jury=FakeJury(truth={}), graded_by="tester")
         with database.read() as session:
-            inspector = inspect(session.get_bind())
-            if inspector.has_table("capability_evidence"):
-                count = session.scalar(text("SELECT COUNT(*) FROM capability_evidence"))
-                assert count == 0
-            else:
-                assert "capability_evidence" not in inspector.get_table_names()
+            assert inspect(session.get_bind()).has_table("capability_evidence")
+            count = session.scalar(text("SELECT COUNT(*) FROM capability_evidence"))
+            assert count == 0
 
     def test_but_every_sample_is_still_inspectable(self, database: Any, goal: Any) -> None:
         _seed_grades(database, goal)

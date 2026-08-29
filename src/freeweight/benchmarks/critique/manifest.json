@@ -28,7 +28,7 @@
   "target_device": "any",
   "metrics": [
     {
-      "key": "post_correction_accuracy",
+      "metric_key": "post_correction_accuracy",
       "unit": "ratio",
       "higher_is_better": true,
       "aggregation": "mean",
@@ -36,7 +36,7 @@
       "source": "detail"
     },
     {
-      "key": "original_accuracy",
+      "metric_key": "original_accuracy",
       "unit": "ratio",
       "higher_is_better": true,
       "aggregation": "mean",
@@ -44,7 +44,7 @@
       "source": "detail"
     },
     {
-      "key": "correction_uplift",
+      "metric_key": "correction_uplift",
       "unit": "ratio",
       "higher_is_better": true,
       "aggregation": "mean",
@@ -52,7 +52,7 @@
       "source": "detail"
     },
     {
-      "key": "regression_rate",
+      "metric_key": "regression_rate",
       "unit": "ratio",
       "higher_is_better": false,
       "aggregation": "mean",
@@ -60,7 +60,7 @@
       "source": "detail"
     },
     {
-      "key": "error_detection_recall",
+      "metric_key": "error_detection_recall",
       "unit": "ratio",
       "higher_is_better": true,
       "aggregation": "mean",
@@ -68,7 +68,7 @@
       "source": "detail"
     },
     {
-      "key": "criticism_precision",
+      "metric_key": "criticism_precision",
       "unit": "ratio",
       "higher_is_better": true,
       "aggregation": "mean",
@@ -76,7 +76,7 @@
       "source": "detail"
     },
     {
-      "key": "hallucinated_criticism_rate",
+      "metric_key": "hallucinated_criticism_rate",
       "unit": "ratio",
       "higher_is_better": false,
       "aggregation": "mean",
@@ -84,7 +84,7 @@
       "source": "detail"
     },
     {
-      "key": "valid_correction_rate",
+      "metric_key": "valid_correction_rate",
       "unit": "ratio",
       "higher_is_better": true,
       "aggregation": "mean",

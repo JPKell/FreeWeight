@@ -28,79 +28,79 @@
   "target_device": "gpu",
   "metrics": [
     {
-      "key": "output_tokens",
+      "metric_key": "output_tokens",
       "unit": "count",
       "higher_is_better": true,
       "aggregation": "mean"
     },
     {
-      "key": "decode_ms",
+      "metric_key": "decode_ms",
       "unit": "ms",
       "higher_is_better": false,
       "aggregation": "mean"
     },
     {
-      "key": "gpu_energy_joules",
+      "metric_key": "gpu_energy_joules",
       "unit": "J",
       "higher_is_better": false,
       "aggregation": "sum"
     },
     {
-      "key": "joules_per_request",
+      "metric_key": "joules_per_request",
       "unit": "J",
       "higher_is_better": false,
       "aggregation": "mean"
     },
     {
-      "key": "joules_per_output_token",
+      "metric_key": "joules_per_output_token",
       "unit": "J",
       "higher_is_better": false,
       "aggregation": "mean"
     },
     {
-      "key": "joules_per_successful_task",
+      "metric_key": "joules_per_successful_task",
       "unit": "J",
       "higher_is_better": false,
       "aggregation": "mean"
     },
     {
-      "key": "output_tokens_per_joule",
+      "metric_key": "output_tokens_per_joule",
       "unit": "tokens/J",
       "higher_is_better": true,
       "aggregation": "mean"
     },
     {
-      "key": "successful_tasks_per_kwh",
+      "metric_key": "successful_tasks_per_kwh",
       "unit": "tasks/kWh",
       "higher_is_better": true,
       "aggregation": "mean"
     },
     {
-      "key": "mean_gpu_power_watts",
+      "metric_key": "mean_gpu_power_watts",
       "unit": "W",
       "higher_is_better": false,
       "aggregation": "mean"
     },
     {
-      "key": "peak_gpu_power_watts",
+      "metric_key": "peak_gpu_power_watts",
       "unit": "W",
       "higher_is_better": false,
       "aggregation": "max"
     },
     {
-      "key": "max_gpu_temperature_c",
+      "metric_key": "max_gpu_temperature_c",
       "unit": "°C",
       "higher_is_better": false,
       "aggregation": "max"
     },
     {
-      "key": "max_cpu_temperature_c",
+      "metric_key": "max_cpu_temperature_c",
       "unit": "°C",
       "higher_is_better": false,
       "aggregation": "max"
     },
     {
-      "key": "throttling_suspected",
+      "metric_key": "throttling_suspected",
       "unit": "ratio",
       "higher_is_better": false,
       "aggregation": "max"

@@ -654,16 +654,34 @@ def grade(
         ),
     ],
     graded_by: Annotated[str, typer.Option("--graded-by", help="Who is grading.")] = "unknown",
+    run: Annotated[
+        str | None,
+        typer.Option(
+            "--run",
+            help=(
+                "Grade a completed run's own samples on this goal's human (rung-4) criteria, "
+                "instead of the calibration set. The CLI form of /runs/{id}/grade."
+            ),
+        ),
+    ] = None,
     config: _ConfigOption = None,
     json_output: _JsonOption = False,
 ) -> None:
-    """Record grades for calibration samples. Mode: local.
+    """Record grades for calibration samples, or for a run's samples with ``--run``. Mode: local.
 
     Idempotent per ``(sample, criterion)``: partial submission is normal, and re-grading a sample
     you changed your mind about replaces the grade rather than adding a second observation of it.
 
+    With ``--run``, the grades land on that run's samples' ``human`` criteria: each sample's
+    composite is recomputed, the run's aggregate metrics are rewritten and the subject's capability
+    evidence is refreshed, exactly as the blinded grading screen does. The sample IDs come from
+    ``freeweight run show <id>``; which model produced the run is deliberately not printed here.
+
     Example:
-        freeweight goals grade my_voice
+        freeweight goals grade my_voice --file grades.json
+
+    Example:
+        freeweight goals grade my_voice --run 01J9K2M --file grades.json --graded-by me
     """
     from baseaicore import SuiteError
 
@@ -679,6 +697,9 @@ def grade(
     if not isinstance(body, list):
         typer.echo("Error: the grade file must be a JSON list.", err=True)
         raise typer.Exit(_EXIT_USAGE)
+    if run is not None:
+        _grade_run(settings, database, run, body, graded_by=graded_by, json_output=json_output)
+        return
     with database:
         goal = _synced(settings, database, slug)
         try:
@@ -707,6 +728,57 @@ def grade(
     typer.echo(
         f"  {progress.recorded}/{progress.expected} graded across {progress.samples} samples "
         f"and {progress.judged_criteria} criteria."
+    )
+
+
+def _grade_run(  # noqa: PLR0913 — the run form of `grade` takes exactly what `grade` does
+    settings: Any,  # noqa: ANN401 — the resolved Settings
+    database: Any,  # noqa: ANN401 — a Database context manager
+    run: str,
+    body: list[Any],
+    *,
+    graded_by: str,
+    json_output: bool,
+) -> None:
+    """Record ``goals grade --run`` grades on a completed run's samples, or exit 5."""
+    from baseaicore import SuiteError
+
+    from freeweight.services.calibration import (
+        RunGradeSubmission,
+        record_run_grades,
+        run_grading_view,
+    )
+    from freeweight.services.runs import build_registry_for
+
+    with database:
+        try:
+            recorded = record_run_grades(
+                database,
+                run,
+                [
+                    RunGradeSubmission(
+                        sample_id=str(entry["sample_id"]),
+                        criterion_key=str(entry["criterion"]),
+                        grade=int(entry["grade"]),
+                        note=str(entry.get("note", "")),
+                    )
+                    for entry in body
+                ],
+                graded_by=graded_by,
+                registry=build_registry_for(settings),
+                evidence_settings=settings.evidence,
+            )
+            view = run_grading_view(database, run)
+        except (SuiteError, KeyError, TypeError, ValueError) as exc:
+            typer.echo(f"Error: {exc}", err=True)
+            raise typer.Exit(_EXIT_OPERATION_FAILED) from exc
+    if json_output:
+        typer.echo(json.dumps({"recorded": recorded, **view.as_json()}))
+        return
+    typer.echo(f"Recorded {recorded} grade(s) on run {run}.")
+    typer.echo(
+        f"  {view.recorded}/{view.expected} graded across {len(view.samples)} samples and "
+        f"{len(view.criteria)} human criteria."
     )
 
 

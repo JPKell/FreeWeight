@@ -51,6 +51,7 @@ from freeweight.domain.scoring import ScoreMethod
 from freeweight.infrastructure.db.models_runs import Run
 from freeweight.infrastructure.db.repositories.runs import RunTestRepository, ToolCallRepository
 from freeweight.services.runs import (
+    RUN_PROVENANCE_METRICS,
     ExecutionConfig,
     build_registry,
     create_run,
@@ -149,9 +150,10 @@ class TestFiveSuitesRunEndToEnd:
         # direction — not the headline score repeated a dozen times under a dozen names.
         detail = _run_suite(environment, suite)
         benchmark = build_registry().get(suite)
-        declared = {entry["key"] for entry in benchmark.manifest.body["metrics"]}
+        declared = {entry["metric_key"] for entry in benchmark.manifest.body["metrics"]}
         produced = {metric.metric_key for metric in detail.metrics}
-        assert produced <= declared
+        allowed = declared | set(RUN_PROVENANCE_METRICS)
+        assert produced <= allowed, f"{suite} produced {produced - allowed} it declares nowhere"
         assert produced, f"{suite} produced no metric under any declared key"
 
     def test_distinct_metrics_get_distinct_values(self, environment: Any) -> None:

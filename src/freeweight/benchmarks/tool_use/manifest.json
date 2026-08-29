@@ -28,91 +28,91 @@
   "target_device": "any",
   "metrics": [
     {
-      "key": "tool_selection_accuracy",
+      "metric_key": "tool_selection_accuracy",
       "unit": "ratio",
       "higher_is_better": true,
       "aggregation": "mean",
       "description": "Share of the calls a case requires that the model actually made."
     },
     {
-      "key": "argument_schema_validity",
+      "metric_key": "argument_schema_validity",
       "unit": "ratio",
       "higher_is_better": true,
       "aggregation": "mean",
       "description": "Share of calls whose arguments parsed and satisfied the tool's own schema."
     },
     {
-      "key": "argument_semantic_correctness",
+      "metric_key": "argument_semantic_correctness",
       "unit": "ratio",
       "higher_is_better": true,
       "aggregation": "mean",
       "description": "Share of required calls made with the argument values the case names."
     },
     {
-      "key": "unnecessary_call_rate",
+      "metric_key": "unnecessary_call_rate",
       "unit": "ratio",
       "higher_is_better": false,
       "aggregation": "mean",
       "description": "Share of calls to tools the case did not require."
     },
     {
-      "key": "missed_tool_rate",
+      "metric_key": "missed_tool_rate",
       "unit": "ratio",
       "higher_is_better": false,
       "aggregation": "mean",
       "description": "Share of required calls the model never made."
     },
     {
-      "key": "hallucinated_tool_rate",
+      "metric_key": "hallucinated_tool_rate",
       "unit": "ratio",
       "higher_is_better": false,
       "aggregation": "mean",
       "description": "Share of calls naming a tool that was never offered."
     },
     {
-      "key": "multi_tool_sequence_accuracy",
+      "metric_key": "multi_tool_sequence_accuracy",
       "unit": "ratio",
       "higher_is_better": true,
       "aggregation": "mean",
       "description": "Share of cases where every required call was made."
     },
     {
-      "key": "ordering_accuracy",
+      "metric_key": "ordering_accuracy",
       "unit": "ratio",
       "higher_is_better": true,
       "aggregation": "mean",
       "description": "Share of ordered multi-call cases whose required calls appeared in order. Absent, not zero, where order carries no meaning."
     },
     {
-      "key": "calls_per_success",
+      "metric_key": "calls_per_success",
       "unit": "count",
       "higher_is_better": false,
       "aggregation": "mean",
       "description": "Calls made per successful case. Absent for a failed case, which has no success to divide by."
     },
     {
-      "key": "redundant_call_rate",
+      "metric_key": "redundant_call_rate",
       "unit": "ratio",
       "higher_is_better": false,
       "aggregation": "mean",
       "description": "Share of calls beyond the number the case requires."
     },
     {
-      "key": "repeated_identical_call_rate",
+      "metric_key": "repeated_identical_call_rate",
       "unit": "ratio",
       "higher_is_better": false,
       "aggregation": "mean",
       "description": "Share of calls that repeat an earlier call's tool and arguments exactly."
     },
     {
-      "key": "forbidden_call_rate",
+      "metric_key": "forbidden_call_rate",
       "unit": "ratio",
       "higher_is_better": false,
       "aggregation": "mean",
       "description": "Share of calls to a tool the case forbids."
     },
     {
-      "key": "task_success",
+      "metric_key": "task_success",
       "unit": "ratio",
       "higher_is_better": true,
       "aggregation": "mean",

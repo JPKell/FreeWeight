@@ -363,7 +363,7 @@ def show(
         ]
         body["metrics"] = [
             {
-                "key": metric.metric_key,
+                "metric_key": metric.metric_key,
                 "run_test_id": metric.run_test_id,
                 "value": (
                     "unsupported" if metric.unavailable_reason is not None else metric.numeric_value

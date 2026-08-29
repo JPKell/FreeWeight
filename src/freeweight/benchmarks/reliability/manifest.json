@@ -28,79 +28,79 @@
   "target_device": "gpu",
   "metrics": [
     {
-      "key": "answer_correct",
+      "metric_key": "answer_correct",
       "unit": "ratio",
       "higher_is_better": true,
       "aggregation": "mean"
     },
     {
-      "key": "score_mean",
+      "metric_key": "score_mean",
       "unit": "ratio",
       "higher_is_better": true,
       "aggregation": "mean"
     },
     {
-      "key": "score_median",
+      "metric_key": "score_median",
       "unit": "ratio",
       "higher_is_better": true,
       "aggregation": "median"
     },
     {
-      "key": "score_min",
+      "metric_key": "score_min",
       "unit": "ratio",
       "higher_is_better": true,
       "aggregation": "min"
     },
     {
-      "key": "score_max",
+      "metric_key": "score_max",
       "unit": "ratio",
       "higher_is_better": true,
       "aggregation": "max"
     },
     {
-      "key": "score_stddev",
+      "metric_key": "score_stddev",
       "unit": "ratio",
       "higher_is_better": false,
       "aggregation": "mean"
     },
     {
-      "key": "score_coefficient_of_variation",
+      "metric_key": "score_coefficient_of_variation",
       "unit": "ratio",
       "higher_is_better": false,
       "aggregation": "mean"
     },
     {
-      "key": "score_p95",
+      "metric_key": "score_p95",
       "unit": "ratio",
       "higher_is_better": true,
       "aggregation": "p95"
     },
     {
-      "key": "score_p99",
+      "metric_key": "score_p99",
       "unit": "ratio",
       "higher_is_better": true,
       "aggregation": "p99"
     },
     {
-      "key": "pass_at_1",
+      "metric_key": "pass_at_1",
       "unit": "ratio",
       "higher_is_better": true,
       "aggregation": "mean"
     },
     {
-      "key": "pass_at_k",
+      "metric_key": "pass_at_k",
       "unit": "ratio",
       "higher_is_better": true,
       "aggregation": "mean"
     },
     {
-      "key": "answer_agreement",
+      "metric_key": "answer_agreement",
       "unit": "ratio",
       "higher_is_better": true,
       "aggregation": "mean"
     },
     {
-      "key": "outliers_flagged",
+      "metric_key": "outliers_flagged",
       "unit": "count",
       "higher_is_better": false,
       "aggregation": "sum"

@@ -1,0 +1,152 @@
+{% extends "base.html" %}
+{% block title %}Evidence — FreeWeight{% endblock %}
+{% block content %}
+<h2>Capability evidence</h2>
+<p class="muted">
+  What LoadCoach routes on: one record per model, runtime profile, machine and capability, each
+  with ADR-0017's confidence beside it. A capability with no evidence is absent, never scored
+  zero; a goal below its calibration gate emits nothing at all. The file form is
+  <a href="/api/v1/evidence/export">/api/v1/evidence/export</a>.
+</p>
+
+{% if error %}
+<div class="error-state" role="alert"><p>{{ error }}</p></div>
+{% else %}
+
+<form method="get" action="/evidence" class="filters">
+  <div class="field">
+    <label for="f-capability">Capability</label>
+    <input id="f-capability" name="capability" value="{{ filters.capability }}" placeholder="tool_use">
+  </div>
+  <div class="field">
+    <label for="f-model">Model</label>
+    <input id="f-model" name="model" value="{{ filters.model }}" placeholder="ollama/qwen3.5:9b">
+  </div>
+  <div class="field">
+    <label for="f-stale">Show</label>
+    <select id="f-stale" name="stale">
+      <option value="" {% if not filters.stale %}selected{% endif %}>everything</option>
+      <option value="only" {% if filters.stale == 'only' %}selected{% endif %}>stale only</option>
+    </select>
+  </div>
+  <button type="submit">Filter</button>
+</form>
+
+<dl class="card-grid">
+  <div class="card">
+    <dt>Records</dt>
+    <dd>{{ rows | length }}</dd>
+    <p class="card-note">Across {{ capability_count }} capabilit{{ 'y' if capability_count == 1 else 'ies' }}.</p>
+  </div>
+  <div class="card">
+    <dt>Stale</dt>
+    <dd>{{ stale_count }}</dd>
+    <p class="card-note">Freshness below the threshold, or the environment drifted. Re-run to refresh.</p>
+  </div>
+</dl>
+
+{% if rows %}
+<div class="table-scroll">
+  <table data-table="evidence" data-sortable="true" data-complete="true">
+    <caption>
+      Every stored record. Expand a row to see the six confidence factors and the metrics that
+      contributed, with their weights and sample counts — the answer to "why is this score what it
+      is".
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">Capability</th>
+        <th scope="col">Model</th>
+        <th scope="col" class="numeric">Score</th>
+        <th scope="col" class="numeric">Confidence</th>
+        <th scope="col" class="numeric">Samples</th>
+        <th scope="col">Measured</th>
+        <th scope="col">Status</th>
+        <th scope="col">Why</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for row in rows %}
+      {% set record = row.record %}
+      {% set staleness = row.staleness %}
+      <tr>
+        <td>
+          <code>{{ record.capability_id }}</code>
+          {% if record.is_goal_sourced %}
+          <span class="status status-preparing" title="A user-authored goal produced or contributed to this record">goal</span>
+          {% endif %}
+        </td>
+        <td class="mono">{{ record.model_canonical_id }}
+          {% if record.identity_confidence == 'name_only' %}
+          <span class="status status-interrupted" title="No digest: the weights may have changed under this name">name only</span>
+          {% endif %}
+        </td>
+        <td class="numeric">{{ '%.3f' % record.score }}</td>
+        <td class="numeric">{{ '%.2f' % record.confidence }}</td>
+        <td class="numeric">{{ record.sample_count }}{% if record.excluded_count %} <span class="unit">(+{{ record.excluded_count }} excluded)</span>{% endif %}</td>
+        <td>{{ record.measured_at.strftime('%Y-%m-%d') }} <span class="unit">{{ '%.0f' % staleness.age_days }} d ago</span></td>
+        <td>
+          {% if staleness.stale %}
+          <span class="status status-interrupted">stale</span>
+          {% else %}
+          <span class="status status-completed">fresh</span>
+          {% endif %}
+        </td>
+        <td>
+          <details>
+            <summary>explain</summary>
+            {% if staleness.stale %}
+            <p class="muted">{{ staleness.reasons | join(' ') }} <a href="/runs">Start a run</a> to refresh it.</p>
+            {% endif %}
+            <dl>
+              <dt>Confidence factors</dt>
+              <dd>
+                sample {{ '%.2f' % record.factors.get('sample_factor', 0) }} ·
+                consistency {{ '%.2f' % record.factors.get('consistency_factor', 0) }} ·
+                freshness {{ '%.2f' % record.factors.get('freshness_factor', 0) }} (now {{ '%.2f' % staleness.freshness }}) ·
+                environment {{ '%.2f' % record.factors.get('environment_factor', 0) }} ·
+                identity {{ '%.2f' % record.factors.get('identity_factor', 0) }} ·
+                judge validity {{ '%.2f' % record.judge_validity_factor }}
+              </dd>
+              <dt>Contributing metrics</dt>
+              <dd>
+                <ul>
+                  {% for metric in record.contributing_metrics %}
+                  <li><code>{{ metric.metric_key }}</code> weight {{ '%.2f' % metric.weight }}, n = {{ metric.sample_count }}, contributed {{ '%.3f' % metric.contribution }}</li>
+                  {% endfor %}
+                </ul>
+              </dd>
+              {% if record.calibration %}
+              <dt>Judge agreement</dt>
+              <dd>
+                κ<sub>w</sub> {{ '%.2f' % record.calibration.kappa_w }} over {{ record.calibration.n_holdout }} held-out samples graded by {{ record.calibration.graded_by }};
+                validity factor {{ '%.2f' % record.judge_validity_factor }}.
+                {% if record.score_method_mix %}Score method mix:
+                {% for rung, share in record.score_method_mix.items() %}{{ rung }} {{ '%.0f' % (share * 100) }}%{% if not loop.last %}, {% endif %}{% endfor %}.{% endif %}
+              </dd>
+              {% endif %}
+              <dt>Provenance</dt>
+              <dd>
+                policy {{ record.policy_version }} · vocabulary {{ record.vocabulary_version }} ·
+                profile <code>{{ record.runtime_profile_hash }}</code> ·
+                machine <code>{{ record.machine_fingerprint[:12] }}…</code> ·
+                runs {% for run_id in record.source_run_ids %}<a href="/runs/{{ run_id }}">{{ run_id[:8] }}</a>{% if not loop.last %}, {% endif %}{% endfor %}
+              </dd>
+            </dl>
+          </details>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% else %}
+<div class="empty-state">
+  <h3>No capability evidence yet</h3>
+  <p>Evidence is computed when a run completes. Start one:</p>
+  <pre>freeweight run start --model &lt;model&gt; --suite native.tool_use</pre>
+  <p>A goal with judged criteria also needs to be calibrated before it emits evidence.</p>
+</div>
+{% endif %}
+{% endif %}
+{% endblock %}

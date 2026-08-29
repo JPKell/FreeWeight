@@ -135,7 +135,25 @@ jobs:
       - run: pip install -e ".[dev]"
       - run: pytest -m contract
 
+  docs:
+    # Packaging standards §5's `docs` job: the generated documents must match what the code
+    # generates. `docs/configuration.md` is produced from the settings model (configuration
+    # standards §8) and `docs/openapi.json` from the served application (API standards §11); a
+    # field or a route changed without regenerating either fails here rather than drifting.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12" }
+      - run: pip install -e ".[dev]"
+      - run: python scripts/generate_config_reference.py --check
+      - run: python scripts/generate_openapi_snapshot.py --check
+
   security:
+    # `pip-audit` audits the locked set, not the job's own environment: a bare `pip-audit` here
+    # inspects an environment containing only pip-audit itself and reports nothing (Security
+    # Standards §11). It audits `requirements/ci.lock` too once that file exists — it is blocked
+    # on `setspec 0.3.0` reaching PyPI, for the reason requirements/README.md gives.
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -148,7 +166,7 @@ jobs:
       - uses: actions/setup-python@v5
         with: { python-version: "3.12" }
       - run: pip install pip-audit
-      - run: pip-audit
+      - run: pip-audit --require-hashes -r requirements/release.lock
       - uses: gitleaks/gitleaks-action@v2
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -159,8 +177,11 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with: { python-version: "3.12" }
-      - run: pip install build twine
-      - run: python -m build
+      # The same pinned build chain the release uses, so a wheel that builds here is the wheel
+      # that ships: `--no-isolation` takes the backend from this lock rather than re-resolving
+      # hatchling from the index at build time (requirements/README.md).
+      - run: pip install --require-hashes -r requirements/release.lock
+      - run: python -m build --no-isolation
       - run: twine check dist/*
       - uses: actions/upload-artifact@v4
         with: { name: dist, path: dist/ }

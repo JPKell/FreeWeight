@@ -1,0 +1,3156 @@
+{
+  "components": {
+    "schemas": {
+      "CalibrationRunBody": {
+        "additionalProperties": false,
+        "description": "A request to score the holdout with the configured jury.",
+        "properties": {
+          "graded_by": {
+            "default": "unknown",
+            "minLength": 1,
+            "title": "Graded By",
+            "type": "string"
+          }
+        },
+        "title": "CalibrationRunBody",
+        "type": "object"
+      },
+      "DeleteBody": {
+        "additionalProperties": false,
+        "description": "The selection to delete, plus the token that authorizes it.",
+        "properties": {
+          "scope": {
+            "$ref": "#/components/schemas/DeletionScope"
+          },
+          "selector": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Selector"
+          },
+          "token": {
+            "minLength": 1,
+            "title": "Token",
+            "type": "string"
+          }
+        },
+        "required": [
+          "scope",
+          "token"
+        ],
+        "title": "DeleteBody",
+        "type": "object"
+      },
+      "DeletePreviewBody": {
+        "additionalProperties": false,
+        "description": "The selection to preview.",
+        "properties": {
+          "scope": {
+            "$ref": "#/components/schemas/DeletionScope"
+          },
+          "selector": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Selector"
+          }
+        },
+        "required": [
+          "scope"
+        ],
+        "title": "DeletePreviewBody",
+        "type": "object"
+      },
+      "DeletionScope": {
+        "description": "What a result deletion covers.\n\nAttributes:\n    RUN: One run, by ULID or unambiguous prefix.\n    MODEL: Every run of one model.\n    SUITE: Every run of one benchmark suite key.\n    BEFORE: Every run created strictly before an RFC 3339 instant.\n    ALL: Every run in the database. Still previewed, still confirmed, still transactional.",
+        "enum": [
+          "run",
+          "model",
+          "suite",
+          "before",
+          "all"
+        ],
+        "title": "DeletionScope",
+        "type": "string"
+      },
+      "ForkBody": {
+        "additionalProperties": false,
+        "description": "What to call the forked goal.",
+        "properties": {
+          "slug": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Slug"
+          }
+        },
+        "title": "ForkBody",
+        "type": "object"
+      },
+      "GoalBundleBody": {
+        "additionalProperties": false,
+        "description": "An imported bundle, plus the slug to import it under.",
+        "properties": {
+          "bundle": {
+            "additionalProperties": true,
+            "title": "Bundle",
+            "type": "object"
+          },
+          "slug": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Slug"
+          }
+        },
+        "required": [
+          "bundle"
+        ],
+        "title": "GoalBundleBody",
+        "type": "object"
+      },
+      "GoalPackBody": {
+        "additionalProperties": false,
+        "description": "A goal pack as a request body: its ``goal.json`` and its task prompt records.\n\nTwo fields rather than one nested document, because they are two different kinds of\nthing: the goal is a rubric, and each task is an ADR-0012 prompt record validated by the\nprompt loader rather than by this model.",
+        "properties": {
+          "goal": {
+            "additionalProperties": true,
+            "title": "Goal",
+            "type": "object"
+          },
+          "tasks": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Tasks",
+            "type": "array"
+          }
+        },
+        "required": [
+          "goal"
+        ],
+        "title": "GoalPackBody",
+        "type": "object"
+      },
+      "GradeBody": {
+        "additionalProperties": false,
+        "description": "One grade the author is recording.",
+        "properties": {
+          "criterion": {
+            "minLength": 1,
+            "title": "Criterion",
+            "type": "string"
+          },
+          "grade": {
+            "maximum": 7.0,
+            "minimum": 1.0,
+            "title": "Grade",
+            "type": "integer"
+          },
+          "note": {
+            "default": "",
+            "title": "Note",
+            "type": "string"
+          },
+          "sample_id": {
+            "minLength": 1,
+            "title": "Sample Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "sample_id",
+          "criterion",
+          "grade"
+        ],
+        "title": "GradeBody",
+        "type": "object"
+      },
+      "GradesBody": {
+        "additionalProperties": false,
+        "description": "A batch of grades. Partial submission is normal; progress survives interruption.",
+        "properties": {
+          "graded_by": {
+            "default": "unknown",
+            "minLength": 1,
+            "title": "Graded By",
+            "type": "string"
+          },
+          "grades": {
+            "items": {
+              "$ref": "#/components/schemas/GradeBody"
+            },
+            "title": "Grades",
+            "type": "array"
+          }
+        },
+        "title": "GradesBody",
+        "type": "object"
+      },
+      "HTTPValidationError": {
+        "properties": {
+          "detail": {
+            "items": {
+              "$ref": "#/components/schemas/ValidationError"
+            },
+            "title": "Detail",
+            "type": "array"
+          }
+        },
+        "title": "HTTPValidationError",
+        "type": "object"
+      },
+      "JuryValidationBody": {
+        "additionalProperties": false,
+        "description": "A jury configuration to dry-run.",
+        "properties": {
+          "candidate": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Candidate"
+          },
+          "goal": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Goal"
+          }
+        },
+        "title": "JuryValidationBody",
+        "type": "object"
+      },
+      "SampleBody": {
+        "additionalProperties": false,
+        "description": "One candidate output to be graded.",
+        "properties": {
+          "content": {
+            "minLength": 1,
+            "title": "Content",
+            "type": "string"
+          },
+          "goal_task_key": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Goal Task Key"
+          },
+          "origin": {
+            "default": "pasted",
+            "title": "Origin",
+            "type": "string"
+          },
+          "source_sample_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Sample Id"
+          }
+        },
+        "required": [
+          "content"
+        ],
+        "title": "SampleBody",
+        "type": "object"
+      },
+      "SamplesBody": {
+        "additionalProperties": false,
+        "description": "A batch of candidate outputs.",
+        "properties": {
+          "samples": {
+            "items": {
+              "$ref": "#/components/schemas/SampleBody"
+            },
+            "title": "Samples",
+            "type": "array"
+          }
+        },
+        "title": "SamplesBody",
+        "type": "object"
+      },
+      "SettingsBody": {
+        "additionalProperties": false,
+        "description": "A settings change: ``{\"changes\": {\"telemetry.interval_ms\": 500}}``.",
+        "properties": {
+          "changes": {
+            "additionalProperties": true,
+            "title": "Changes",
+            "type": "object"
+          }
+        },
+        "title": "SettingsBody",
+        "type": "object"
+      },
+      "ValidationError": {
+        "properties": {
+          "ctx": {
+            "title": "Context",
+            "type": "object"
+          },
+          "input": {
+            "title": "Input"
+          },
+          "loc": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                }
+              ]
+            },
+            "title": "Location",
+            "type": "array"
+          },
+          "msg": {
+            "title": "Message",
+            "type": "string"
+          },
+          "type": {
+            "title": "Error Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "loc",
+          "msg",
+          "type"
+        ],
+        "title": "ValidationError",
+        "type": "object"
+      }
+    }
+  },
+  "info": {
+    "title": "FreeWeight",
+    "version": "1.0.0rc1"
+  },
+  "openapi": "3.1.0",
+  "paths": {
+    "/api/v1/benchmarks": {
+      "get": {
+        "description": "Return every suite this build can run, in key order.\n\nRead from the registry the run engine executes from, deliberately: a suite listed here is a\nsuite that can be run, and a listing assembled separately would eventually disagree with what\n``POST /runs`` accepts. Goal suites appear alongside the shipped ones, because to a client\nthey are ordinary suites — what makes them different is who authored them\n([ADR-0031](../../../../docs/adr/)).\n\nReturns:\n    ``{\"items\": [...]}`` with each suite's manifest identity and its test count.",
+        "operationId": "list_benchmarks_endpoint_api_v1_benchmarks_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response List Benchmarks Endpoint Api V1 Benchmarks Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Installed benchmark suites",
+        "tags": [
+          "benchmarks"
+        ]
+      }
+    },
+    "/api/v1/benchmarks/{key}": {
+      "get": {
+        "description": "Return one suite with its tests, their metric definitions and its prompt references.\n\nArgs:\n    request: The incoming request.\n    key: The suite key, e.g. ``native.performance`` or ``goal.house_voice``.\n\nReturns:\n    The manifest, plus one entry per test naming the metrics it declares.\n\nRaises:\n    NotFoundError: No suite is registered under ``key``, answered as ``404`` naming what is.",
+        "operationId": "get_benchmark_endpoint_api_v1_benchmarks__key__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "key",
+            "required": true,
+            "schema": {
+              "title": "Key",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Get Benchmark Endpoint Api V1 Benchmarks  Key  Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "One suite's manifest, tests and metrics",
+        "tags": [
+          "benchmarks"
+        ]
+      }
+    },
+    "/api/v1/database/backup": {
+      "post": {
+        "description": "Take a backup of the configured database and return where it went.",
+        "operationId": "backup_endpoint_api_v1_database_backup_post",
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Take a backup",
+        "tags": [
+          "database"
+        ]
+      }
+    },
+    "/api/v1/database/delete-preview": {
+      "post": {
+        "description": "Report what deleting this selection would remove, and return the token to confirm it.\n\nRaises:\n    ValidationError: The scope/selector pairing is unanswerable, or a reference is ambiguous.",
+        "operationId": "delete_preview_endpoint_api_v1_database_delete_preview_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DeletePreviewBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Delete Preview Endpoint Api V1 Database Delete Preview Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Exactly what a deletion would remove",
+        "tags": [
+          "database"
+        ]
+      }
+    },
+    "/api/v1/database/results": {
+      "delete": {
+        "description": "Delete stored results. Requires the token from a matching preview.\n\nRaises:\n    DatabaseError: The token does not match a fresh preview of this selection.",
+        "operationId": "delete_results_endpoint_api_v1_database_results_delete",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DeleteBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Delete Results Endpoint Api V1 Database Results Delete",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Delete stored results, previewed and confirmed",
+        "tags": [
+          "database"
+        ]
+      }
+    },
+    "/api/v1/database/stats": {
+      "get": {
+        "description": "Return the database snapshot (API §7).\n\nRaises:\n    DatabaseUnavailable: The database could not be reached.",
+        "operationId": "stats_endpoint_api_v1_database_stats_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Stats Endpoint Api V1 Database Stats Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Row counts, size, revision, backups, integrity",
+        "tags": [
+          "database"
+        ]
+      }
+    },
+    "/api/v1/database/vacuum": {
+      "post": {
+        "description": "Reclaim free space and report what it predicted against what it measured.",
+        "operationId": "vacuum_endpoint_api_v1_database_vacuum_post",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Vacuum Endpoint Api V1 Database Vacuum Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Reclaim free space",
+        "tags": [
+          "database"
+        ]
+      }
+    },
+    "/api/v1/evidence": {
+      "get": {
+        "description": "Return the current ``capability.evidence`` records (API §6).\n\nA collection envelope whose ``items`` are SetSpec envelopes — the two nest in exactly that\norder and never the reverse (ADR-0025 §2). ``user.*`` records carry ``goal_hash``,\n``score_method_mix``, ``judge_set``, ``calibration`` and ``judge_validity_factor``\n(ADR-0032 §5); a goal below its calibration gate has no record here at all.\n\nArgs:\n    request: The incoming request; the database handle lives on its application state.\n    capability: Exact capability ID.\n    model: Model canonical ID, ULID or unambiguous prefix.\n    machine: Machine fingerprint.\n    runtime_profile: Runtime profile hash.\n    min_confidence: Records at or above this confidence.\n    limit: Page size, clamped to 500.\n    cursor: Opaque continuation token.\n\nReturns:\n    The collection envelope: ``items`` and ``page``.\n\nRaises:\n    ValidationError: The cursor was not issued here, or ``model`` is an ambiguous prefix.\n    NotFoundError: ``model`` matches nothing.",
+        "operationId": "list_evidence_api_v1_evidence_get",
+        "parameters": [
+          {
+            "description": "Exact capability ID, e.g. tool_use or user.house_voice.",
+            "in": "query",
+            "name": "capability",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Exact capability ID, e.g. tool_use or user.house_voice.",
+              "title": "Capability"
+            }
+          },
+          {
+            "description": "Model canonical ID, ULID or prefix.",
+            "in": "query",
+            "name": "model",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Model canonical ID, ULID or prefix.",
+              "title": "Model"
+            }
+          },
+          {
+            "description": "Machine fingerprint.",
+            "in": "query",
+            "name": "machine",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Machine fingerprint.",
+              "title": "Machine"
+            }
+          },
+          {
+            "description": "Runtime profile hash.",
+            "in": "query",
+            "name": "runtime_profile",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Runtime profile hash.",
+              "title": "Runtime Profile"
+            }
+          },
+          {
+            "description": "Records at or above this confidence.",
+            "in": "query",
+            "name": "min_confidence",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maximum": 1.0,
+                  "minimum": 0.0,
+                  "type": "number"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Records at or above this confidence.",
+              "title": "Min Confidence"
+            }
+          },
+          {
+            "description": "Page size; clamped to 500.",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "description": "Page size; clamped to 500.",
+              "maximum": 500,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "description": "Opaque cursor from a previous page.",
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Opaque cursor from a previous page.",
+              "title": "Cursor"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response List Evidence Api V1 Evidence Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "List capability evidence",
+        "tags": [
+          "evidence"
+        ]
+      }
+    },
+    "/api/v1/evidence/export": {
+      "get": {
+        "description": "Return one ``benchmark.evidence_bundle`` — the file LoadCoach imports (API §6, §10).\n\nA single SetSpec envelope with no collection wrapper, because a bundle is one document.\n``complete`` is ``true`` only when nothing narrows the selection: only a complete bundle lets\na consumer infer removals, and a filtered one must never be mistaken for it (ADR-0022 §5).\n\nArgs:\n    request: The incoming request.\n    since: RFC 3339; evidence whose ``computed_at`` is later, on FreeWeight's clock.\n    capability: Exact capability ID.\n    model: Model canonical ID, ULID or unambiguous prefix.\n    machine: Machine fingerprint.\n    runtime_profile: Runtime profile hash.\n    min_confidence: Records at or above this confidence.\n\nReturns:\n    The envelope as canonical JSON, with a ``Content-Disposition`` naming a file so a browser\n    saves it rather than rendering it.\n\nRaises:\n    ValidationError: ``since`` is malformed, or ``model`` is an ambiguous prefix.\n    NotFoundError: ``model`` matches nothing.",
+        "operationId": "export_evidence_api_v1_evidence_export_get",
+        "parameters": [
+          {
+            "description": "RFC 3339. Returns evidence whose computed_at is later, on FreeWeight's clock. Send back the generated_at of the bundle you received last time; never your own clock.",
+            "in": "query",
+            "name": "since",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "RFC 3339. Returns evidence whose computed_at is later, on FreeWeight's clock. Send back the generated_at of the bundle you received last time; never your own clock.",
+              "title": "Since"
+            }
+          },
+          {
+            "description": "Exact capability ID, e.g. tool_use or user.house_voice.",
+            "in": "query",
+            "name": "capability",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Exact capability ID, e.g. tool_use or user.house_voice.",
+              "title": "Capability"
+            }
+          },
+          {
+            "description": "Model canonical ID, ULID or prefix.",
+            "in": "query",
+            "name": "model",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Model canonical ID, ULID or prefix.",
+              "title": "Model"
+            }
+          },
+          {
+            "description": "Machine fingerprint.",
+            "in": "query",
+            "name": "machine",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Machine fingerprint.",
+              "title": "Machine"
+            }
+          },
+          {
+            "description": "Runtime profile hash.",
+            "in": "query",
+            "name": "runtime_profile",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Runtime profile hash.",
+              "title": "Runtime Profile"
+            }
+          },
+          {
+            "description": "Records at or above this confidence.",
+            "in": "query",
+            "name": "min_confidence",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maximum": 1.0,
+                  "minimum": 0.0,
+                  "type": "number"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Records at or above this confidence.",
+              "title": "Min Confidence"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Export the evidence bundle",
+        "tags": [
+          "evidence"
+        ]
+      }
+    },
+    "/api/v1/goals": {
+      "get": {
+        "description": "List the goal packs this installation can run.\n\nA pack that cannot be parsed at all is omitted rather than failing the listing: nine working\ngoals must not be hidden by a tenth with a typo, and ``POST /goals/{slug}/validate`` is where\nthe tenth is explained.",
+        "operationId": "list_goals_endpoint_api_v1_goals_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response List Goals Endpoint Api V1 Goals Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Every installed goal",
+        "tags": [
+          "goals"
+        ]
+      },
+      "post": {
+        "description": "Write a new goal pack and return it with its lint findings.\n\nFindings never block creation; an ``error`` finding refuses through ``GOAL_INVALID`` because\nsuch a pack could not be run at all.",
+        "operationId": "create_goal_endpoint_api_v1_goals_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GoalPackBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Create a goal",
+        "tags": [
+          "goals"
+        ]
+      }
+    },
+    "/api/v1/goals/import": {
+      "post": {
+        "description": "Import a portable goal bundle.\n\nEverything is validated against the bundle in memory — size, member names, hash, slug\navailability — before a single file is written, and an import never overwrites an existing\ngoal in place (spec §14).",
+        "operationId": "import_goal_endpoint_api_v1_goals_import_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GoalBundleBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Import a bundle",
+        "tags": [
+          "goals"
+        ]
+      }
+    },
+    "/api/v1/goals/starters": {
+      "get": {
+        "description": "Return the four shipped starters, in the order they are meant to be read.\n\nThe order is the pedagogy (Subjective Goals §8): read down the list and the share of weight\nscored deterministically rises, which is the single most useful thing a user can internalize\nabout writing a measurable rubric.",
+        "operationId": "list_starters_endpoint_api_v1_goals_starters_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response List Starters Endpoint Api V1 Goals Starters Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "The starter packs that ship with the application",
+        "tags": [
+          "goals"
+        ]
+      }
+    },
+    "/api/v1/goals/starters/{key}/fork": {
+      "post": {
+        "description": "Fork one starter into the user's goals root.\n\nThe copy is an ordinary directory of JSON the user owns: editable in an editor, diffable in\ngit, portable to another machine. It is badged ``unforked`` until its criteria or its tasks\nare edited — a voice measured on somebody else's prompts is not the user's voice, and the\nbadge is what stops a starter quietly becoming a default.\n\nRaises:\n    StarterNotFound: No starter has that key.\n    GoalSlugCollision: A goal with that slug already exists.",
+        "operationId": "fork_starter_endpoint_api_v1_goals_starters__key__fork_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "key",
+            "required": true,
+            "schema": {
+              "title": "Key",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/ForkBody"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Body"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Copy a starter into your own goals",
+        "tags": [
+          "goals"
+        ]
+      }
+    },
+    "/api/v1/goals/{slug}": {
+      "delete": {
+        "description": "Preview or perform a goal's deletion.\n\nA bare ``DELETE`` previews. The preview names the two things that are expensive to lose: the\nruns it orphans, and the grades the user produced by hand.",
+        "operationId": "delete_goal_endpoint_api_v1_goals__slug__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "slug",
+            "required": true,
+            "schema": {
+              "title": "Slug",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "dry_run",
+            "required": false,
+            "schema": {
+              "default": true,
+              "title": "Dry Run",
+              "type": "boolean"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Delete Goal Endpoint Api V1 Goals  Slug  Delete",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Delete a goal, preview first",
+        "tags": [
+          "goals"
+        ]
+      },
+      "get": {
+        "description": "Return one goal as loaded, with its lint findings.",
+        "operationId": "get_goal_endpoint_api_v1_goals__slug__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "slug",
+            "required": true,
+            "schema": {
+              "title": "Slug",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Get Goal Endpoint Api V1 Goals  Slug  Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "One goal",
+        "tags": [
+          "goals"
+        ]
+      },
+      "put": {
+        "description": "Replace one goal, reporting what the change separates.\n\nThe response carries ``hash_change``: the previous and current ``goal_hash``, whether they\ndiffer, which parts of the measurement-defining document moved, and how many existing runs\nthe previous hash holds — the runs a separating change leaves behind.\n\n``?dry_run=true`` builds and validates the replacement and then discards it, so the same\nreport can be shown **before** the change is applied. That is the order acceptance criterion 4\nasks for: a user is told what an edit would separate while they can still decide not to make\nit.",
+        "operationId": "replace_goal_endpoint_api_v1_goals__slug__put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "slug",
+            "required": true,
+            "schema": {
+              "title": "Slug",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "dry_run",
+            "required": false,
+            "schema": {
+              "default": false,
+              "title": "Dry Run",
+              "type": "boolean"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GoalPackBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Replace Goal Endpoint Api V1 Goals  Slug  Put",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Replace a goal",
+        "tags": [
+          "goals"
+        ]
+      }
+    },
+    "/api/v1/goals/{slug}/calibration": {
+      "get": {
+        "description": "Return one goal's calibration samples, the partition, and what remains to be graded.",
+        "operationId": "calibration_state_api_v1_goals__slug__calibration_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "slug",
+            "required": true,
+            "schema": {
+              "title": "Slug",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Calibration State Api V1 Goals  Slug  Calibration Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "The calibration set and grading progress",
+        "tags": [
+          "calibration"
+        ]
+      }
+    },
+    "/api/v1/goals/{slug}/calibration/grades": {
+      "post": {
+        "description": "Record the author's grades. Idempotent per ``(sample, criterion)``.",
+        "operationId": "submit_grades_api_v1_goals__slug__calibration_grades_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "slug",
+            "required": true,
+            "schema": {
+              "title": "Slug",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GradesBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Submit Grades Api V1 Goals  Slug  Calibration Grades Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Submit grades",
+        "tags": [
+          "calibration"
+        ]
+      }
+    },
+    "/api/v1/goals/{slug}/calibration/report": {
+      "get": {
+        "description": "Return the stored report: every coefficient with its ``n_holdout``, and the gate verdict.",
+        "operationId": "calibration_report_api_v1_goals__slug__calibration_report_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "slug",
+            "required": true,
+            "schema": {
+              "title": "Slug",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Calibration Report Api V1 Goals  Slug  Calibration Report Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "The stored agreement report",
+        "tags": [
+          "calibration"
+        ]
+      }
+    },
+    "/api/v1/goals/{slug}/calibration/report/export": {
+      "get": {
+        "description": "Return one goal's calibration as a ``benchmark.calibration_report`` SetSpec envelope.\n\nThe contract form of the report ``GET /goals/{slug}/calibration/report`` returns: the same\nmeasurement, in the schema spec §7.3 names, so a consumer can read the agreement figures\nwithout knowing FreeWeight's own field names. Every coefficient carries its ``n_holdout``,\nwhich SetSpec's own model requires.\n\nRaises:\n    ExportRefused: The goal has never been calibrated. An uncalibrated goal and an empty\n        report are different things, and this refuses rather than conflating them.",
+        "operationId": "export_calibration_report_endpoint_api_v1_goals__slug__calibration_report_export_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "slug",
+            "required": true,
+            "schema": {
+              "title": "Slug",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Export as benchmark.calibration_report",
+        "tags": [
+          "goals"
+        ]
+      }
+    },
+    "/api/v1/goals/{slug}/calibration/run": {
+      "post": {
+        "description": "Score the held-out samples with the configured jury and store the report.\n\nA rubric that does not clear the gate returns ``200`` with ``calibration_state`` set to\n``\"uncalibrated\"`` and the diagnostics attached: that is a real and useful answer, and\nrefusing the request would withhold exactly what the author needs. Too *few* grades is\n``CALIBRATION_INSUFFICIENT`` — a different state with a different remedy.",
+        "operationId": "run_calibration_endpoint_api_v1_goals__slug__calibration_run_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "slug",
+            "required": true,
+            "schema": {
+              "title": "Slug",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CalibrationRunBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Run Calibration Endpoint Api V1 Goals  Slug  Calibration Run Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Score the holdout and measure agreement",
+        "tags": [
+          "calibration"
+        ]
+      }
+    },
+    "/api/v1/goals/{slug}/calibration/samples": {
+      "post": {
+        "description": "Add candidate outputs for the author to grade.\n\nA sample whose content is already present is skipped: two identical samples would be graded\ntwice and counted twice in a figure that assumes independent observations.",
+        "operationId": "add_calibration_samples_api_v1_goals__slug__calibration_samples_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "slug",
+            "required": true,
+            "schema": {
+              "title": "Slug",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SamplesBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Add samples to grade",
+        "tags": [
+          "calibration"
+        ]
+      }
+    },
+    "/api/v1/goals/{slug}/export": {
+      "get": {
+        "description": "Return one goal as a ``benchmark.goal_pack`` SetSpec envelope.\n\nThe cross-application contract, returned as the envelope alone with no collection wrapper\n(API standards §3): a pack is one document. It carries the goal's *definition* — criteria,\nweights, rungs, task prompt identities and hashes — which is what a consumer needs to decide\ncomparability. The portable *bundle*, which carries the files an importer would need, is\n``freeweight goals export`` on the CLI.\n\nThe document itself is :func:`~freeweight.services.export.iter_goal_export`'s, so this\nendpoint and ``freeweight results export`` cannot come to emit different bytes for one pack.",
+        "operationId": "export_goal_endpoint_api_v1_goals__slug__export_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "slug",
+            "required": true,
+            "schema": {
+              "title": "Slug",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Export as benchmark.goal_pack",
+        "tags": [
+          "goals"
+        ]
+      }
+    },
+    "/api/v1/goals/{slug}/suggest-rules": {
+      "post": {
+        "description": "Propose rung-2 rules for this goal's criteria. **Proposals only** — never applied.",
+        "operationId": "suggest_rules_endpoint_api_v1_goals__slug__suggest_rules_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "slug",
+            "required": true,
+            "schema": {
+              "title": "Slug",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Suggest Rules Endpoint Api V1 Goals  Slug  Suggest Rules Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Rules that could carry a criterion",
+        "tags": [
+          "goals"
+        ]
+      }
+    },
+    "/api/v1/goals/{slug}/tasks": {
+      "get": {
+        "description": "List one goal's tasks, each flagged whether it is unedited starter content.",
+        "operationId": "goal_tasks_endpoint_api_v1_goals__slug__tasks_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "slug",
+            "required": true,
+            "schema": {
+              "title": "Slug",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Goal Tasks Endpoint Api V1 Goals  Slug  Tasks Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "One goal's tasks",
+        "tags": [
+          "goals"
+        ]
+      }
+    },
+    "/api/v1/goals/{slug}/validate": {
+      "post": {
+        "description": "Return every lint finding for one goal, with a severity each.",
+        "operationId": "validate_goal_endpoint_api_v1_goals__slug__validate_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "slug",
+            "required": true,
+            "schema": {
+              "title": "Slug",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Validate Goal Endpoint Api V1 Goals  Slug  Validate Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Every problem this goal has",
+        "tags": [
+          "goals"
+        ]
+      }
+    },
+    "/api/v1/health": {
+      "get": {
+        "description": "Return the current health report; 200 for ok/degraded, 503 for unavailable.\n\nReports on the handle the server is serving from, not a connection opened for the check — a\nhealth check against a different connection than requests use is answering a question nobody\nasked.",
+        "operationId": "health_api_v1_health_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Component health",
+        "tags": [
+          "system"
+        ]
+      }
+    },
+    "/api/v1/judges": {
+      "get": {
+        "description": "List every model that may serve as a juror, with the reason for each refusal.",
+        "operationId": "list_judges_api_v1_judges_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "candidate",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Candidate"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response List Judges Api V1 Judges Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Models eligible to judge",
+        "tags": [
+          "calibration"
+        ]
+      }
+    },
+    "/api/v1/judges/validate": {
+      "post": {
+        "description": "Report the jury that would be assembled, and every refusal with its reason.\n\nNothing is generated: assembling a jury is a decision about eligibility. Self-judging\nconflicts and remote permission are both visible in the response.",
+        "operationId": "validate_jury_api_v1_judges_validate_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/JuryValidationBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Validate Jury Api V1 Judges Validate Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Dry-run a jury configuration",
+        "tags": [
+          "calibration"
+        ]
+      }
+    },
+    "/api/v1/machines": {
+      "get": {
+        "description": "Return every machine this installation has measured on, oldest sighting first.\n\nThe current machine is flagged, because a fingerprint is not a name a person recognizes and\n\"which of these am I?\" is the first question this list raises. The flag is computed by\n*profiling* this host, which is a pure read — this endpoint never writes, so listing machines\ncannot change `last_seen_at` and a monitoring poll cannot make a machine look freshly used.\nMachines are recorded when a run is created, which is the moment a machine actually measured\nsomething.\n\nThe list is legitimately empty on an installation that has never run anything, which is the\nsame state the machines page is designed for rather than an error.\n\nRaises:\n    DatabaseUnavailable: The database could not be read.",
+        "operationId": "list_machines_endpoint_api_v1_machines_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response List Machines Endpoint Api V1 Machines Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Every known machine",
+        "tags": [
+          "machines"
+        ]
+      }
+    },
+    "/api/v1/machines/{machine_id}": {
+      "get": {
+        "description": "Return one machine by ULID or unambiguous prefix.\n\nRaises:\n    NotFoundError: No machine matches, answered as ``404``.\n    ValidationError: The prefix is ambiguous; the message names the candidates.",
+        "operationId": "get_machine_endpoint_api_v1_machines__machine_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "machine_id",
+            "required": true,
+            "schema": {
+              "title": "Machine Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Get Machine Endpoint Api V1 Machines  Machine Id  Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "One machine's static profile",
+        "tags": [
+          "machines"
+        ]
+      }
+    },
+    "/api/v1/models": {
+      "get": {
+        "description": "Return every stored model identity with its latest descriptor.\n\nA pure database read: staleness comes from the last recorded discovery attempt and the\nprovider is never probed here, so listing models cannot hang on a provider that is down.\n\n``canonical_id`` is the identity lookup (api.md §2). It is a **query parameter and never a\npath segment**, because a canonical ID contains ``/``, ``:`` and ``@``, and a percent-encoded\n``/`` does not survive common reverse proxies ([ADR-0024](../../../../docs/adr/)).\n\nArgs:\n    request: The incoming request.\n    provider_kind: Filter by provider kind.\n    family: Filter by descriptor family.\n    quantization: Filter by weight quantization.\n    canonical_id: Return only the model with this exact canonical ID.\n\nReturns:\n    ``{\"items\": [...]}`` — newest sighting first, as the list page orders them.",
+        "operationId": "list_models_endpoint_api_v1_models_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "provider_kind",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Provider Kind"
+            }
+          },
+          {
+            "in": "query",
+            "name": "family",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Family"
+            }
+          },
+          {
+            "in": "query",
+            "name": "quantization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Quantization"
+            }
+          },
+          {
+            "in": "query",
+            "name": "canonical_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Canonical Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response List Models Endpoint Api V1 Models Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Every known model identity",
+        "tags": [
+          "models"
+        ]
+      }
+    },
+    "/api/v1/models/discover": {
+      "post": {
+        "description": "Ask the provider what it has, and record what changed.\n\nReturns the counts rather than the models: a client that wants the list asks for it, and a\ndiscovery that reported every model would make the *outcome* — what changed — hard to see.\n\nReturns:\n    ``{\"added\", \"updated\", \"unchanged\", \"total\"}``.\n\nRaises:\n    ProviderUnavailable: The provider could not be reached, answered as ``503``.",
+        "operationId": "discover_models_endpoint_api_v1_models_discover_post",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Discover Models Endpoint Api V1 Models Discover Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Re-discover models through ModelRack",
+        "tags": [
+          "models"
+        ]
+      }
+    },
+    "/api/v1/models/{model_ref}": {
+      "get": {
+        "description": "Return one model, its aliases and every descriptor snapshot recorded for it.\n\n``model_ref`` accepts a stored ULID or an unambiguous prefix, or a bare provider name. A\ncanonical ID is accepted in the body and the query string but **never as a path segment**\n(ADR-0024); use ``GET /models?canonical_id=…``.\n\nRaises:\n    ModelNotFound: Nothing matches locally or at the provider.\n    ValidationError: An ambiguous prefix; the message names the candidates.",
+        "operationId": "get_model_endpoint_api_v1_models__model_ref__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "model_ref",
+            "required": true,
+            "schema": {
+              "title": "Model Ref",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Get Model Endpoint Api V1 Models  Model Ref  Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "One model's identity and descriptor history",
+        "tags": [
+          "models"
+        ]
+      }
+    },
+    "/api/v1/models/{model_ref}/results": {
+      "get": {
+        "description": "Return this model's metric rows, filterable by suite and runtime profile.\n\nThe same query the results surface serves, scoped to one model — so a client holding a model\nreference does not have to know how to spell a filter for it.\n\nRaises:\n    ModelNotFound: Nothing matches ``model_ref``.",
+        "operationId": "model_results_endpoint_api_v1_models__model_ref__results_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "model_ref",
+            "required": true,
+            "schema": {
+              "title": "Model Ref",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "suite",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Suite"
+            }
+          },
+          {
+            "in": "query",
+            "name": "runtime_profile_hash",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Runtime Profile Hash"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 100,
+              "maximum": 500,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Cursor"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Model Results Endpoint Api V1 Models  Model Ref  Results Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "One model's stored results",
+        "tags": [
+          "models"
+        ]
+      }
+    },
+    "/api/v1/results": {
+      "get": {
+        "description": "Return stored metric rows, newest run first (API §5).\n\nOnly *completed* runs by default. A metric from a run that stopped halfway measured a\ndifferent set of cases than the row beside it, and returning both under one filter would put\nthe difference nowhere a caller could see it; ``status=any`` asks for them anyway.\n\nArgs:\n    request: The incoming request; the database handle lives on its application state.\n    model: Model canonical ID, ULID or unambiguous prefix.\n    suite: Benchmark suite key.\n    metric_key: Exact metric key.\n    machine: Machine fingerprint.\n    runtime_profile: Runtime profile hash.\n    since: RFC 3339 lower bound on run creation, inclusive.\n    until: RFC 3339 upper bound on run creation, exclusive.\n    status: Run status, or ``\"any\"``.\n    limit: Page size, clamped to 500.\n    cursor: Opaque continuation token.\n\nReturns:\n    The collection envelope: ``items`` and ``page``.\n\nRaises:\n    ValidationError: A timestamp is malformed, the cursor was not issued here, or ``model`` is\n        an ambiguous prefix.\n    NotFoundError: ``model`` matches nothing.",
+        "operationId": "list_results_api_v1_results_get",
+        "parameters": [
+          {
+            "description": "Model canonical ID, ULID or prefix.",
+            "in": "query",
+            "name": "model",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Model canonical ID, ULID or prefix.",
+              "title": "Model"
+            }
+          },
+          {
+            "description": "Benchmark suite key.",
+            "in": "query",
+            "name": "suite",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Benchmark suite key.",
+              "title": "Suite"
+            }
+          },
+          {
+            "description": "Exact metric key.",
+            "in": "query",
+            "name": "metric_key",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Exact metric key.",
+              "title": "Metric Key"
+            }
+          },
+          {
+            "description": "Machine fingerprint.",
+            "in": "query",
+            "name": "machine",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Machine fingerprint.",
+              "title": "Machine"
+            }
+          },
+          {
+            "description": "Runtime profile hash.",
+            "in": "query",
+            "name": "runtime_profile",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Runtime profile hash.",
+              "title": "Runtime Profile"
+            }
+          },
+          {
+            "description": "RFC 3339; runs created at or after.",
+            "in": "query",
+            "name": "since",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "RFC 3339; runs created at or after.",
+              "title": "Since"
+            }
+          },
+          {
+            "description": "RFC 3339; runs created strictly before.",
+            "in": "query",
+            "name": "until",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "RFC 3339; runs created strictly before.",
+              "title": "Until"
+            }
+          },
+          {
+            "description": "Run status; defaults to completed. Pass 'any' to include every state.",
+            "in": "query",
+            "name": "status",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Run status; defaults to completed. Pass 'any' to include every state.",
+              "title": "Status"
+            }
+          },
+          {
+            "description": "Page size; clamped to 500.",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "description": "Page size; clamped to 500.",
+              "maximum": 500,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "description": "Opaque cursor from a previous page.",
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Opaque cursor from a previous page.",
+              "title": "Cursor"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response List Results Api V1 Results Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Stored metrics, filtered",
+        "tags": [
+          "results"
+        ]
+      }
+    },
+    "/api/v1/results/compare": {
+      "get": {
+        "description": "Compare two or more runs, aligned by metric key, with comparability verdicts.\n\nNever averages across a boundary marked ``separate``: the response carries the groups and the\nfield-level fingerprint diff that separates them, and the caller decides what to do with that\n(API §5).\n\nArgs:\n    request: The incoming request; the database handle lives on its application state.\n    subjects: Comma-separated run or model references. At least two.\n    suite: The suite a model subject is compared at, and the guard every run subject\n        must satisfy.\n\nReturns:\n    The comparison document.\n\nRaises:\n    ComparisonRefused: Fewer than two subjects, a repeated run, or a subject outside ``suite``.\n    SubjectNotFound: A reference matches no run.\n    ValidationError: A reference is an ambiguous prefix.",
+        "operationId": "compare_api_v1_results_compare_get",
+        "parameters": [
+          {
+            "description": "Comma-separated run ULIDs or prefixes, or model references. A model reference resolves to that model's latest completed run of `suite`, so it needs one. At least two subjects, and no run twice.",
+            "in": "query",
+            "name": "subjects",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Comma-separated run ULIDs or prefixes, or model references. A model reference resolves to that model's latest completed run of `suite`, so it needs one. At least two subjects, and no run twice.",
+              "title": "Subjects"
+            }
+          },
+          {
+            "description": "Both a selector and a guard. It selects which suite a model subject is compared at, and it refuses by name any run subject that belongs to a different suite — rather than comparing against a suite that measured something else.",
+            "in": "query",
+            "name": "suite",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Both a selector and a guard. It selects which suite a model subject is compared at, and it refuses by name any run subject that belongs to a different suite — rather than comparing against a suite that measured something else.",
+              "title": "Suite"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Compare Api V1 Results Compare Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Compare",
+        "tags": [
+          "results"
+        ]
+      }
+    },
+    "/api/v1/results/export": {
+      "get": {
+        "description": "Stream an export of stored results (API §5).\n\nThe response streams: the first bytes leave before the last run is read, and the process never\nholds the whole document. That is what makes a 10 000-sample run exportable inside spec §15's\nbudget rather than a memory spike proportional to how much someone has measured.\n\nJSON and JSONL are SetSpec-wrapped; CSV is the flattened spreadsheet form (spec §7.3).\n\nArgs:\n    request: The incoming request.\n    scope: What to export.\n    selector: The scope's argument.\n    format: ``json``, ``jsonl`` or ``csv``.\n    include_samples: Include the raw samples behind each metric.\n    include_prompts: Include each sample's prompt identity and hashes.\n    include_prompt_text: Add a prompt appendix — each distinct rendered prompt once, keyed by\n        its hash — so the export is auditable by a reader who does not have the prompt pack.\n    since: Only runs created at or after this instant.\n    until: Only runs created strictly before this instant. The window is half-open, so\n        consecutive windows tile without overlapping or dropping a run between them, which is\n        how a history larger than one document is exported completely.\n\nReturns:\n    A streaming response with the format's media type and a ``Content-Disposition`` naming a\n    file, so a browser saves it rather than rendering a megabyte of JSON into the tab.\n\nRaises:\n    ExportRefused: The scope/selector pairing is unanswerable, matched nothing, or covers\n        more runs than one document may carry.",
+        "operationId": "export_results_api_v1_results_export_get",
+        "parameters": [
+          {
+            "description": "run, model, suite, comparison or all.",
+            "in": "query",
+            "name": "scope",
+            "required": false,
+            "schema": {
+              "default": "all",
+              "description": "run, model, suite, comparison or all.",
+              "pattern": "^(run|model|suite|comparison|all)$",
+              "title": "Scope",
+              "type": "string"
+            }
+          },
+          {
+            "description": "The scope's argument: a run reference, a model reference, a suite key, or a comma-separated run list. Omitted for scope=all.",
+            "in": "query",
+            "name": "selector",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The scope's argument: a run reference, a model reference, a suite key, or a comma-separated run list. Omitted for scope=all.",
+              "title": "Selector"
+            }
+          },
+          {
+            "description": "json, jsonl or csv.",
+            "in": "query",
+            "name": "format",
+            "required": false,
+            "schema": {
+              "default": "json",
+              "description": "json, jsonl or csv.",
+              "pattern": "^(json|jsonl|csv)$",
+              "title": "Format",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "include_samples",
+            "required": false,
+            "schema": {
+              "default": false,
+              "title": "Include Samples",
+              "type": "boolean"
+            }
+          },
+          {
+            "in": "query",
+            "name": "include_prompts",
+            "required": false,
+            "schema": {
+              "default": false,
+              "title": "Include Prompts",
+              "type": "boolean"
+            }
+          },
+          {
+            "in": "query",
+            "name": "include_prompt_text",
+            "required": false,
+            "schema": {
+              "default": false,
+              "title": "Include Prompt Text",
+              "type": "boolean"
+            }
+          },
+          {
+            "in": "query",
+            "name": "since",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date-time",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Since"
+            }
+          },
+          {
+            "in": "query",
+            "name": "until",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date-time",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Until"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Export stored results",
+        "tags": [
+          "results"
+        ]
+      }
+    },
+    "/api/v1/runs": {
+      "get": {
+        "description": "Return runs newest-first, optionally filtered by status.",
+        "operationId": "list_runs_endpoint_api_v1_runs_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "status",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Status"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "maximum": 500,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response List Runs Endpoint Api V1 Runs Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "List runs",
+        "tags": [
+          "runs"
+        ]
+      },
+      "post": {
+        "description": "Validate and queue a run, returning ``201`` with the run object.\n\nValidation happens before anything is persisted, so a rejected request creates nothing\n(api.md §4).\n\nArgs:\n    request: The incoming request; carries the application's database, provider and telemetry\n        collector.\n    body: ``{\"model\": …, \"suites\": [key], \"execution\": {...}, \"runtime\": {...}, \"label\": …}``.\n        ``suites`` takes a list for forward compatibility with multi-suite runs; Phase 5 runs\n        the first entry and refuses more than one rather than silently dropping the rest.\n        ``runtime`` overrides ``[runtime]`` for this run (ADR-0023) — ``context_size`` in\n        particular, which is how one model is measured at two contexts.\n\nReturns:\n    ``201`` with the queued run.\n\nRaises:\n    ValidationError: ``model`` or ``suites`` is missing, or more than one suite was named.\n    BenchmarkNotFound: The named suite is not registered.\n    ModelNotFound: The model is not stored.",
+        "operationId": "create_run_endpoint_api_v1_runs_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": true,
+                "title": "Body",
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Start a run",
+        "tags": [
+          "runs"
+        ]
+      }
+    },
+    "/api/v1/runs/{run_id}": {
+      "get": {
+        "description": "Return one run, its tests and its aggregate metrics.\n\nRaises:\n    RunNotFound: Nothing matches ``run_id``.",
+        "operationId": "get_run_endpoint_api_v1_runs__run_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "run_id",
+            "required": true,
+            "schema": {
+              "title": "Run Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Get Run Endpoint Api V1 Runs  Run Id  Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "One run with its tests and metrics",
+        "tags": [
+          "runs"
+        ]
+      }
+    },
+    "/api/v1/runs/{run_id}/cancel": {
+      "post": {
+        "description": "Request cancellation, returning ``202`` with the run's new state.\n\n``202``, not ``200``: a *running* run enters ``cancelling`` and stops at the executor's next\nboundary, so the request is accepted rather than completed (api.md §4).\n\nRaises:\n    RunNotFound: Nothing matches ``run_id``.\n    RunNotCancellable: The run is terminal — answered as ``409`` by the error handlers.",
+        "operationId": "cancel_run_endpoint_api_v1_runs__run_id__cancel_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "run_id",
+            "required": true,
+            "schema": {
+              "title": "Run Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Cancel a run",
+        "tags": [
+          "runs"
+        ]
+      }
+    },
+    "/api/v1/runs/{run_id}/events": {
+      "get": {
+        "description": "Stream one run's events, replaying from ``Last-Event-ID`` when the client sends one.\n\nRaises:\n    RunNotFound: Nothing matches ``run_id``. Checked before the stream opens, so a bad id is\n        a ``404`` rather than an empty stream that never ends.",
+        "operationId": "run_events_api_v1_runs__run_id__events_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "run_id",
+            "required": true,
+            "schema": {
+              "title": "Run Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "last_event_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Last Event Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Live run events, server-sent",
+        "tags": [
+          "runs"
+        ]
+      }
+    },
+    "/api/v1/runs/{run_id}/repeat": {
+      "post": {
+        "description": "Queue a new run reusing a recorded run's frozen configuration (api.md §4).\n\nThe original's ``ExecutionConfig`` and runtime profile are reused **verbatim** rather than\nre-resolved from current configuration: re-resolving would silently repeat a *different* run\nwhenever a default had changed since, which is the one thing a reproduction must not do. The\nenvironment is checked against the original's fingerprint before anything is written, and a\ndifference refuses by name unless ``force`` is set — in which case the divergence is recorded\non the new run rather than hidden.\n\nArgs:\n    request: The incoming request.\n    run_id: The run to repeat; a full ULID or an unambiguous prefix.\n    force: Proceed past every blocker, recording the divergence.\n    label: A label for the new run; defaults to naming the run it repeats.\n\nReturns:\n    ``201`` with the queued run.\n\nRaises:\n    RunNotFound: Nothing matches ``run_id``.\n    ValidationError: The environment cannot satisfy the original and ``force`` is not set.",
+        "operationId": "repeat_run_endpoint_api_v1_runs__run_id__repeat_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "run_id",
+            "required": true,
+            "schema": {
+              "title": "Run Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "force",
+            "required": false,
+            "schema": {
+              "default": false,
+              "title": "Force",
+              "type": "boolean"
+            }
+          },
+          {
+            "in": "query",
+            "name": "label",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Label"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Repeat a run with its identical effective configuration",
+        "tags": [
+          "runs"
+        ]
+      }
+    },
+    "/api/v1/runs/{run_id}/tests": {
+      "get": {
+        "description": "Return one run's tests, as the drill-down list.",
+        "operationId": "run_tests_endpoint_api_v1_runs__run_id__tests_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "run_id",
+            "required": true,
+            "schema": {
+              "title": "Run Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Run Tests Endpoint Api V1 Runs  Run Id  Tests Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "One run's tests",
+        "tags": [
+          "runs"
+        ]
+      }
+    },
+    "/api/v1/runs/{run_id}/tests/{run_test_id}/samples": {
+      "get": {
+        "description": "Return one test's raw samples — the rows every headline number drills to.\n\n``score`` is ``null`` for a sample that could not be scored, never ``0``, and the sample stays\nin this list so the exclusion is visible (spec §13).\n\nRaises:\n    RunNotFound: ``run_test_id`` belongs to no run, or to a different run than ``run_id``.",
+        "operationId": "run_samples_endpoint_api_v1_runs__run_id__tests__run_test_id__samples_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "run_id",
+            "required": true,
+            "schema": {
+              "title": "Run Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "run_test_id",
+            "required": true,
+            "schema": {
+              "title": "Run Test Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 500,
+              "maximum": 1000,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Run Samples Endpoint Api V1 Runs  Run Id  Tests  Run Test Id  Samples Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "One test's raw samples",
+        "tags": [
+          "runs"
+        ]
+      }
+    },
+    "/api/v1/settings": {
+      "get": {
+        "description": "Return every runtime-changeable setting with its effective value and its source.\n\n``config_only`` lists the security-relevant keys this endpoint refuses, so a client can render\nthem as read-only rather than discovering the refusal by attempting one.",
+        "operationId": "get_settings_endpoint_api_v1_settings_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Get Settings Endpoint Api V1 Settings Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Runtime-changeable settings",
+        "tags": [
+          "settings"
+        ]
+      },
+      "put": {
+        "description": "Store new values for runtime-changeable settings.\n\nAll-or-nothing: a request naming one permitted key and one forbidden key changes neither.\n\nRaises:\n    SettingConfigOnly: A named key is security-relevant — ``403 FORBIDDEN``, naming it.\n    SettingUnknown: A named key is not runtime-changeable.\n    ValidationError: A value is the wrong type or out of range.",
+        "operationId": "put_settings_endpoint_api_v1_settings_put",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SettingsBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Put Settings Endpoint Api V1 Settings Put",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Change runtime-changeable settings",
+        "tags": [
+          "settings"
+        ]
+      }
+    },
+    "/api/v1/system/status": {
+      "get": {
+        "description": "Return the live operational numbers the System page renders (Observability Standards §5).\n\n``active_run`` and ``queue_depth`` come from the run scheduler (Phase 5). Both are ``None``\nwhen the queue cannot be read at all — no scheduler, or a database that is behind head — and\n``queue_depth`` is ``None`` rather than ``0`` in that case, because \"no runs are waiting\" and\n\"I cannot see the queue\" are different facts and only one of them is reassuring. The reason is\nalready reported, component by component, at ``/health``. ``threadpool_saturation`` stays\nhonestly ``None``: there is no application-owned threadpool before Phase 12 adopts MirrorWall,\nand a fabricated ``0`` would claim a measurement this build does not take.\n\nRaises:\n    DependencyUnavailableError: The telemetry sampler is not running — never true of a request\n        actually served by :func:`~freeweight.web.app.create_app`'s lifespan, only of a caller\n        that skipped it.",
+        "operationId": "system_status_api_v1_system_status_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response System Status Api V1 System Status Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Operational snapshot",
+        "tags": [
+          "system"
+        ]
+      }
+    },
+    "/api/v1/system/telemetry/stream": {
+      "get": {
+        "description": "Stream ``telemetry.sampled`` events at the configured sampling interval.\n\nRaises:\n    DependencyUnavailableError: The telemetry sampler is not running.",
+        "operationId": "telemetry_stream_api_v1_system_telemetry_stream_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Live telemetry, server-sent",
+        "tags": [
+          "system"
+        ]
+      }
+    },
+    "/api/v1/version": {
+      "get": {
+        "description": "Return the application version, served API majors and understood schema versions.",
+        "operationId": "version_api_v1_version_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Version Api V1 Version Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Application, API and schema versions",
+        "tags": [
+          "system"
+        ]
+      }
+    }
+  }
+}

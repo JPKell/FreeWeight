@@ -227,6 +227,29 @@ def test_an_explicit_auto_migrate_false_is_honoured_on_sqlite() -> None:
     assert settings.auto_migrate is False
 
 
+def test_evidence_defaults_are_adr_0017s_table() -> None:
+    """Configuration standards §9: every default asserted, so a default cannot drift unnoticed."""
+    evidence = load_settings().settings.evidence
+    assert evidence.n_target == 30
+    assert evidence.quality_half_life_days == 90.0
+    assert evidence.performance_half_life_days == 30.0
+    assert evidence.freshness_floor == 0.3
+    assert evidence.stale_below == 0.5
+    assert evidence.name_only_identity_factor == 0.6
+    assert evidence.performance_drift_factor == 0.7
+    assert evidence.quality_drift_factor == 0.5
+    assert evidence.goal_contribution_weight == 1.0
+    assert evidence.capability_weights_path is None
+    assert evidence.weights_path is None
+
+
+def test_evidence_parameters_are_range_checked(tmp_path: Path) -> None:
+    config_file = tmp_path / "config.toml"
+    config_file.write_text("[evidence]\nstale_below = 1.5\n", encoding="utf-8")
+    with pytest.raises(ConfigurationError, match="evidence.stale_below"):
+        load_settings(config_path=config_file)
+
+
 def test_backup_retention_defaults_to_five() -> None:
     """Database standards §7: keep the last 5 automatic backups."""
     assert StorageSettings().backup_retention == 5

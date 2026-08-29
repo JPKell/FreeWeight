@@ -103,6 +103,64 @@ def _database_component(database: Database | None) -> HealthComponent:
         return database_health_component(opened)
 
 
+def _evidence_component(database: Database | None) -> HealthComponent:
+    """Build the ``evidence`` component: the age of the newest evidence per capability.
+
+    ADR-0017's last staleness surface — *``<app> health`` reports the age of the newest evidence
+    for each capability* — so a reader can see at a glance which capabilities have not been
+    measured in months. Never worse than ``ok``: old evidence is information, not a failure, and
+    a machine with no evidence at all is a fresh install rather than a broken one.
+
+    Args:
+        database: The caller's handle, or ``None`` to open one for this check alone, exactly as
+            :func:`_database_component` does.
+    """
+    from baseaicore import SuiteError
+
+    from freeweight.config import ConfigurationError, load_settings
+    from freeweight.services.database import Database
+    from freeweight.services.evidence import newest_evidence_ages
+
+    def describe(handle: Database) -> HealthComponent:
+        try:
+            ages = newest_evidence_ages(handle)
+        except SuiteError as exc:
+            return HealthComponent(
+                name="evidence", status="degraded", detail=f"evidence unreadable: {exc.message}"
+            )
+        if not ages:
+            return HealthComponent(
+                name="evidence", status="ok", detail="no capability evidence yet"
+            )
+        newest = ", ".join(f"{capability} {age:.0f}d" for capability, age in ages.items())
+        return HealthComponent(
+            name="evidence", status="ok", detail=f"newest evidence per capability: {newest}"
+        )
+
+    if database is not None:
+        return describe(database)
+    try:
+        loaded = load_settings()
+    except ConfigurationError as exc:
+        return HealthComponent(
+            name="evidence", status="degraded", detail=f"configuration: {exc.message}"
+        )
+    database_url = loaded.settings.storage.database_url
+    if database_url is None:  # pragma: no cover — StorageSettings always fills this in
+        return HealthComponent(
+            name="evidence", status="degraded", detail="no database_url configured"
+        )
+    try:
+        with Database.from_url(
+            database_url, statement_timeout_ms=loaded.settings.storage.statement_timeout_ms
+        ) as opened:
+            return describe(opened)
+    except SuiteError as exc:
+        return HealthComponent(
+            name="evidence", status="degraded", detail=f"evidence unreadable: {exc.message}"
+        )
+
+
 def _provider_component(provider: Provider | None) -> HealthComponent:
     """Build the ``provider`` component, tolerating a totally unreachable or unconfigured provider.
 
@@ -233,15 +291,16 @@ def get_health_report(
     Returns:
         The :class:`HealthReport`, worst-component-first. The overall status is the worst of the
         required components (``database``) uncapped, joined with the worst of every optional one
-        (``provider``, ``gpu_telemetry``, ``machine``) capped at ``degraded`` — an unreachable
-        provider, or a machine with no GPU, is never by itself what makes the whole application
-        ``unavailable`` (Graceful Degradation §3).
+        (``provider``, ``gpu_telemetry``, ``machine``, ``evidence``) capped at ``degraded`` — an
+        unreachable provider, or a machine with no GPU, is never by itself what makes the whole
+        application ``unavailable`` (Graceful Degradation §3).
     """
     components: tuple[HealthComponent, ...] = (
         _database_component(database),
         _provider_component(provider),
         _gpu_telemetry_component(telemetry),
         _machine_component(telemetry),
+        _evidence_component(database),
     )
     worst = max(
         (

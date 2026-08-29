@@ -125,7 +125,7 @@ def _detail_json(detail: RunDetail) -> dict[str, Any]:
     ]
     body["metrics"] = [
         {
-            "key": metric.metric_key,
+            "metric_key": metric.metric_key,
             "run_test_id": metric.run_test_id,
             # An unavailable metric is the string "unsupported", never null and never 0
             # (spec §11 rule 6, ADR-0016).

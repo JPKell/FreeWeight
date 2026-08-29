@@ -236,12 +236,12 @@ def _values_for(
         ``(values, excluded)`` — what contributed, and how many samples did not.
     """
     declared = metric.source
-    derive = SAMPLE_METRICS.get(metric.key) if declared == "auto" else None
+    derive = SAMPLE_METRICS.get(metric.metric_key) if declared == "auto" else None
     from_detail = declared == "detail" or (
         declared == "auto"
         and derive is None
         and any(
-            _detail_number(facts, metric.key) is not None
+            _detail_number(facts, metric.metric_key) is not None
             for facts in samples
             if facts.status == "completed"
         )
@@ -255,7 +255,7 @@ def _values_for(
         if derive is not None:
             result = derive(facts)
         elif from_detail:
-            measured = _detail_number(facts, metric.key)
+            measured = _detail_number(facts, metric.metric_key)
             result = (
                 MetricResult(measured)
                 if measured is not None
@@ -297,14 +297,14 @@ def _aggregate_only(
     """
     completed = [facts for facts in samples if facts.status == "completed"]
     excluded = len(samples) - len(completed)
-    if metric.key == "effective_context_tokens":
+    if metric.metric_key == "effective_context_tokens":
         return _effective_context(completed, excluded)
     successes = sum(1 for facts in completed if is_success(facts))
     output_total = _total(completed, "output_tokens")
     input_total = _total(completed, "input_tokens")
     scores = [float(facts.score) for facts in completed if is_supported(facts.score)]
     mean_score = sum(scores) / len(scores) if scores else UNSUPPORTED
-    match metric.key:
+    match metric.metric_key:
         case "output_tokens_per_success":
             result = output_tokens_per_success(output_total, successes)
         case "total_tokens_per_success":
@@ -386,7 +386,7 @@ def _row(
     """Assemble one output row from a computed result and its counts."""
     stddev, cov = _dispersion(values)
     return AggregatedMetric(
-        metric_key=metric.key,
+        metric_key=metric.metric_key,
         run_test_id=run_test_id,
         numeric_value=result.numeric_value,
         unavailable_reason=result.unavailable_reason,
@@ -414,7 +414,7 @@ def aggregate_test(group: SampleGroup) -> tuple[AggregatedMetric, ...]:
     """
     rows: list[AggregatedMetric] = []
     for metric in group.metrics:
-        if metric.key in AGGREGATE_METRIC_KEYS:
+        if metric.metric_key in AGGREGATE_METRIC_KEYS:
             result, sample_count, excluded = _aggregate_only(metric, group.samples)
             rows.append(
                 _row(
@@ -472,8 +472,8 @@ def aggregate_run(groups: Sequence[SampleGroup]) -> tuple[AggregatedMetric, ...]
     definitions: dict[str, MetricDefinition] = {}
     for group in groups:
         for metric in group.metrics:
-            by_key.setdefault(metric.key, []).append(group)
-            definitions.setdefault(metric.key, metric)
+            by_key.setdefault(metric.metric_key, []).append(group)
+            definitions.setdefault(metric.metric_key, metric)
 
     for key in sorted(by_key):
         metric = definitions[key]

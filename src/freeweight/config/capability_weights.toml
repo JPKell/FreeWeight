@@ -1,1 +1,164 @@
-# TODO: populate per docs/apps/freeweight/development-plan.md
+# capability_weights.toml — how benchmark metrics become capability evidence.
+#
+# Benchmark Catalog §6 as configuration: for every capability in SetSpec's vocabulary this build
+# can score, the metrics that feed it and the weight of each. Shipped with defaults, versioned, and
+# the version is part of every evidence record's `policy_version` — so a change here is a new
+# policy, and evidence computed under the old one coexists with it rather than being overwritten.
+#
+# A capability score is the weighted mean over the sources that have a value. A metric this
+# machine could not measure contributes nothing and is left out of the denominator; a capability
+# none of whose sources has a value produces NO evidence rather than a score of zero (ADR-0016).
+#
+# Direction and scale:
+#   * a `ratio` metric maps onto the score directly, inverted when the manifest says lower is
+#     better — a false-positive *rate* of 0.1 contributes 0.9;
+#   * any other unit has no natural 0..1 and must declare `full_score_at` (higher is better: the
+#     value that earns 1.0, linear below, clamped above) or `zero_score_at` (lower is better: the
+#     value at which the contribution reaches 0.0). Every one of those scales is a judgement call
+#     with no empirical basis yet, exactly as ADR-0017 says of the confidence parameters, which is
+#     why they are in this file and not in code.
+#
+# Three vocabulary roots have no source here and therefore no evidence in this release, on
+# purpose: `coding` and `debugging` wait on the external adapters (Phase 13, EvalPlus and the
+# real-bug corpora), and `summarization` / `creative_writing` have no shipped suite at all — a
+# house voice has no corpus ground truth, so the ground truth is the user's, and a goal that
+# declares `contributes_to` feeds them (ADR-0032 §1). Goals never appear in this file: `user.*`
+# evidence maps itself.
+#
+# To use a different mapping, point `evidence.capability_weights_path` at your own copy. The
+# evidence it produces carries a policy version derived from that file's content, never this
+# file's version, so the two are never mistaken for each other.
+
+version = "1.0"
+
+notes = "Shipped defaults for FreeWeight 1.0-rc. Every scale is provisional until real routing data exists to fit it."
+
+[capabilities.reasoning]
+# lm-eval's MMLU-Pro, GSM8K and ARC arrive with the external adapters; until then reasoning is
+# read from the agent suite's task outcomes and the order in which it took its steps.
+sources = [
+  { suite = "native.agent", metric_key = "task_success", weight = 0.6 },
+  { suite = "native.agent", metric_key = "ordering_accuracy", weight = 0.4 },
+]
+
+[capabilities.code_review]
+sources = [
+  { suite = "native.audit", metric_key = "f1", weight = 0.6 },
+  { suite = "native.audit", metric_key = "defect_detection_score", weight = 0.2 },
+  { suite = "native.audit", metric_key = "clean_code_false_positive_rate", weight = 0.2 },
+]
+
+[capabilities.auditing]
+sources = [
+  { suite = "native.audit", metric_key = "f1", weight = 0.5 },
+  { suite = "native.audit", metric_key = "line_localization_accuracy", weight = 0.3 },
+  { suite = "native.audit", metric_key = "clean_code_false_positive_rate", weight = 0.2 },
+]
+
+[capabilities.instruction_following]
+sources = [
+  { suite = "native.instruction_following", metric_key = "strict_prompt_accuracy", weight = 0.5 },
+  { suite = "native.instruction_following", metric_key = "instruction_level_accuracy", weight = 0.3 },
+  { suite = "native.instruction_following", metric_key = "loose_prompt_accuracy", weight = 0.2 },
+]
+
+[capabilities.structured_output]
+sources = [
+  { suite = "native.structured_output", metric_key = "schema_conformance", weight = 0.4 },
+  { suite = "native.structured_output", metric_key = "valid_json", weight = 0.2 },
+  { suite = "native.structured_output", metric_key = "required_field_presence", weight = 0.15 },
+  { suite = "native.structured_output", metric_key = "type_correctness", weight = 0.15 },
+  { suite = "native.structured_output", metric_key = "enum_adherence", weight = 0.1 },
+]
+
+[capabilities.tool_use]
+sources = [
+  { suite = "native.tool_use", metric_key = "task_success", weight = 0.3 },
+  { suite = "native.tool_use", metric_key = "tool_selection_accuracy", weight = 0.2 },
+  { suite = "native.tool_use", metric_key = "argument_semantic_correctness", weight = 0.15 },
+  { suite = "native.tool_use", metric_key = "multi_tool_sequence_accuracy", weight = 0.1 },
+  { suite = "native.tool_use", metric_key = "hallucinated_tool_rate", weight = 0.1 },
+  { suite = "native.tool_recovery", metric_key = "recovery_rate", weight = 0.15 },
+]
+
+[capabilities.agentic]
+sources = [
+  { suite = "native.agent", metric_key = "task_success", weight = 0.6 },
+  { suite = "native.agent", metric_key = "recovery_rate", weight = 0.2 },
+  { suite = "native.agent", metric_key = "hit_step_limit", weight = 0.2 },
+]
+
+[capabilities.judging]
+sources = [
+  { suite = "native.judge", metric_key = "judge_quality_score", weight = 0.5 },
+  { suite = "native.judge", metric_key = "pairwise_accuracy", weight = 0.2 },
+  { suite = "native.judge", metric_key = "swap_consistency", weight = 0.1 },
+  { suite = "native.judge", metric_key = "position_preference_rate", weight = 0.1 },
+  { suite = "native.judge", metric_key = "self_preference_delta", weight = 0.1 },
+]
+
+[capabilities.critiquing]
+sources = [
+  { suite = "native.critique", metric_key = "post_correction_accuracy", weight = 0.4 },
+  { suite = "native.critique", metric_key = "valid_correction_rate", weight = 0.3 },
+  { suite = "native.critique", metric_key = "regression_rate", weight = 0.2 },
+  { suite = "native.critique", metric_key = "hallucinated_criticism_rate", weight = 0.1 },
+]
+
+[capabilities.long_context]
+# 128K effective tokens earns full marks; below it the contribution is linear.
+sources = [
+  { suite = "native.long_context", metric_key = "effective_context_tokens", weight = 0.5, full_score_at = 131072 },
+  { suite = "native.long_context", metric_key = "retrieval_accuracy", weight = 0.3 },
+  { suite = "native.long_context", metric_key = "distractor_accuracy", weight = 0.2 },
+]
+
+[capabilities.speed]
+# 100 tokens/s decode and 2 000 tokens/s prefill earn full marks on a consumer GPU.
+sources = [
+  { suite = "native.performance", metric_key = "decode_tokens_per_second", weight = 0.7, full_score_at = 100 },
+  { suite = "native.performance", metric_key = "prompt_tokens_per_second", weight = 0.3, full_score_at = 2000 },
+]
+
+[capabilities.latency]
+# Two seconds to first token, thirty to load, a hundred milliseconds between tokens: each is
+# where the contribution reaches zero.
+sources = [
+  { suite = "native.performance", metric_key = "ttft_ms", weight = 0.6, zero_score_at = 2000 },
+  { suite = "native.performance", metric_key = "load_ms", weight = 0.2, zero_score_at = 30000 },
+  { suite = "native.performance", metric_key = "inter_token_ms_mean", weight = 0.2, zero_score_at = 100 },
+]
+
+[capabilities.memory_efficiency]
+# 256 KiB of KV cache per token is where memory efficiency reaches zero; an overhead ratio of 3
+# (observed three times the theoretical KV cost) likewise; 128K of successfully served context
+# earns full marks.
+sources = [
+  { suite = "native.memory_kv", metric_key = "observed_kv_bytes_per_token", weight = 0.6, zero_score_at = 262144 },
+  { suite = "native.memory_kv", metric_key = "kv_overhead_ratio", weight = 0.2, zero_score_at = 3.0 },
+  { suite = "native.memory_kv", metric_key = "max_successful_context_tokens", weight = 0.2, full_score_at = 131072 },
+]
+
+[capabilities.token_efficiency]
+# A quality-per-1k-output-tokens of 2.0 (a perfect score in 500 tokens) earns full marks; 2 000
+# output tokens per success is where the token cost of a success reaches zero.
+sources = [
+  { suite = "native.token_economy", metric_key = "quality_per_1k_output_tokens", weight = 0.6, full_score_at = 2.0 },
+  { suite = "native.token_economy", metric_key = "output_tokens_per_success", weight = 0.4, zero_score_at = 2000 },
+]
+
+[capabilities.energy_efficiency]
+# One output token per joule is a very efficient local setup and earns full marks; twenty joules
+# per output token is where the contribution reaches zero.
+sources = [
+  { suite = "native.energy", metric_key = "output_tokens_per_joule", weight = 0.6, full_score_at = 1.0 },
+  { suite = "native.energy", metric_key = "joules_per_output_token", weight = 0.4, zero_score_at = 20 },
+]
+
+[capabilities.reliability]
+# A coefficient of variation of 1.0 across repetitions is where consistency reaches zero.
+sources = [
+  { suite = "native.reliability", metric_key = "answer_agreement", weight = 0.4 },
+  { suite = "native.reliability", metric_key = "pass_at_1", weight = 0.3 },
+  { suite = "native.reliability", metric_key = "score_coefficient_of_variation", weight = 0.3, zero_score_at = 1.0 },
+]

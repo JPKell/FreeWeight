@@ -185,7 +185,11 @@ def live_environment(provider: Any, tmp_path: Any) -> Any:
 def test_a_real_short_run_produces_plausible_throughput_and_ttft(live_environment: Any) -> None:
     """One repetition of ``native.performance`` on a real model, checked for plausibility."""
     from freeweight.config import ExecutionSettings, TelemetrySettings
-    from freeweight.services.runs import ExecutionConfig, create_run, get_run
+    from freeweight.services.runs import (
+        ExecutionConfig,
+        create_run,
+        get_run,
+    )
     from freeweight.services.scheduler import RunScheduler
 
     execution = ExecutionConfig.resolve(
@@ -332,7 +336,12 @@ def test_the_five_quality_suites_run_end_to_end_on_a_real_model(live_environment
     fake).
     """
     from freeweight.config import ExecutionSettings
-    from freeweight.services.runs import ExecutionConfig, create_run, get_run
+    from freeweight.services.runs import (
+        RUN_PROVENANCE_METRICS,
+        ExecutionConfig,
+        create_run,
+        get_run,
+    )
     from freeweight.services.scheduler import RunScheduler
 
     execution = ExecutionConfig.resolve(
@@ -379,12 +388,16 @@ def test_the_five_quality_suites_run_end_to_end_on_a_real_model(live_environment
         if all(row.status == "skipped" for row in detail.tests):
             continue
         declared = {
-            entry["key"]
+            entry["metric_key"]
             for entry in live_environment["registry"].get(suite).manifest.body["metrics"]
         }
         produced = {metric.metric_key for metric in detail.metrics}
         assert produced, f"{suite} produced no metrics"
-        assert produced <= declared, f"{suite} produced {produced - declared} outside its manifest"
+        # A run also carries provenance no suite declares — what the model occupied, what the
+        # device drew. That set is declared in exactly one place, and nothing outside it and the
+        # manifest is allowed, which is what keeps this assertion worth making.
+        allowed = declared | set(RUN_PROVENANCE_METRICS)
+        assert produced <= allowed, f"{suite} produced {produced - allowed} it declares nowhere"
         # Rung 5 is not reachable in this phase, and a live run is where a mistake would show.
         assert all(metric.metric_key != "judge_agreement" for metric in detail.metrics)
 
@@ -400,7 +413,12 @@ def test_the_four_judgement_dependent_suites_run_end_to_end_on_a_real_model(
     a score would fail on a weaker model regardless of whether the measurement was correct.
     """
     from freeweight.config import ExecutionSettings
-    from freeweight.services.runs import ExecutionConfig, create_run, get_run
+    from freeweight.services.runs import (
+        RUN_PROVENANCE_METRICS,
+        ExecutionConfig,
+        create_run,
+        get_run,
+    )
     from freeweight.services.scheduler import RunScheduler
 
     execution = ExecutionConfig.resolve(
@@ -436,7 +454,9 @@ def test_the_four_judgement_dependent_suites_run_end_to_end_on_a_real_model(
             for metric in test.metrics
         }
         for metric in detail.metrics:
-            assert metric.metric_key in declared, f"{suite}: undeclared metric {metric.metric_key}"
+            assert metric.metric_key in declared or metric.metric_key in RUN_PROVENANCE_METRICS, (
+                f"{suite}: undeclared metric {metric.metric_key}"
+            )
             assert metric.unit
             assert metric.numeric_value is not None or metric.unavailable_reason
 

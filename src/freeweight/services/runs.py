@@ -171,6 +171,7 @@ if TYPE_CHECKING:
     from freeweight.services.database import Database
 
 __all__ = [
+    "RUN_PROVENANCE_METRICS",
     "SKIP_UNSUPPORTED_CAPABILITY",
     "ExecutionConfig",
     "InsufficientResources",
@@ -186,6 +187,7 @@ __all__ = [
     "create_run",
     "execute_run",
     "get_run",
+    "reaggregate_run",
     "list_runs",
     "list_samples",
     "repeat_run",
@@ -869,7 +871,7 @@ def _install_benchmark(
             metric_definitions_json=_json_safe(
                 [
                     {
-                        "key": metric.key,
+                        "metric_key": metric.metric_key,
                         "unit": metric.unit,
                         "higher_is_better": metric.higher_is_better,
                         "aggregation": metric.aggregation,
@@ -2033,7 +2035,76 @@ def _execute_run_inner(  # noqa: PLR0913 — mirrors execute_run's collaborators
 
     # --- complete ----------------------------------------------------------------------------
     _finish(database, publisher, run_id, RunStatus.COMPLETED, clock=clock)
+    # After the terminal transition, so the recomputation reads a run that *is* completed. It
+    # never fails the run: the measurement is already durable, and evidence is derived from it.
+    _refresh_evidence(database, run_id, settings=settings, clock=clock)
     return RunStatus.COMPLETED
+
+
+def _refresh_evidence(
+    database: Database, run_id: str, *, settings: Settings | None, clock: Clock
+) -> None:
+    """Recompute the capability evidence of the subject one completed run measured.
+
+    Phase 11's hook into the run engine. A completed run changes exactly one subject's evidence —
+    its model under its profile on its machine — so only that subject is recomputed
+    (:func:`freeweight.services.evidence.recompute_for_run`). A goal below its calibration gate
+    is *withheld* rather than emitted, and the withholding is logged here by capability and
+    reason, so silence is never mistaken for success.
+
+    Never raises: the run is already ``completed`` and its rows are durable, and evidence is a
+    derived view of them that ``freeweight evidence show --recompute`` can rebuild at any time.
+    """
+    from freeweight.services.evidence import recompute_for_run
+
+    try:
+        report = recompute_for_run(
+            database,
+            run_id,
+            settings=settings.evidence if settings is not None else None,
+            clock=clock,
+        )
+    except Exception:  # noqa: BLE001 — derived data must never fail the measurement it derives from
+        logger.warning("evidence.refresh_failed", extra={"run_id": run_id}, exc_info=True)
+        return
+    for item in report.withheld:
+        logger.info(
+            "evidence.withheld",
+            extra={"run_id": run_id, "capability_id": item.capability_id, "code": item.code},
+        )
+
+
+def reaggregate_run(
+    database: Database, run_id: str, *, registry: BenchmarkRegistry, clock: Clock = utc_now
+) -> None:
+    """Rewrite one completed run's aggregate metric rows from its stored samples.
+
+    What a human grade needs after the run has finished: a rung-4 criterion scored a week later
+    changes the samples' composites, and the run's ``composite_score`` row has to follow or the
+    dashboard and the evidence would describe a run that no longer exists. Reads the run's frozen
+    context back exactly as execution does and calls the same aggregation, so the rows are
+    rewritten by the one function that writes them.
+
+    Args:
+        database: The application's database handle.
+        run_id: The completed run.
+        registry: The benchmarks this build can run, for the suite's metric definitions.
+        clock: The ``created_at`` the rewritten rows carry.
+
+    Raises:
+        RunNotFound: No run has this id.
+        BenchmarkNotFound: The run's suite is not in ``registry``.
+    """
+    context = _read_context(database, run_id)
+    benchmark = registry.get(context.suite_key)
+    with database.read() as session:
+        key_of = {value: key for key, value in _test_row_ids(session, context.suite_id).items()}
+        run_test_ids = {
+            key_of[row.test_id]: row.id
+            for row in RunTestRepository().list_for_run(session, run_id)
+            if row.test_id in key_of
+        }
+    _aggregate_run(database, run_id, benchmark, run_test_ids, context=context, clock=clock)
 
 
 def _observe_residency(provider: Provider, context: _RunContext) -> _RunContext:
@@ -2269,6 +2340,36 @@ def _context_divergence(context: _RunContext) -> list[Degradation]:
     ]
 
 
+RUN_PROVENANCE_METRICS: Mapping[str, tuple[str, bool]] = {
+    # What the model occupied, from the provider's own per-model report.
+    "model_vram_bytes": ("bytes", False),
+    "model_total_bytes": ("bytes", False),
+    "served_context_observed": ("tokens", False),
+    # What the device did while it was measured, from the persisted telemetry window.
+    "peak_vram_bytes": ("bytes", False),
+    "mean_gpu_power_watts": ("W", False),
+    "gpu_energy_joules": ("J", False),
+    "max_gpu_temperature_c": ("°C", False),
+}
+"""``{metric_key: (unit, higher_is_better)}`` for the run-level rows **no suite declares**.
+
+Every other row in ``metric_values`` is a figure some manifest asked for. These are not: they
+describe the *run* — what the model occupied, what the device drew — rather than how the model
+performed, so no suite owns them and every suite's run produces them when the provider and the
+telemetry reader can answer.
+
+They are stored as metrics rather than as columns on ``runs`` because that is what makes them
+queryable, comparable and exportable by the paths that already exist: ``results compare``'s context
+sweep differences ``model_vram_bytes`` across runs, which a column would not support without a
+second query surface.
+
+**Declared here because "undeclared" was the problem.** Emitting keys no manifest names and no
+constant lists is metric sprawl — a consumer reading ``metric_values`` could not tell what
+``model_vram_bytes`` was or whether it was expected — and it is what the suite-conformance tests
+were right to refuse. This is the one place that says these keys exist, what they mean and what
+they are in; the tests allow exactly this set beyond a manifest, and nothing else."""
+
+
 def _residency_rows(context: _RunContext, *, run_id: str, now: datetime) -> list[dict[str, Any]]:
     """Build the run-level rows for what the model occupied while it was measured.
 
@@ -2288,19 +2389,19 @@ def _residency_rows(context: _RunContext, *, run_id: str, now: datetime) -> list
             "numeric_value": float(value),
             "unavailable_reason": None,
             "gpu_index": None,
-            "unit": unit,
+            "unit": RUN_PROVENANCE_METRICS[key][0],
             "aggregation": "single",
-            "higher_is_better": False,
+            "higher_is_better": RUN_PROVENANCE_METRICS[key][1],
             "sample_count": 1,
             "excluded_count": 0,
             "stddev": None,
             "coefficient_of_variation": None,
             "created_at": now,
         }
-        for key, value, unit in (
-            ("model_vram_bytes", context.model_vram_bytes, "bytes"),
-            ("model_total_bytes", context.model_total_bytes, "bytes"),
-            ("served_context_observed", context.observed_context, "tokens"),
+        for key, value in (
+            ("model_vram_bytes", context.model_vram_bytes),
+            ("model_total_bytes", context.model_total_bytes),
+            ("served_context_observed", context.observed_context),
         )
         if is_supported(value)
     ]
@@ -3848,10 +3949,13 @@ def _telemetry_rows(
         placement_known=False,
     )
     definitions = {
-        "peak_vram_bytes": ("bytes", False),
-        "mean_gpu_power_watts": ("W", False),
-        "gpu_energy_joules": ("J", False),
-        "max_gpu_temperature_c": ("°C", False),
+        key: RUN_PROVENANCE_METRICS[key]
+        for key in (
+            "peak_vram_bytes",
+            "mean_gpu_power_watts",
+            "gpu_energy_joules",
+            "max_gpu_temperature_c",
+        )
     }
     return [
         {

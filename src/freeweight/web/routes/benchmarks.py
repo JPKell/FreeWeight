@@ -100,7 +100,7 @@ def get_benchmark_endpoint(request: Request, key: str) -> dict[str, Any]:
                 "case_count": len(list(test.cases())),
                 "metrics": [
                     {
-                        "key": metric.key,
+                        "metric_key": metric.metric_key,
                         "unit": metric.unit,
                         "higher_is_better": metric.higher_is_better,
                         "aggregation": metric.aggregation,

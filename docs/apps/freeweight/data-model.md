@@ -196,6 +196,29 @@ coefficient_of_variation NUMERIC NULL · created_at
 ```
 Indexes: `(run_id, metric_key)`, `(run_test_id, metric_key)`, `(metric_key, numeric_value)`.
 
+**Most rows here are figures a manifest asked for. Seven are not**, and they are declared in one
+place — `freeweight.services.runs.RUN_PROVENANCE_METRICS` — rather than by any suite:
+
+| Key | Unit | What it records |
+|---|---|---|
+| `model_vram_bytes` · `model_total_bytes` | bytes | What the model occupied, from the provider's own per-model report |
+| `served_context_observed` | tokens | The context the provider says it actually served |
+| `peak_vram_bytes` · `mean_gpu_power_watts` · `gpu_energy_joules` · `max_gpu_temperature_c` | bytes · W · J · °C | What the device did across the run's telemetry window |
+
+They describe the **run** — what it occupied and what it drew — rather than how the model
+performed, so no suite owns them and every suite's run produces them where the provider and the
+telemetry reader can answer. Absent where they cannot: a provider that does not report residency
+produces no row, never a row of zeroes.
+
+They are rows here rather than columns on `runs` because that is what makes them queryable,
+comparable and exportable by paths that already exist — `results compare`'s context sweep
+differences `model_vram_bytes` across runs, which a column could not serve without a second query
+surface. The declaration exists because *undeclared* was the problem: a consumer reading this table
+could not otherwise tell what `model_vram_bytes` was or whether to expect it, and the
+suite-conformance tests were right to refuse keys nothing named. They now allow exactly that set
+beyond a manifest and nothing else.
+
+
 A row's `numeric_value` comes from one of three sources, resolved per test in this order: the
 sample's own provider-reported facts; a number the scorer recorded under that key in
 `samples.result_json`; or the sample's `score`. A sample that measured no value for a key is
@@ -284,9 +307,11 @@ ADR-0022.
 
 ```text
 id ULID PK · model_id FK · runtime_profile_id FK · machine_id FK
+model_descriptor_id FK→model_descriptors NULL   -- the snapshot the newest contributing run measured
 capability_id TEXT NOT NULL · score NUMERIC NOT NULL          -- 0..1
 confidence NUMERIC NOT NULL · sample_count INT NOT NULL · excluded_count INT NOT NULL
-dispersion NUMERIC NULL · source_run_ids_json · contributing_metrics_json
+dispersion NUMERIC NULL · dispersion_unavailable_reason TEXT NULL   -- the measurement column pair
+source_run_ids_json · contributing_metrics_json
 benchmark_versions_json · dataset_hashes_json · prompt_subset_hashes_json
 identity_confidence TEXT NOT NULL
 environment_snapshot_json                                     -- provider/driver/OS at measurement
@@ -296,6 +321,10 @@ measured_at TIMESTAMP NOT NULL   -- the latest completed_at among the contributi
 computed_at TIMESTAMP NOT NULL   -- when this aggregation ran. Provenance and the `since` filter
                                  -- for incremental export; never a confidence input.
 policy_version TEXT NOT NULL · vocabulary_version TEXT NOT NULL   -- >= '1.1' for user.* records
+policy_json                          -- the confidence parameters the number was computed under
+                                     -- (ADR-0017: every parameter is recorded with the evidence)
+confidence_factors_json              -- the six-factor breakdown, so the UI explains a number
+                                     -- without recomputing it (ADR-0032, consequences)
 judge_validity_factor NUMERIC NOT NULL DEFAULT 1.0   -- 1.0 for every rung 1-4 measurement
 goal_id FK→goals NULL · goal_hash TEXT NULL · goal_pack_version TEXT NULL
 score_method_mix_json NULL           -- {"rule": 0.6, "reference": 0.0, "human": 0.0, "judge": 0.4}
@@ -309,7 +338,13 @@ Goal-sourced rows exist only above the calibration gate: a goal below
 (ADR-0032 §3). A test asserts
 the absence, because "we emitted it quietly at the floor" is exactly the failure this rule exists
 to prevent.
-Index: `(capability_id, score DESC)`, `(model_id, capability_id)`.
+Index: `(capability_id, score DESC)`, `(model_id, capability_id)`, `(computed_at)` for the
+incremental export's `since` filter, and every foreign key.
+
+`policy_json` and `confidence_factors_json` are internal columns the wire contract does not carry:
+`capability.evidence` v1 is exactly ADR-0022 §1's field set and a writer emits nothing else, so the
+parameters and the breakdown stay on the row and reach a person through `GET /evidence`'s page and
+`freeweight evidence show`, never through the bundle.
 
 ### `goals`
 User-authored measurement definitions (ADR-0031,

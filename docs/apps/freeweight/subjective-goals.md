@@ -230,16 +230,18 @@ answerable without judgement far more often than it first appears.
 `rung: "human"` queues the sample for the user to grade in a blinded UI, recorded with
 `score_method = "human"`. Validity is 1.0 by definition; throughput is one person.
 
-**Status: the criterion validates, hashes, lints and is counted in `score_method_mix`; the run-time
-grading UI arrives at [Phase 11](development-plan.md).** Until it does, a rung-4 criterion skips
-every sample with `human_grade_pending` and contributes no score, and the applied weight shows the
-shortfall rather than hiding it — a goal that declares one measures less of itself than it says,
-visibly.
+**Status: the run-time grading UI exists ([Phase 11](development-plan.md)).** `/runs/{id}/grade`
+presents a completed goal run's samples blinded and shuffled and saves each grade the moment it is
+submitted; `freeweight goals grade <slug> --run <id>` is the CLI form. A grade lands on the
+sample's own criterion row, recomputes the sample's composite through the same function the run
+engine uses, rewrites the run's aggregate metrics and refreshes the subject's `user.<slug>`
+evidence — the same path a rule's score took during the run. Until a sample is graded, its rung-4
+criterion skips with `human_grade_pending` and contributes no score, and the applied weight shows
+the shortfall rather than hiding it. A run whose goal has been edited since is refused: a grade
+against a different rubric would be attributed to a measurement it was never part of.
 
-The *calibration* grading UI is a different surface and it does exist: §5.2's blinded grading of
-calibration samples ships, in the wizard and as `freeweight goals grade`. What Phase 11 adds is the
-second entry point, over an ordinary run's samples — and it lands there because that is the phase
-where a human grade first has somewhere to go, which is evidence.
+The *calibration* grading UI is the other entry point over the same machinery: §5.2's blinded
+grading of calibration samples, in the wizard and as `freeweight goals grade`.
 
 ### 3.4 Rung 5 — judged criteria
 

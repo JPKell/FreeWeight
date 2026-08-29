@@ -28,67 +28,67 @@
   "target_device": "gpu",
   "metrics": [
     {
-      "key": "prompt_tokens",
+      "metric_key": "prompt_tokens",
       "unit": "count",
       "higher_is_better": true,
       "aggregation": "mean"
     },
     {
-      "key": "prompt_eval_ms",
+      "metric_key": "prompt_eval_ms",
       "unit": "ms",
       "higher_is_better": false,
       "aggregation": "mean"
     },
     {
-      "key": "theoretical_kv_bytes_per_token",
+      "metric_key": "theoretical_kv_bytes_per_token",
       "unit": "bytes",
       "higher_is_better": false,
       "aggregation": "max"
     },
     {
-      "key": "observed_kv_bytes_per_token",
+      "metric_key": "observed_kv_bytes_per_token",
       "unit": "bytes",
       "higher_is_better": false,
       "aggregation": "max"
     },
     {
-      "key": "observed_mb_per_1k_context",
+      "metric_key": "observed_mb_per_1k_context",
       "unit": "MiB",
       "higher_is_better": false,
       "aggregation": "max"
     },
     {
-      "key": "kv_slope_fit_r_squared",
+      "metric_key": "kv_slope_fit_r_squared",
       "unit": "ratio",
       "higher_is_better": true,
       "aggregation": "max"
     },
     {
-      "key": "kv_overhead_ratio",
+      "metric_key": "kv_overhead_ratio",
       "unit": "ratio",
       "higher_is_better": false,
       "aggregation": "max"
     },
     {
-      "key": "max_successful_context_tokens",
+      "metric_key": "max_successful_context_tokens",
       "unit": "count",
       "higher_is_better": true,
       "aggregation": "max"
     },
     {
-      "key": "cold_prefill_ms",
+      "metric_key": "cold_prefill_ms",
       "unit": "ms",
       "higher_is_better": false,
       "aggregation": "mean"
     },
     {
-      "key": "warm_prefill_ms",
+      "metric_key": "warm_prefill_ms",
       "unit": "ms",
       "higher_is_better": false,
       "aggregation": "mean"
     },
     {
-      "key": "reuse_speedup",
+      "metric_key": "reuse_speedup",
       "unit": "ratio",
       "higher_is_better": true,
       "aggregation": "max"

@@ -14,6 +14,7 @@ import typer
 
 from freeweight.cli.commands import config as config_commands
 from freeweight.cli.commands import db as db_commands
+from freeweight.cli.commands import evidence as evidence_commands
 from freeweight.cli.commands import goals as goals_commands
 from freeweight.cli.commands import judges as judges_commands
 from freeweight.cli.commands import models as models_commands
@@ -73,4 +74,7 @@ app.add_typer(
 )
 app.add_typer(runs_commands.app, name="run", help="Start, inspect and cancel benchmark runs.")
 app.add_typer(results_commands.app, name="results", help="Inspect and compare stored results.")
+app.add_typer(
+    evidence_commands.app, name="evidence", help="Inspect and export capability evidence."
+)
 app.add_typer(prompts_commands.app, name="prompts", help="Inspect and rebuild the prompt pack.")

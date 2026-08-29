@@ -33,56 +33,56 @@
   "target_device": "any",
   "metrics": [
     {
-      "key": "valid_json",
+      "metric_key": "valid_json",
       "unit": "ratio",
       "higher_is_better": true,
       "aggregation": "mean",
       "description": "Share of answers that parsed as JSON at all."
     },
     {
-      "key": "schema_conformance",
+      "metric_key": "schema_conformance",
       "unit": "ratio",
       "higher_is_better": true,
       "aggregation": "mean",
       "description": "Share of answers that conformed to the case's schema with no violation."
     },
     {
-      "key": "required_field_presence",
+      "metric_key": "required_field_presence",
       "unit": "ratio",
       "higher_is_better": true,
       "aggregation": "mean",
       "description": "Share of answers with every required field present."
     },
     {
-      "key": "type_correctness",
+      "metric_key": "type_correctness",
       "unit": "ratio",
       "higher_is_better": true,
       "aggregation": "mean",
       "description": "Share of answers whose top-level field types were all correct."
     },
     {
-      "key": "enum_adherence",
+      "metric_key": "enum_adherence",
       "unit": "ratio",
       "higher_is_better": true,
       "aggregation": "mean",
       "description": "Share of answers whose enumerated fields used a declared value."
     },
     {
-      "key": "nesting_correctness",
+      "metric_key": "nesting_correctness",
       "unit": "ratio",
       "higher_is_better": true,
       "aggregation": "mean",
       "description": "Share of answers whose nested objects and arrays came out with the right shape."
     },
     {
-      "key": "first_attempt_conformed",
+      "metric_key": "first_attempt_conformed",
       "unit": "ratio",
       "higher_is_better": true,
       "aggregation": "mean",
       "description": "Share of cases that conformed without needing the corrective retry. Never replaced by the post-retry figure."
     },
     {
-      "key": "recovered_after_retry",
+      "metric_key": "recovered_after_retry",
       "unit": "ratio",
       "higher_is_better": true,
       "aggregation": "mean",

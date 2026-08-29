@@ -52,6 +52,7 @@ def test_db_status_json_after_upgrade() -> None:
         "calibration_grades": 0,
         "calibration_reports": 0,
         "calibration_samples": 0,
+        "capability_evidence": 0,
         "criterion_scores": 0,
         "goal_criteria": 0,
         "goal_tasks": 0,

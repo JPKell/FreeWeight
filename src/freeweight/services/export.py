@@ -70,6 +70,7 @@ if TYPE_CHECKING:
 
 __all__ = [
     "CALIBRATION_REPORT_SCHEMA_VERSION",
+    "EMITTED_SCHEMAS",
     "EXPORT_SCHEMA",
     "GOAL_PACK_SCHEMA_VERSION",
     "EXPORT_SCHEMA_VERSION",
@@ -83,6 +84,7 @@ __all__ = [
     "goal_pack_payload",
     "iter_export",
     "iter_goal_export",
+    "model_identity_payload",
     "read_export",
     "resolve_run_ids",
 ]
@@ -92,6 +94,20 @@ GOAL_PACK_SCHEMA_VERSION = SchemaVersion(1, 0)
 
 CALIBRATION_REPORT_SCHEMA_VERSION = SchemaVersion(1, 0)
 """The ``benchmark.calibration_report`` version this build writes (spec §7.3)."""
+
+EMITTED_SCHEMAS: Mapping[str, str] = {
+    "benchmark.run_summary": "1.0",
+    "capability.evidence": "1.0",
+    "benchmark.evidence_bundle": "1.0",
+    "benchmark.goal_pack": "1.0",
+    "benchmark.calibration_report": "1.0",
+    "freeweight.export": "1.0",
+}
+"""Every document schema this build writes, with the version it writes it at.
+
+What ``freeweight version`` and ``GET /api/v1/version`` report under ``schemas`` (CLI standards
+§2), so a consumer can check the schema versions before it fetches a bundle (API §10 step 1).
+Declared here, beside the constants that write them, rather than in the two front ends."""
 
 
 @contextmanager
@@ -554,6 +570,23 @@ def _model_payload(model: Any, descriptor: Any) -> dict[str, Any]:  # noqa: ANN4
         }
     )
     return payload
+
+
+def model_identity_payload(model: Any, descriptor: Any) -> dict[str, Any]:  # noqa: ANN401 — ORM rows
+    """Build the ``ModelIdentityFields`` payload for one model row and its descriptor snapshot.
+
+    The public name of :func:`_model_payload`, for the evidence service: an evidence record
+    carries the same ``model`` object a run summary does (ADR-0022 §1), and two builders of it
+    would be two places for the descriptor's measurement rule to drift.
+
+    Args:
+        model: A ``models`` row.
+        descriptor: The ``model_descriptors`` row the measurement was taken against, or ``None``.
+
+    Returns:
+        The payload, ready for ``ModelIdentityFields`` validation.
+    """
+    return _model_payload(model, descriptor)
 
 
 def _profile_payload(profile: Any) -> dict[str, Any]:  # noqa: ANN401 — a runtime_profiles row

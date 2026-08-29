@@ -104,6 +104,7 @@ def test_health_command_json(monkeypatch: pytest.MonkeyPatch) -> None:
         "provider",
         "gpu_telemetry",
         "machine",
+        "evidence",
     ]
     assert payload["components"][0]["status"] == "degraded"
     assert payload["components"][1]["status"] == "ok"
@@ -124,7 +125,15 @@ def test_health_command_reports_ok_after_db_upgrade(monkeypatch: pytest.MonkeyPa
     # gpu_telemetry (Phase 4) reflects this machine's real hardware: "ok" with a GPU, "degraded"
     # without one — either is correct here, and the overall status follows suit (Graceful
     # Degradation §3), so neither is hardcoded to keep this test honest on a GPU-less runner.
-    assert set(components_by_name) == {"database", "provider", "gpu_telemetry", "machine"}
+    assert set(components_by_name) == {
+        "database",
+        "provider",
+        "gpu_telemetry",
+        "machine",
+        "evidence",
+    }
+    assert components_by_name["evidence"]["status"] == "ok"
+    assert components_by_name["evidence"]["detail"] == "no capability evidence yet"
     assert payload["status"] in ("ok", "degraded")
 
 

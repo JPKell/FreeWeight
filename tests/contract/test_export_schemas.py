@@ -322,6 +322,42 @@ class TestTheExportContract:
         assert EXPORT_SCHEMA.startswith("freeweight.")
         assert EXPORT_SCHEMA not in SUPPORTED_SCHEMAS
 
+    def test_every_surface_names_a_metric_key_the_same_way(self) -> None:
+        """One concept, one name — CLAUDE.md's rule, over every surface that names a metric.
+
+        `/results` and the export said ``metric_key``; `GET /runs/{id}`, `run show --json` and
+        every shipped manifest said ``key`` for the same string. Nothing caught it because no test
+        compared two surfaces, and the live test that asked the runs endpoint for ``metric_key``
+        had never run far enough to fail.
+
+        Declaring a metric and reporting a value for one now name it identically, so a reader
+        moving between a manifest and a result never has to translate.
+        """
+        import json
+        import re
+
+        source_root = Path(__file__).resolve().parents[2] / "src" / "freeweight"
+        offenders: list[str] = []
+
+        # A Python dict entry spelling a metric's key as `key`.
+        pattern = re.compile(r'"key":\s*(?:metric|row)\.metric_key')
+        for path in source_root.rglob("*.py"):
+            for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), start=1):
+                if pattern.search(line):
+                    offenders.append(f"{path.relative_to(source_root)}:{number}")
+
+        # And every shipped manifest's own metric declarations.
+        for path in sorted(source_root.glob("benchmarks/*/manifest.json")):
+            body = json.loads(path.read_text(encoding="utf-8"))
+            for entry in body.get("metrics", ()):
+                if "key" in entry:
+                    offenders.append(f"{path.relative_to(source_root)}: metrics[].key")
+
+        assert not offenders, (
+            "these name a metric's key `key`; every other surface calls it `metric_key`: "
+            f"{offenders}"
+        )
+
     def test_every_shipped_metric_key_satisfies_the_setspec_contract(self) -> None:
         """Catch a key SetSpec would reject at *build* time, not halfway through a stream.
 
@@ -341,7 +377,7 @@ class TestTheExportContract:
         for path in sorted(root.glob("*/manifest.json")):
             body = json.loads(path.read_text(encoding="utf-8"))
             for metric in body.get("metrics", ()):
-                if not re.match(pattern, str(metric["key"])):
+                if not re.match(pattern, str(metric["metric_key"])):
                     offenders.append(f"{body['key']}:{metric['key']}")
 
         assert not offenders, f"metric keys SetSpec would reject: {offenders}"

@@ -1,0 +1,107 @@
+{% extends "base.html" %}
+{% block title %}Grade run — FreeWeight{% endblock %}
+{% block content %}
+<h2>Grade run <code>{{ run_id[:8] }}</code></h2>
+
+{% if error %}
+<div class="error-state" role="alert"><p>{{ error }}</p></div>
+{% endif %}
+
+{% if view %}
+<p class="muted">
+  <strong>{{ view.goal_name }}</strong> declares {{ view.criteria | length }}
+  {{ 'criterion' if view.criteria | length == 1 else 'criteria' }} graded by a person rather than a rule or a jury.
+  Blinded and shuffled: which model wrote these is not shown and is not fetched, and the order is
+  not the order they were produced in. Every grade is saved the moment you submit it; the run's
+  composite and its capability evidence are refreshed with it.
+</p>
+
+<dl class="card-grid">
+  <div class="card">
+    <dt>Graded</dt>
+    <dd>{{ view.recorded }} / {{ view.expected }}</dd>
+    <p class="card-note">{{ view.samples | length }} samples × {{ view.criteria | length }} human criteria.</p>
+  </div>
+  <div class="card">
+    <dt>Complete</dt>
+    <dd style="font-size: 18px;">{{ 'yes' if view.complete else 'not yet' }}</dd>
+    <p class="card-note">
+      {% if view.complete %}Every sample measures the whole rubric. <a href="/evidence?capability=user.{{ view.goal_slug }}">See the evidence</a>.
+      {% else %}Ungraded criteria are excluded from the composite and the applied weight says so.{% endif %}
+    </p>
+  </div>
+</dl>
+
+{% if view.samples %}
+{% for sample in view.samples %}
+<h3 id="sample-{{ loop.index }}">Sample {{ loop.index }} of {{ view.samples | length }} <span class="unit">task {{ sample.case_id }}</span></h3>
+<pre>{{ sample.response_text }}</pre>
+<div class="table-scroll">
+  <table>
+    <caption>Grade this sample on each human criterion. Notes stay beside the grade.</caption>
+    <thead>
+      <tr>
+        <th scope="col">Criterion</th>
+        <th scope="col">Your grade</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for criterion in view.criteria %}
+      {% set existing = sample.grades.get(criterion.key) %}
+      <tr>
+        <td>
+          <strong>{{ criterion.name }}</strong> <span class="unit">weight {{ '%.2f' % criterion.weight }}</span>
+          {% if criterion.descriptors %}
+          <details>
+            <summary class="unit">what the points mean</summary>
+            <dl>
+              {% for point, text in criterion.descriptors | dictsort(reverse=true) %}
+              <dt>{{ point }}</dt><dd>{{ text }}</dd>
+              {% endfor %}
+            </dl>
+          </details>
+          {% endif %}
+        </td>
+        <td>
+          <form method="post" action="/runs/{{ run_id }}/grade">
+            <input type="hidden" name="sample_id" value="{{ sample.sample_id }}">
+            <input type="hidden" name="criterion" value="{{ criterion.key }}">
+            <fieldset style="border: 0; padding: 0;">
+              <legend class="unit">Grade</legend>
+              {% for point in range(1, criterion.scale_points + 1) %}
+              <label for="g-{{ sample.sample_id }}-{{ criterion.key }}-{{ point }}">
+                <input type="radio" id="g-{{ sample.sample_id }}-{{ criterion.key }}-{{ point }}"
+                       name="grade" value="{{ point }}"
+                       {% if existing and existing.grade == point %}checked{% endif %}>
+                {{ point }}
+              </label>
+              {% endfor %}
+            </fieldset>
+            <div class="field">
+              <label for="n-{{ sample.sample_id }}-{{ criterion.key }}">Note</label>
+              <input id="n-{{ sample.sample_id }}-{{ criterion.key }}" name="note"
+                     value="{{ existing.note if existing else '' }}">
+            </div>
+            <button type="submit">{{ 'Update grade' if existing else 'Save grade' }}</button>
+            {% if existing %}
+            <span class="status status-completed">graded {{ existing.grade }}</span>
+            {% endif %}
+          </form>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endfor %}
+{% else %}
+<div class="empty-state">
+  <h3>Nothing to grade</h3>
+  <p>This run stored no completed samples with their text. A goal run stores every response by
+    default, so a run with none either failed every sample or was cancelled.</p>
+</div>
+{% endif %}
+{% elif not error %}
+<div class="empty-state"><p>No run to grade.</p></div>
+{% endif %}
+{% endblock %}

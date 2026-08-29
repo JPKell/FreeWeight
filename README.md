@@ -2,9 +2,16 @@
 
 Measures local open-weight models across capability, efficiency, reliability and resource use, with reproducible provenance and exportable capability evidence.
 
-**Status:** specified, not yet implemented. This repository currently holds the project scaffold
-(directory structure, tooling configuration, and the project documentation) —
-see [development plan](docs/apps/freeweight/development-plan.md) for what each phase adds.
+**Status:** `1.0.0rc1` — Phases 1–11 built; M3's contract freeze. Every native suite runs and
+measures, subjective goals are authored, calibrated and scored from the UI, and the application
+exports **capability evidence** — one `capability.evidence` record per model, runtime profile,
+machine and capability, with ADR-0017's confidence beside the score — as a
+`benchmark.evidence_bundle` a consumer reads with `setspec` alone. Phases 12–14 (the shared
+packages, external adapters, hardening) take it to 1.0; see the
+[development plan](docs/apps/freeweight/development-plan.md).
+
+Reference documents generated from the code, checked in CI: the
+[configuration reference](docs/configuration.md) and the [OpenAPI snapshot](docs/openapi.json).
 
 Part of the **Local AI Suite**.
 

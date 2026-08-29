@@ -119,7 +119,7 @@ selected test requires a sandbox).
 | Endpoint | Notes |
 |---|---|
 | `GET /runs` | Filter by `status`, `model`, `suite`, `machine`, `label`, date range; cursor pagination |
-| `GET /runs/{id}` | Run with tests, aggregate metrics, degradations and the fingerprint document |
+| `GET /runs/{id}` | Run with tests, aggregate metrics, degradations and the fingerprint document. A metric row names its key `metric_key`, as every other surface does (§11) |
 | `POST /runs/{id}/cancel` | 202 when accepted; 409 `RUN_NOT_CANCELLABLE` for terminal runs |
 | `POST /runs/{id}/repeat` | Creates a new run with the identical effective config, reusing the original's frozen `ExecutionConfig` and runtime profile rather than re-resolving them; `?force=true` proceeds past a blocker and records the divergence; `?label=` names the new run |
 | `GET /runs/{id}/events` | SSE with `Last-Event-ID` replay |
@@ -200,6 +200,23 @@ The two envelopes compose in exactly that order and never the reverse
 unsupported majors. These endpoints are **read-only** and require only the `read` scope when
 authentication is enabled.
 
+### `GET /evidence` parameters
+
+| Parameter | Meaning |
+|---|---|
+| `capability` | Exact capability ID, e.g. `tool_use` or `user.house_voice` |
+| `model` | Model canonical ID, ULID or unambiguous prefix — the same four forms every surface accepts |
+| `machine` | Machine fingerprint |
+| `runtime_profile` | Runtime profile hash |
+| `min_confidence` | Records at or above this confidence |
+| `limit`, `cursor` | Cursor pagination over the total order `(capability_id, id)`; `limit` defaults to 50 and clamps to 500 |
+
+A capability with no evidence is **absent** from the collection, never present with a score of
+zero, and a goal below its calibration gate has no record at all
+(ADR-0032 §3). The page form,
+`/evidence`, shows the same records with ADR-0017's staleness badge and, one interaction away, the
+six confidence factors and the contributing metrics that explain each score.
+
 ### `GET /evidence/export` parameters
 
 | Parameter | Meaning |
@@ -207,9 +224,9 @@ authentication is enabled.
 | `since` | RFC 3339. Returns evidence whose **`computed_at`** is later, on FreeWeight's clock. A client never supplies its own clock: it sends back the `generated_at` of the bundle it received last time, which makes the comparison single-clock and correct across machines |
 | `capability`, `model`, `machine`, `runtime_profile`, `min_confidence` | The same filters as `GET /evidence` |
 
-Every bundle declares `complete: true|false`. `since` produces an incremental bundle
-(`complete: false`), which can add and update evidence but can never tell a consumer that something
-was removed. A consumer observes removals only from a complete bundle, and marks locally-held evidence
+Every bundle declares `complete: true|false`. `since` — or any filter — produces an incremental
+bundle (`complete: false`), which can add and update evidence but can never tell a consumer that
+something was removed; only a bundle nothing narrowed is complete. A consumer observes removals only from a complete bundle, and marks locally-held evidence
 absent from one as `superseded` rather than deleting it
 (ADR-0022 §5). A consumer that has never
 imported from this source pulls complete.
@@ -311,6 +328,19 @@ Three of these are worth a client's attention because the obvious reading is wro
   so agreement has never been measured. A goal that *failed* the gate returns `200`.
 * **`503 JUDGE_UNAVAILABLE` is a run-level outcome, not an outage.** No jury could be assembled;
   rule criteria still scored and the partial result says so.
+
+## 11a. One name per concept
+
+A metric value's key is **`metric_key`** on every surface that reports one — `GET /results`,
+`GET /results/export`, `GET /runs/{id}`, `GET /models/{ref}/results` and `freeweight run show
+--json`. It was briefly `key` on two of them, which is exactly the drift CLAUDE.md's "same concept,
+same name" rule exists to prevent; a contract test now fails the build if a surface spells it the
+old way.
+
+A benchmark **manifest** spells it the same way: `metrics: [{"metric_key": …, "unit": …}]`
+([benchmark catalogue](benchmark-catalog.md) §5). Declaring a metric and reporting a value for one
+are different acts, and they name the thing identically — so a reader moving between a manifest and
+a result never has to translate.
 
 ## 12. Exported document schemas
 

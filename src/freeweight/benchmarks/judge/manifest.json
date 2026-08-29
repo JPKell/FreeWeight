@@ -33,7 +33,7 @@
   "target_device": "any",
   "metrics": [
     {
-      "key": "pairwise_accuracy",
+      "metric_key": "pairwise_accuracy",
       "unit": "ratio",
       "higher_is_better": true,
       "aggregation": "mean",
@@ -41,7 +41,7 @@
       "source": "detail"
     },
     {
-      "key": "swap_consistency",
+      "metric_key": "swap_consistency",
       "unit": "ratio",
       "higher_is_better": true,
       "aggregation": "mean",
@@ -49,7 +49,7 @@
       "source": "detail"
     },
     {
-      "key": "position_preference_rate",
+      "metric_key": "position_preference_rate",
       "unit": "ratio",
       "higher_is_better": false,
       "aggregation": "mean",
@@ -57,7 +57,7 @@
       "source": "detail"
     },
     {
-      "key": "repetition_agreement_rate",
+      "metric_key": "repetition_agreement_rate",
       "unit": "ratio",
       "higher_is_better": true,
       "aggregation": "mean",
@@ -65,7 +65,7 @@
       "source": "detail"
     },
     {
-      "key": "verbosity_preference_rate",
+      "metric_key": "verbosity_preference_rate",
       "unit": "ratio",
       "higher_is_better": false,
       "aggregation": "mean",
@@ -73,7 +73,7 @@
       "source": "detail"
     },
     {
-      "key": "style_preference_rate",
+      "metric_key": "style_preference_rate",
       "unit": "ratio",
       "higher_is_better": false,
       "aggregation": "mean",
@@ -81,7 +81,7 @@
       "source": "detail"
     },
     {
-      "key": "transitivity_violation_rate",
+      "metric_key": "transitivity_violation_rate",
       "unit": "ratio",
       "higher_is_better": false,
       "aggregation": "mean",
@@ -89,7 +89,7 @@
       "source": "detail"
     },
     {
-      "key": "self_preference_delta",
+      "metric_key": "self_preference_delta",
       "unit": "ratio",
       "higher_is_better": false,
       "aggregation": "mean",
@@ -97,7 +97,7 @@
       "source": "detail"
     },
     {
-      "key": "self_preference_anonymized",
+      "metric_key": "self_preference_anonymized",
       "unit": "ratio",
       "higher_is_better": false,
       "aggregation": "mean",
@@ -105,7 +105,7 @@
       "source": "detail"
     },
     {
-      "key": "self_preference_attributed",
+      "metric_key": "self_preference_attributed",
       "unit": "ratio",
       "higher_is_better": false,
       "aggregation": "mean",
@@ -113,7 +113,7 @@
       "source": "detail"
     },
     {
-      "key": "judge_quality_score",
+      "metric_key": "judge_quality_score",
       "unit": "ratio",
       "higher_is_better": true,
       "aggregation": "mean",

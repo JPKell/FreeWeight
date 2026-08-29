@@ -188,14 +188,14 @@ class EnergyTest:
 
 _WORK_METRICS: tuple[MetricDefinition, ...] = (
     MetricDefinition(
-        key="output_tokens",
+        metric_key="output_tokens",
         unit="count",
         higher_is_better=True,
         aggregation="mean",
         description="Generated tokens the provider reported — the work the energy was spent on.",
     ),
     MetricDefinition(
-        key="decode_ms",
+        metric_key="decode_ms",
         unit="ms",
         higher_is_better=False,
         aggregation="mean",

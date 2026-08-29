@@ -28,7 +28,7 @@
   "target_device": "any",
   "metrics": [
     {
-      "key": "retrieval_accuracy",
+      "metric_key": "retrieval_accuracy",
       "unit": "ratio",
       "higher_is_better": true,
       "aggregation": "mean",
@@ -36,14 +36,14 @@
       "source": "score"
     },
     {
-      "key": "effective_context_tokens",
+      "metric_key": "effective_context_tokens",
       "unit": "tokens",
       "higher_is_better": true,
       "aggregation": "max",
       "description": "The largest tested context whose accuracy still reaches the configured share of the shortest-context baseline. Displayed beside the advertised context, never instead of it."
     },
     {
-      "key": "longest_tested_context_tokens",
+      "metric_key": "longest_tested_context_tokens",
       "unit": "tokens",
       "higher_is_better": true,
       "aggregation": "max",
@@ -51,7 +51,7 @@
       "source": "detail"
     },
     {
-      "key": "distractor_accuracy",
+      "metric_key": "distractor_accuracy",
       "unit": "ratio",
       "higher_is_better": true,
       "aggregation": "mean",
@@ -59,7 +59,7 @@
       "source": "score"
     },
     {
-      "key": "distributed_reasoning_accuracy",
+      "metric_key": "distributed_reasoning_accuracy",
       "unit": "ratio",
       "higher_is_better": true,
       "aggregation": "mean",

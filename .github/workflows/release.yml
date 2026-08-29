@@ -3,6 +3,7 @@ name: Release
 on:
   push:
     tags: ["v*.*.*"]
+  workflow_dispatch:   # manual TestPyPI dry run; see publish-testpypi below
 
 permissions:
   id-token: write   # required for PyPI Trusted Publishing
@@ -10,13 +11,17 @@ permissions:
 
 jobs:
   release:
+    if: github.event_name == 'push'
     runs-on: ubuntu-latest
+    environment: pypi   # must match the Environment name set on the PyPI trusted publisher
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with: { python-version: "3.12" }
-      - run: pip install build twine
-      - run: python -m build
+      # The pinned build chain, so the wheel that ships is built by the same backend CI checked:
+      # `--no-isolation` takes hatchling from this lock rather than re-resolving it at build time.
+      - run: pip install --require-hashes -r requirements/release.lock
+      - run: python -m build --no-isolation
       - run: twine check dist/*
       - run: pip install "dist/$(ls dist | grep .whl)[dev]"
       - run: pytest -m "not live and not performance"
@@ -27,3 +32,27 @@ jobs:
         with:
           generate_release_notes: true
           files: dist/*
+
+  publish-testpypi:
+    # Manual only, via Actions -> Release -> Run workflow. Packaging and Release Standards §6
+    # requires a successful TestPyPI publish ahead of a package's **first** real release, and
+    # `freeweight` is an unclaimed distribution name — v1.0.0rc1 is that first release, so run
+    # this once before tagging it. Later releases may skip it, or use it again as a dry run.
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    # No `environment:` here, matching the package repositories. The OIDC claim must match the
+    # trusted publisher exactly: declaring an environment the TestPyPI publisher was not
+    # configured with fails the exchange. Add one only alongside configuring it there.
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12" }
+      - run: pip install --require-hashes -r requirements/release.lock
+      - run: python -m build --no-isolation
+      - run: twine check dist/*
+      - run: pip install "dist/$(ls dist | grep .whl)[dev]"
+      - run: pytest -m "not live and not performance"
+      - name: Publish to TestPyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          repository-url: https://test.pypi.org/legacy/

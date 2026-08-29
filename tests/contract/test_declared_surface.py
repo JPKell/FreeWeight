@@ -26,10 +26,9 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 SPEC = REPO_ROOT / "docs" / "apps" / "freeweight" / "spec.md"
 
 #: Paths §7.1 declares that a later phase owns. Keyed by path, valued by why.
-SCHEDULED: dict[str, str] = {
-    "/api/v1/evidence": "Phase 11 — capability evidence and the LoadCoach contract",
-    "/api/v1/evidence/export": "Phase 11 — capability evidence and the LoadCoach contract",
-}
+SCHEDULED: dict[str, str] = {}
+"""Empty since Phase 11: every path §7.1 declares is served. A later phase that declares a path
+it does not yet build adds it here with its owner."""
 
 _PATH = re.compile(r"(?:GET|POST|PUT|DELETE|PATCH)\s+(/api/v1/\S+)")
 

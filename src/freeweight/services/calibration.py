@@ -87,6 +87,13 @@ __all__ = [
     "record_grades",
     "run_calibration",
     "validity_factor_for_slug",
+    "HumanCriterion",
+    "RunGradeSubmission",
+    "RunGradingSample",
+    "RunGradingView",
+    "RunNotGradeable",
+    "record_run_grades",
+    "run_grading_view",
 ]
 
 ANCHOR = "anchor"
@@ -1186,3 +1193,429 @@ def _scale_points(goal: LoadedGoal, criterion_key: str) -> int:
     """Return one criterion's scale size, or 5 when it has none."""
     criterion = goal.pack.criterion(criterion_key)
     return criterion.scale.points if criterion is not None and criterion.scale else 5
+
+
+# ---------------------------------------------------------------------------------------------
+# Rung-4 (`human`) grading over an ordinary run's samples (Phase 11)
+#
+# Subjective Goals §3.3: a `human` criterion queues the sample for the user to grade in a blinded
+# UI, recorded with `score_method = "human"`, validity 1.0 by definition. The grading *machinery*
+# above already exists for calibration samples; this is the second entry point, over a completed
+# run's samples rather than a calibration set. It lands here because this is where a human grade
+# first has somewhere to go — evidence — and because one grading vocabulary (blinded, shuffled,
+# saved on submit, upserted by (sample, criterion)) is one fewer thing for the two screens to
+# disagree about.
+# ---------------------------------------------------------------------------------------------
+
+
+class RunNotGradeable(ValidationError):
+    """This run's samples cannot be graded by hand.
+
+    Raised when the run is not a completed goal run, when its goal declares no ``human``
+    criterion, or when the goal's rubric has changed since the run — a grade against a different
+    rubric would be attributed to a measurement it was never part of.
+    """
+
+    code: ClassVar[str] = "RUN_NOT_GRADEABLE"
+
+
+@dataclass(frozen=True, slots=True)
+class RunGradeSubmission:
+    """One grade for one of a run's samples on one ``human`` criterion.
+
+    Attributes:
+        sample_id: The run's sample.
+        criterion_key: Which human criterion.
+        grade: The grade on that criterion's own scale.
+        note: The grader's own words, kept beside the grade.
+    """
+
+    sample_id: str
+    criterion_key: str
+    grade: int
+    note: str = ""
+
+
+@dataclass(frozen=True, slots=True)
+class HumanCriterion:
+    """One rung-4 criterion as the grading screen presents it.
+
+    Attributes:
+        key: The criterion key.
+        name: Its display name.
+        weight: Its share of the composite.
+        scale_points: The ordinal scale's size.
+        descriptors: What the scale points mean, by point.
+    """
+
+    key: str
+    name: str
+    weight: float
+    scale_points: int
+    descriptors: Mapping[str, str] = field(default_factory=dict)
+
+
+@dataclass(frozen=True, slots=True)
+class RunGradingSample:
+    """One completed sample of the run, blinded: the text and the grades it has, nothing else.
+
+    Attributes:
+        sample_id: The sample.
+        case_id: The task it answered, so a grader can see what was asked.
+        response_text: What the model wrote. Always stored for a goal run (spec §12).
+        grades: ``{criterion_key: {"grade": int, "note": str}}`` for the grades recorded so far.
+    """
+
+    sample_id: str
+    case_id: str
+    response_text: str
+    grades: Mapping[str, Mapping[str, Any]] = field(default_factory=dict)
+
+
+@dataclass(frozen=True, slots=True)
+class RunGradingView:
+    """Everything the grading screen and ``goals grade --run`` need, and nothing that unblinds.
+
+    The model that produced the run is deliberately **not** read: blinding is enforced by not
+    fetching the identity rather than by not rendering it, so a template change cannot leak it.
+
+    Attributes:
+        run_id: The run.
+        goal_slug: The goal.
+        goal_name: Its display name.
+        criteria: The human criteria to grade on.
+        samples: The completed samples, in a seeded order that is not the order they were produced
+            in and is stable across reloads.
+        expected: ``samples × criteria``.
+        recorded: How many grades exist.
+    """
+
+    run_id: str
+    goal_slug: str
+    goal_name: str
+    criteria: tuple[HumanCriterion, ...]
+    samples: tuple[RunGradingSample, ...]
+    expected: int
+    recorded: int
+
+    @property
+    def complete(self) -> bool:
+        """Whether every sample has been graded on every human criterion."""
+        return self.expected > 0 and self.recorded >= self.expected
+
+    def as_json(self) -> dict[str, Any]:
+        """Return the view as ``goals grade --run --json`` prints it."""
+        return {
+            "run_id": self.run_id,
+            "goal_slug": self.goal_slug,
+            "criteria": [
+                {"key": c.key, "name": c.name, "scale_points": c.scale_points}
+                for c in self.criteria
+            ],
+            "samples": [
+                {"sample_id": s.sample_id, "case_id": s.case_id, "grades": dict(s.grades)}
+                for s in self.samples
+            ],
+            "expected_grades": self.expected,
+            "recorded_grades": self.recorded,
+            "complete": self.complete,
+        }
+
+
+@dataclass(frozen=True, slots=True)
+class _RunGoal:
+    """The rows a run's grading reads and writes through."""
+
+    run: Any
+    suite: Any
+    goal: Any
+    criteria: tuple[Any, ...]
+    human: tuple[HumanCriterion, ...]
+    criterion_ids: Mapping[str, str]
+
+
+def _run_goal(session: Any, run_id: str) -> _RunGoal:  # noqa: ANN401 — a Session
+    """Load the run, its goal suite and the goal's criteria, refusing what cannot be graded."""
+    from freeweight.infrastructure.db.models_goals import Goal
+    from freeweight.infrastructure.db.models_runs import BenchmarkSuite
+    from freeweight.infrastructure.db.repositories.runs import RunRepository
+    from freeweight.services.runs import RunNotFound
+
+    run = RunRepository().get_by_id(session, run_id)
+    if run is None:
+        raise RunNotFound(f"No run matches {run_id!r}.", details={"run": run_id})
+    suite = session.get(BenchmarkSuite, run.suite_id)
+    if suite is None or suite.runner != "goal" or not suite.goal_id:
+        raise RunNotGradeable(
+            f"Run {run_id!r} is not a goal run; only a goal's human criteria are graded by hand.",
+            details={"run": run_id},
+        )
+    if run.status != "completed":
+        raise RunNotGradeable(
+            f"Run {run_id!r} is {run.status!r}; its samples are graded once it has completed.",
+            details={"run": run_id, "status": run.status},
+        )
+    goal = session.get(Goal, suite.goal_id)
+    if goal is None:
+        raise RunNotGradeable(
+            f"Run {run_id!r} measured a goal that is no longer stored.", details={"run": run_id}
+        )
+    if suite.goal_hash and goal.goal_hash != suite.goal_hash:
+        raise RunNotGradeable(
+            f"Goal {goal.slug!r} has changed since run {run_id!r} measured it (rubric "
+            f"{str(suite.goal_hash)[:16]} then, {str(goal.goal_hash)[:16]} now). A grade against "
+            "the current rubric would be attributed to a measurement it was never part of; "
+            "re-run the goal and grade that run.",
+            details={"run": run_id, "goal": goal.slug},
+        )
+    criteria = tuple(GoalRepository().criteria(session, goal.id))
+    human = tuple(
+        HumanCriterion(
+            key=str(row.key),
+            name=str(row.name),
+            weight=float(row.weight),
+            scale_points=int(row.scale_points or 5),
+            descriptors=(
+                {str(k): str(v) for k, v in dict(row.scale_descriptors_json).items()}
+                if isinstance(row.scale_descriptors_json, dict)
+                else {}
+            ),
+        )
+        for row in criteria
+        if row.rung == Rung.HUMAN.value
+    )
+    if not human:
+        raise RunNotGradeable(
+            f"Goal {goal.slug!r} declares no human criterion; there is nothing to grade by hand.",
+            details={"run": run_id, "goal": goal.slug},
+        )
+    return _RunGoal(
+        run=run,
+        suite=suite,
+        goal=goal,
+        criteria=criteria,
+        human=human,
+        criterion_ids=GoalRepository().criterion_ids(session, goal.id),
+    )
+
+
+def _run_samples(session: Any, run_id: str) -> list[Any]:  # noqa: ANN401 — a Session
+    """The run's completed samples with stored text, in declaration order."""
+    from sqlalchemy import select
+
+    from freeweight.infrastructure.db.models_runs import RunTest, Sample
+
+    return list(
+        session.scalars(
+            select(Sample)
+            .join(RunTest, RunTest.id == Sample.run_test_id)
+            .where(
+                RunTest.run_id == run_id,
+                Sample.status == "completed",
+                Sample.response_text.is_not(None),
+            )
+            .order_by(Sample.run_test_id.asc(), Sample.ordinal.asc(), Sample.repetition.asc())
+        ).all()
+    )
+
+
+def run_grading_view(database: Database, run_id: str) -> RunGradingView:
+    """Read what the grading screen shows for one run: blinded, shuffled, with progress.
+
+    Args:
+        database: The database handle.
+        run_id: The completed goal run.
+
+    Returns:
+        The view.
+
+    Raises:
+        RunNotFound: No run has this id.
+        RunNotGradeable: The run is not a completed goal run with human criteria, or its goal's
+            rubric has changed since.
+    """
+    from freeweight.domain.judging import randomized_order
+    from freeweight.infrastructure.db.repositories.goals import CriterionScoreRepository
+
+    with database.read() as session:
+        context = _run_goal(session, run_id)
+        human_keys = {criterion.key for criterion in context.human}
+        samples: list[RunGradingSample] = []
+        recorded = 0
+        for sample in _run_samples(session, run_id):
+            grades: dict[str, dict[str, Any]] = {}
+            for score in CriterionScoreRepository().list_for_sample(session, sample.id):
+                if score.criterion_key not in human_keys or score.status != "scored":
+                    continue
+                detail = dict(score.detail_json) if isinstance(score.detail_json, dict) else {}
+                grades[str(score.criterion_key)] = {
+                    "grade": int(detail.get("human_grade", 0)),
+                    "note": str(detail.get("note", "")),
+                }
+                recorded += 1
+            samples.append(
+                RunGradingSample(
+                    sample_id=sample.id,
+                    case_id=str(sample.case_id),
+                    response_text=str(sample.response_text),
+                    grades=grades,
+                )
+            )
+    ordered = randomized_order(samples, seed_material=f"grading:{run_id}")
+    return RunGradingView(
+        run_id=run_id,
+        goal_slug=str(context.goal.slug),
+        goal_name=str(context.goal.name),
+        criteria=context.human,
+        samples=tuple(ordered),
+        expected=len(samples) * len(context.human),
+        recorded=recorded,
+    )
+
+
+def record_run_grades(  # noqa: PLR0913 — a grade needs the run, the grader and the re-aggregation
+    database: Database,
+    run_id: str,
+    submissions: Sequence[RunGradeSubmission],
+    *,
+    graded_by: str,
+    registry: Any,  # noqa: ANN401 — a BenchmarkRegistry; importing it here would pull runs in
+    evidence_settings: Any = None,  # noqa: ANN401 — an EvidenceSettings, or None for defaults
+    clock: Clock = utc_now,
+) -> int:
+    """Record grades on a run's samples, finish their composites, and refresh the evidence.
+
+    Each grade lands on the sample's existing ``criterion_scores`` row for that criterion — the
+    row the run wrote as ``skipped`` with ``human_grade_pending`` — turning it into ``scored``
+    with ``raw = (grade − 1) / (points − 1)``. The sample's composite is then recomputed through
+    the same function the run engine uses, the run's aggregate metrics are rewritten from its
+    samples, and the subject's capability evidence is recomputed, so a grade recorded a week later
+    reaches the evidence bundle by the same path a rule's score did during the run.
+
+    Args:
+        database: The database handle.
+        run_id: The completed goal run.
+        submissions: The grades.
+        graded_by: Free text the grader supplied. Never harvested from the environment.
+        registry: The benchmark registry, for the run's metric definitions.
+        evidence_settings: The ``[evidence]`` section, or ``None`` for the shipped defaults.
+        clock: Injected for deterministic tests.
+
+    Returns:
+        How many grades were recorded.
+
+    Raises:
+        RunNotFound: No run has this id.
+        RunNotGradeable: See :func:`run_grading_view`.
+        ValidationError: A submission names a sample outside the run, a criterion that is not a
+            human one, or a grade outside the scale.
+    """
+    from freeweight.benchmarks.goal.runner import verdict_from_outcomes
+    from freeweight.domain.goals.criteria import CriterionOutcome, CriterionStatus
+    from freeweight.infrastructure.db.models_goals import CriterionScore
+    from freeweight.infrastructure.db.models_runs import Sample
+    from freeweight.infrastructure.db.repositories.goals import CriterionScoreRepository
+    from freeweight.services.evidence import recompute_for_run
+    from freeweight.services.runs import reaggregate_run
+
+    now = clock()
+    touched: list[str] = []
+    with database.write() as session:
+        context = _run_goal(session, run_id)
+        by_key = {criterion.key: criterion for criterion in context.human}
+        sample_ids = {sample.id for sample in _run_samples(session, run_id)}
+        for submission in submissions:
+            criterion = by_key.get(submission.criterion_key)
+            if criterion is None:
+                raise ValidationError(
+                    f"Goal {context.goal.slug!r} has no human criterion "
+                    f"{submission.criterion_key!r}.",
+                    details={"criterion": submission.criterion_key},
+                )
+            if submission.sample_id not in sample_ids:
+                raise ValidationError(
+                    f"Sample {submission.sample_id!r} is not a completed sample of run {run_id!r}.",
+                    details={"sample_id": submission.sample_id, "run": run_id},
+                )
+            if not 1 <= submission.grade <= criterion.scale_points:
+                raise ValidationError(
+                    f"Grade {submission.grade} is outside criterion {criterion.key!r}'s "
+                    f"1..{criterion.scale_points} scale.",
+                    details={"criterion": criterion.key, "grade": submission.grade},
+                )
+            row = next(
+                (
+                    score
+                    for score in CriterionScoreRepository().list_for_sample(
+                        session, submission.sample_id
+                    )
+                    if score.criterion_key == criterion.key
+                ),
+                None,
+            )
+            if row is None:
+                raise ValidationError(
+                    f"Sample {submission.sample_id!r} carries no criterion row for "
+                    f"{criterion.key!r}; it was not scored by this rubric.",
+                    details={"sample_id": submission.sample_id, "criterion": criterion.key},
+                )
+            points = criterion.scale_points
+            row.raw_score = (submission.grade - 1) / (points - 1) if points > 1 else 1.0
+            row.status = CriterionStatus.SCORED.value
+            row.skip_reason = None
+            row.detail_json = {
+                "human_grade": submission.grade,
+                "scale_points": points,
+                "note": submission.note,
+                "graded_by": graded_by,
+                "graded_at": now.isoformat(),
+            }
+            if submission.sample_id not in touched:
+                touched.append(submission.sample_id)
+        session.flush()
+
+        ordinal = {str(row.key): int(row.ordinal) for row in context.criteria}
+        for sample_id in touched:
+            sample = session.get(Sample, sample_id)
+            if sample is None:  # pragma: no cover — checked against the run moments ago
+                continue
+            rows = sorted(
+                CriterionScoreRepository().list_for_sample(session, sample_id),
+                key=lambda score: ordinal.get(str(score.criterion_key), 0),
+            )
+            outcomes = [
+                CriterionOutcome(
+                    criterion_key=str(score.criterion_key),
+                    rung=Rung(str(score.rung)),
+                    weight=float(score.weight),
+                    raw_score=score.raw_score,
+                    status=CriterionStatus(str(score.status)),
+                    gated=bool(score.gated),
+                    skip_reason=score.skip_reason,
+                    detail=dict(score.detail_json) if isinstance(score.detail_json, dict) else {},
+                )
+                for score in rows
+                if isinstance(score, CriterionScore)
+            ]
+            stored = dict(sample.result_json) if isinstance(sample.result_json, dict) else {}
+            verdict = verdict_from_outcomes(
+                slug=str(context.goal.slug),
+                case_id=str(sample.case_id),
+                outcomes=outcomes,
+                judge_validity_factor=float(stored.get("judge_validity_factor", 1.0)),
+            )
+            sample.score = verdict.score
+            sample.score_method = verdict.method.value
+            sample.result_json = _json_safe(dict(verdict.detail))
+        session.flush()
+
+    reaggregate_run(database, run_id, registry=registry, clock=clock)
+    recompute_for_run(database, run_id, settings=evidence_settings, clock=clock)
+    return len(submissions)
+
+
+def _json_safe(value: Any) -> Any:  # noqa: ANN401 — a JSON value has no narrower type
+    """Round-trip a value through JSON so nothing un-storable reaches ``PortableJSON``."""
+    import json
+
+    return json.loads(json.dumps(value, default=str))

@@ -36,6 +36,7 @@ from freeweight.infrastructure.db.models import (
     RuntimeProfile,
     Setting,
 )
+from freeweight.infrastructure.db.models_evidence import CapabilityEvidence
 from freeweight.infrastructure.db.models_goals import (
     CalibrationGrade,
     CalibrationReport,
@@ -112,6 +113,8 @@ _ROW_COUNT_MODELS = (
     CalibrationGrade,
     CalibrationReport,
     JudgeVerdict,
+    # Capability evidence (Phase 11).
+    CapabilityEvidence,
 )
 
 

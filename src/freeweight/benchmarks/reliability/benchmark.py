@@ -153,7 +153,7 @@ class ExactShortAnswerScorer:
 
 
 _SCORE_METRIC = MetricDefinition(
-    key="answer_correct",
+    metric_key="answer_correct",
     unit="ratio",
     higher_is_better=True,
     aggregation="mean",

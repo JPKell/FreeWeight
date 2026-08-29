@@ -28,67 +28,67 @@
   "target_device": "any",
   "metrics": [
     {
-      "key": "output_tokens",
+      "metric_key": "output_tokens",
       "unit": "count",
       "higher_is_better": false,
       "aggregation": "mean"
     },
     {
-      "key": "prompt_tokens",
+      "metric_key": "prompt_tokens",
       "unit": "count",
       "higher_is_better": false,
       "aggregation": "mean"
     },
     {
-      "key": "thinking_tokens",
+      "metric_key": "thinking_tokens",
       "unit": "count",
       "higher_is_better": false,
       "aggregation": "mean"
     },
     {
-      "key": "tool_tokens",
+      "metric_key": "tool_tokens",
       "unit": "count",
       "higher_is_better": false,
       "aggregation": "mean"
     },
     {
-      "key": "output_chars",
+      "metric_key": "output_chars",
       "unit": "count",
       "higher_is_better": false,
       "aggregation": "mean"
     },
     {
-      "key": "output_words",
+      "metric_key": "output_words",
       "unit": "count",
       "higher_is_better": false,
       "aggregation": "mean"
     },
     {
-      "key": "output_bytes",
+      "metric_key": "output_bytes",
       "unit": "count",
       "higher_is_better": false,
       "aggregation": "mean"
     },
     {
-      "key": "output_tokens_per_success",
+      "metric_key": "output_tokens_per_success",
       "unit": "tokens",
       "higher_is_better": false,
       "aggregation": "ratio"
     },
     {
-      "key": "total_tokens_per_success",
+      "metric_key": "total_tokens_per_success",
       "unit": "tokens",
       "higher_is_better": false,
       "aggregation": "ratio"
     },
     {
-      "key": "quality_per_1k_output_tokens",
+      "metric_key": "quality_per_1k_output_tokens",
       "unit": "score/1k tokens",
       "higher_is_better": true,
       "aggregation": "ratio"
     },
     {
-      "key": "successes_per_million_output_tokens",
+      "metric_key": "successes_per_million_output_tokens",
       "unit": "count/1M tokens",
       "higher_is_better": true,
       "aggregation": "ratio"

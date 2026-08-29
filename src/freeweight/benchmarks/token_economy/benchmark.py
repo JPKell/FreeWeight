@@ -91,21 +91,21 @@ class AnswerArrivedScorer:
 
 _COUNT_METRICS: tuple[MetricDefinition, ...] = (
     MetricDefinition(
-        key="output_tokens",
+        metric_key="output_tokens",
         unit="count",
         higher_is_better=False,
         aggregation="mean",
         description="Generated tokens the provider reported, per sample.",
     ),
     MetricDefinition(
-        key="prompt_tokens",
+        metric_key="prompt_tokens",
         unit="count",
         higher_is_better=False,
         aggregation="mean",
         description="Prompt tokens the provider reported, per sample.",
     ),
     MetricDefinition(
-        key="thinking_tokens",
+        metric_key="thinking_tokens",
         unit="count",
         higher_is_better=False,
         aggregation="mean",
@@ -115,14 +115,14 @@ _COUNT_METRICS: tuple[MetricDefinition, ...] = (
         ),
     ),
     MetricDefinition(
-        key="tool_tokens",
+        metric_key="tool_tokens",
         unit="count",
         higher_is_better=False,
         aggregation="mean",
         description="Tokens spent on tool-call syntax, already counted inside output_tokens.",
     ),
     MetricDefinition(
-        key="output_chars",
+        metric_key="output_chars",
         unit="count",
         higher_is_better=False,
         aggregation="mean",
@@ -132,14 +132,14 @@ _COUNT_METRICS: tuple[MetricDefinition, ...] = (
         ),
     ),
     MetricDefinition(
-        key="output_words",
+        metric_key="output_words",
         unit="count",
         higher_is_better=False,
         aggregation="mean",
         description="Whitespace-delimited words generated.",
     ),
     MetricDefinition(
-        key="output_bytes",
+        metric_key="output_bytes",
         unit="count",
         higher_is_better=False,
         aggregation="mean",
@@ -149,7 +149,7 @@ _COUNT_METRICS: tuple[MetricDefinition, ...] = (
 
 _DERIVED_METRICS: tuple[MetricDefinition, ...] = (
     MetricDefinition(
-        key="output_tokens_per_success",
+        metric_key="output_tokens_per_success",
         unit="tokens",
         higher_is_better=False,
         aggregation="ratio",
@@ -159,14 +159,14 @@ _DERIVED_METRICS: tuple[MetricDefinition, ...] = (
         ),
     ),
     MetricDefinition(
-        key="total_tokens_per_success",
+        metric_key="total_tokens_per_success",
         unit="tokens",
         higher_is_better=False,
         aggregation="ratio",
         description="Prompt plus output tokens spent per successful sample.",
     ),
     MetricDefinition(
-        key="quality_per_1k_output_tokens",
+        metric_key="quality_per_1k_output_tokens",
         unit="score/1k tokens",
         higher_is_better=True,
         aggregation="ratio",
@@ -177,7 +177,7 @@ _DERIVED_METRICS: tuple[MetricDefinition, ...] = (
         ),
     ),
     MetricDefinition(
-        key="successes_per_million_output_tokens",
+        metric_key="successes_per_million_output_tokens",
         unit="count/1M tokens",
         higher_is_better=True,
         aggregation="ratio",

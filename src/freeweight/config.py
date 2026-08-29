@@ -40,6 +40,7 @@ __all__ = [
     "BenchmarkSettings",
     "CalibrationSettings",
     "ConfigurationError",
+    "EvidenceSettings",
     "GoalSettings",
     "InsecureBindingError",
     "JudgeSettings",
@@ -92,11 +93,40 @@ class ServerSettings(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    host: str = "127.0.0.1"
-    port: int = Field(default=8765, ge=1, le=65535)
-    allow_lan_exposure: bool = False
-    allowed_hosts: tuple[str, ...] = ()
-    request_timeout_seconds: float = Field(default=120.0, gt=0)
+    host: str = Field(
+        default="127.0.0.1",
+        description=(
+            "Interface to bind. Loopback by default; anything else requires allowed_hosts and "
+            "auth.tokens (ADR-0026)."
+        ),
+        examples=["127.0.0.1"],
+    )
+    port: int = Field(
+        default=8765,
+        ge=1,
+        le=65535,
+        description="TCP port for the web UI and the API.",
+        examples=[8765],
+    )
+    allow_lan_exposure: bool = Field(
+        default=False,
+        description=(
+            "Acknowledges a deliberate bind to every interface (0.0.0.0). Without it such a bind "
+            "refuses to start."
+        ),
+        examples=[False],
+    )
+    allowed_hosts: tuple[str, ...] = Field(
+        default=(),
+        description=(
+            "Host header values accepted on a non-loopback bind, against DNS rebinding. "
+            "Comma-separated in the environment."
+        ),
+        examples=[["bench.local"]],
+    )
+    request_timeout_seconds: float = Field(
+        default=120.0, gt=0, description="Server-side request timeout.", examples=[120.0]
+    )
 
     _split_allowed_hosts = field_validator("allowed_hosts", mode="before")(_split_csv)
 
@@ -111,11 +141,45 @@ class StorageSettings(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    database_url: str | None = None
-    auto_migrate: bool = True
-    artifact_dir: str | None = None
-    backup_retention: int = Field(default=5, ge=0)
-    statement_timeout_ms: int | None = Field(default=None, gt=0)
+    database_url: str | None = Field(
+        default=None,
+        description=(
+            "SQLAlchemy URL. Unset resolves to a SQLite file under the XDG data directory; "
+            "PostgreSQL is the other supported dialect (ADR-0006)."
+        ),
+        examples=["sqlite:////var/lib/freeweight/freeweight.sqlite3"],
+    )
+    auto_migrate: bool = Field(
+        default=True,
+        description=(
+            "Migrate on startup. Unset means true on SQLite and false on PostgreSQL, where a "
+            "failed migration cannot be rolled back automatically (database standards §5.1)."
+        ),
+        examples=[True],
+    )
+    artifact_dir: str | None = Field(
+        default=None,
+        description=(
+            "Where run artifacts (raw responses, generated code, exports) are written. Unset "
+            "resolves under the XDG data directory."
+        ),
+        examples=["/var/lib/freeweight/artifacts"],
+    )
+    backup_retention: int = Field(
+        default=5,
+        ge=0,
+        description="Automatic pre-migration backups kept before the oldest is rotated away.",
+        examples=[5],
+    )
+    statement_timeout_ms: int | None = Field(
+        default=None,
+        gt=0,
+        description=(
+            "PostgreSQL statement (and lock) timeout. Unset leaves the server default; SQLite uses "
+            "its own busy timeout, which the engine always sets."
+        ),
+        examples=[30000],
+    )
 
     @model_validator(mode="after")
     def _apply_data_dir_defaults(self) -> StorageSettings:
@@ -181,11 +245,39 @@ class RuntimeSettings(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    context_size: int | None = Field(default=None, gt=0)
-    gpu_layers: int | None = Field(default=None, ge=0)
-    threads: int | None = Field(default=None, gt=0)
-    batch_size: int | None = Field(default=None, gt=0)
-    keep_alive: str | None = None
+    context_size: int | None = Field(
+        default=None,
+        gt=0,
+        description=(
+            "Context window to serve, in tokens (Ollama's num_ctx). Unset lets the provider decide "
+            "and records the served context as assumed. A different value is a different "
+            "measurement subject (ADR-0023)."
+        ),
+        examples=[8192],
+    )
+    gpu_layers: int | None = Field(
+        default=None,
+        ge=0,
+        description="Layers offloaded to the GPU. Unset lets the provider fit them.",
+        examples=[32],
+    )
+    threads: int | None = Field(
+        default=None,
+        gt=0,
+        description="CPU threads for the parts that stay on the host.",
+        examples=[8],
+    )
+    batch_size: int | None = Field(
+        default=None, gt=0, description="Prompt-evaluation batch size.", examples=[512]
+    )
+    keep_alive: str | None = Field(
+        default=None,
+        description=(
+            "How long the provider holds the model resident after a call, in the provider's own "
+            "duration syntax."
+        ),
+        examples=["5m"],
+    )
 
     def to_profile(self) -> RuntimeProfile:
         """Build the :class:`~baseaicore.RuntimeProfile` these settings describe."""
@@ -203,9 +295,19 @@ class ProviderSettings(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    kind: str = "ollama"
-    base_url: str = "http://127.0.0.1:11434"
-    timeout_seconds: float = Field(default=300.0, gt=0)
+    kind: str = Field(
+        default="ollama",
+        description="Which provider serves the models: ollama, or fake for tests.",
+        examples=["ollama"],
+    )
+    base_url: str = Field(
+        default="http://127.0.0.1:11434",
+        description="The provider's API endpoint.",
+        examples=["http://127.0.0.1:11434"],
+    )
+    timeout_seconds: float = Field(
+        default=300.0, gt=0, description="Per-call provider timeout.", examples=[300.0]
+    )
 
 
 class ProvidersSettings(BaseModel):
@@ -213,7 +315,14 @@ class ProvidersSettings(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    allow_remote: bool = False
+    allow_remote: bool = Field(
+        default=False,
+        description=(
+            "Permit a remote provider at all. One half of the remote-judging opt-in; "
+            "judge.allow_remote is the other (ADR-0031 §4)."
+        ),
+        examples=[False],
+    )
 
 
 class TelemetrySettings(BaseModel):
@@ -221,9 +330,25 @@ class TelemetrySettings(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    interval_ms: int = Field(default=1000, gt=0)
-    persist_during_runs: bool = True
-    calibrate_overhead: bool = True
+    interval_ms: int = Field(
+        default=1000,
+        gt=0,
+        description=(
+            "How often the sampler reads the host and the GPUs. Recorded on every run as a "
+            "measurement condition."
+        ),
+        examples=[1000],
+    )
+    persist_during_runs: bool = Field(
+        default=True,
+        description="Store the telemetry series beside a run so its charts survive a restart.",
+        examples=[True],
+    )
+    calibrate_overhead: bool = Field(
+        default=True,
+        description="Measure what sampling itself costs before a run, and record it on the run.",
+        examples=[True],
+    )
 
 
 class ExecutionSettings(BaseModel):
@@ -244,19 +369,76 @@ class ExecutionSettings(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    warmup_repetitions: int = Field(default=1, ge=0)
-    measured_repetitions: int = Field(default=3, ge=1)
-    cooldown_seconds: float = Field(default=5.0, ge=0)
-    test_timeout_seconds: float = Field(default=600.0, gt=0)
-    run_timeout_seconds: float = Field(default=86400.0, gt=0)
-    randomize_case_order: bool = True
-    seed: int = 0
-    gpu_index: int = Field(default=0, ge=0)
-    idle_gpu_threshold_percent: float = Field(default=10.0, ge=0, le=100)
-    idle_required_samples: int = Field(default=3, ge=1)
-    idle_wait_timeout_seconds: float = Field(default=120.0, ge=0)
-    on_idle_timeout: Literal["warn", "refuse"] = "warn"
-    store_responses: bool = False
+    warmup_repetitions: int = Field(
+        default=1,
+        ge=0,
+        description="Unmeasured generations before the measured ones.",
+        examples=[1],
+    )
+    measured_repetitions: int = Field(
+        default=3, ge=1, description="How many times each case runs.", examples=[3]
+    )
+    cooldown_seconds: float = Field(
+        default=5.0, ge=0, description="Idle gap between tests.", examples=[5.0]
+    )
+    test_timeout_seconds: float = Field(
+        default=600.0, gt=0, description="Per-provider-call timeout.", examples=[600.0]
+    )
+    run_timeout_seconds: float = Field(
+        default=86400.0, gt=0, description="Total budget for one run.", examples=[86400.0]
+    )
+    randomize_case_order: bool = Field(
+        default=True, description="Shuffle case order within a test.", examples=[True]
+    )
+    seed: int = Field(
+        default=0,
+        description="The seed every randomized decision derives from; recorded on every run.",
+        examples=[0],
+    )
+    gpu_index: int = Field(
+        default=0,
+        ge=0,
+        description="The device a run's metrics are attributed to (ADR-0027).",
+        examples=[0],
+    )
+    idle_gpu_threshold_percent: float = Field(
+        default=10.0,
+        ge=0,
+        le=100,
+        description=(
+            "GPU utilization the machine must be below before measuring; 0 disables the check and "
+            "records that it was disabled."
+        ),
+        examples=[10.0],
+    )
+    idle_required_samples: int = Field(
+        default=3,
+        ge=1,
+        description="Consecutive quiet observations required before measuring.",
+        examples=[3],
+    )
+    idle_wait_timeout_seconds: float = Field(
+        default=120.0,
+        ge=0,
+        description="How long to wait for the machine to go quiet.",
+        examples=[120.0],
+    )
+    on_idle_timeout: Literal["warn", "refuse"] = Field(
+        default="warn",
+        description=(
+            "What to do when it never does: warn (measure anyway and record measured_while_busy) "
+            "or refuse."
+        ),
+        examples=["warn"],
+    )
+    store_responses: bool = Field(
+        default=False,
+        description=(
+            "Store full response text beside its hash. Off by default (spec §14); goal runs force "
+            "it on."
+        ),
+        examples=[False],
+    )
 
 
 class BenchmarkSettings(BaseModel):
@@ -281,7 +463,16 @@ class BenchmarkSettings(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    long_context_max_tokens: int = Field(default=32_000, ge=1_000, le=2_000_000)
+    long_context_max_tokens: int = Field(
+        default=32_000,
+        ge=1_000,
+        le=2_000_000,
+        description=(
+            "Ceiling of native.long_context's depth sweep. Hashed into that suite's "
+            "dataset_hashes, so two ceilings are two measurements."
+        ),
+        examples=[32000],
+    )
 
 
 class GoalSettings(BaseModel):
@@ -298,9 +489,23 @@ class GoalSettings(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    root: str | None = None
-    max_pack_bytes: int = Field(default=5_242_880, gt=0)
-    rule_timeout_ms: int = Field(default=250, gt=0)
+    root: str | None = Field(
+        default=None,
+        description="Where goal packs live. Unset resolves to <config>/goals.",
+        examples=["/home/me/.config/freeweight/goals"],
+    )
+    max_pack_bytes: int = Field(
+        default=5_242_880,
+        gt=0,
+        description="Import size cap, enforced before a byte is written.",
+        examples=[5242880],
+    )
+    rule_timeout_ms: int = Field(
+        default=250,
+        gt=0,
+        description="Per-criterion, per-sample budget for a rule.",
+        examples=[250],
+    )
 
     @model_validator(mode="after")
     def _apply_config_dir_default(self) -> GoalSettings:
@@ -328,14 +533,51 @@ class JudgeSettings(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    jury_size: int = Field(default=3, ge=1)
-    models: tuple[str, ...] = ()
-    repetitions: int = Field(default=3, ge=1)
-    randomize_order: bool = True
-    blind_candidate_identity: bool = True
-    refuse_self_judging: bool = True
-    allow_remote: bool = False
-    temperature: float = Field(default=0.0, ge=0.0, le=2.0)
+    jury_size: int = Field(
+        default=3,
+        ge=1,
+        description=(
+            "Distinct local models in a jury; 1 disables the jury and says so in the result."
+        ),
+        examples=[3],
+    )
+    models: tuple[str, ...] = Field(
+        default=(),
+        description=(
+            "Juror canonical IDs. Empty selects from the installed models. Comma-separated in the "
+            "environment."
+        ),
+        examples=[["ollama/qwen3.5:14b"]],
+    )
+    repetitions: int = Field(
+        default=3,
+        ge=1,
+        description="How many times each juror grades each criterion.",
+        examples=[3],
+    )
+    randomize_order: bool = Field(
+        default=True,
+        description="Randomize the order criteria are presented to a juror in.",
+        examples=[True],
+    )
+    blind_candidate_identity: bool = Field(
+        default=True, description="Hide the candidate's identity from the jury.", examples=[True]
+    )
+    refuse_self_judging: bool = Field(
+        default=True, description="A juror never judges its own output.", examples=[True]
+    )
+    allow_remote: bool = Field(
+        default=False,
+        description="Permit a remote juror. Requires providers.allow_remote as well.",
+        examples=[False],
+    )
+    temperature: float = Field(
+        default=0.0,
+        ge=0.0,
+        le=2.0,
+        description="Sampling temperature every juror is polled at.",
+        examples=[0.0],
+    )
 
     _split_models = field_validator("models", mode="before")(_split_csv)
 
@@ -352,12 +594,46 @@ class CalibrationSettings(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    target_samples: int = Field(default=12, ge=1)
-    min_samples: int = Field(default=8, ge=1)
-    holdout_fraction: float = Field(default=0.4, gt=0.0, lt=1.0)
-    partition_seed: int = 0
-    min_agreement: float = Field(default=0.40, ge=-1.0, le=1.0)
-    n_holdout_target: int = Field(default=10, ge=1)
+    target_samples: int = Field(
+        default=12,
+        ge=1,
+        description="How many samples the wizard asks the author to grade.",
+        examples=[12],
+    )
+    min_samples: int = Field(
+        default=8,
+        ge=1,
+        description="Below this many graded samples: CALIBRATION_INSUFFICIENT, not a failed gate.",
+        examples=[8],
+    )
+    holdout_fraction: float = Field(
+        default=0.4,
+        gt=0.0,
+        lt=1.0,
+        description=(
+            "Share of graded samples withheld from the jury — the only honest estimate of "
+            "agreement."
+        ),
+        examples=[0.4],
+    )
+    partition_seed: int = Field(
+        default=0,
+        description="Seed of the anchor/holdout split, recorded so the split is reproducible.",
+        examples=[0],
+    )
+    min_agreement: float = Field(
+        default=0.40,
+        ge=-1.0,
+        le=1.0,
+        description="Weighted kappa_w below which a goal emits no evidence at all (ADR-0032 §3).",
+        examples=[0.4],
+    )
+    n_holdout_target: int = Field(
+        default=10,
+        ge=1,
+        description="Shrinkage denominator for judge_validity_factor (ADR-0032 §2).",
+        examples=[10],
+    )
 
     @model_validator(mode="after")
     def _check_sample_counts(self) -> CalibrationSettings:
@@ -376,12 +652,136 @@ class CalibrationSettings(BaseModel):
         return self
 
 
+class EvidenceSettings(BaseModel):
+    """``[evidence]`` — the confidence policy and where the capability weights come from.
+
+    Every parameter of ADR-0017's confidence formula, made configuration as that ADR requires, and
+    recorded on every evidence record beside its ``policy_version`` — so a number computed under one
+    set of parameters is never silently compared with one computed under another. A customised
+    parameter produces a *derived* policy version (``1.0+<hash>``), never the shipped one.
+
+    ``capability_weights_path`` points at a user's own copy of the shipped
+    ``capability_weights.toml`` (benchmark catalog §6). Unset means the shipped file; a custom file
+    likewise derives its own policy version from its content.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    n_target: int = Field(
+        default=30,
+        ge=1,
+        description=(
+            "Sample count at which the sample factor reaches 1.0 (ADR-0017): three samples are "
+            "worth about 0.32, thirty about 1.0."
+        ),
+        examples=[30],
+    )
+    quality_half_life_days: float = Field(
+        default=90.0,
+        gt=0,
+        description=(
+            "Freshness half-life for quality evidence, in days. Quality is stable while the "
+            "weights are."
+        ),
+        examples=[90.0],
+    )
+    performance_half_life_days: float = Field(
+        default=30.0,
+        gt=0,
+        description=(
+            "Freshness half-life for performance, memory and energy evidence, in days. Speed "
+            "follows the environment."
+        ),
+        examples=[30.0],
+    )
+    freshness_floor: float = Field(
+        default=0.3,
+        ge=0.0,
+        le=1.0,
+        description=(
+            "The lowest the freshness factor can fall. Old evidence degrades rather than vanishes."
+        ),
+        examples=[0.3],
+    )
+    stale_below: float = Field(
+        default=0.5,
+        ge=0.0,
+        le=1.0,
+        description=(
+            "Freshness below which evidence is badged stale and offered a re-run — about one "
+            "half-life."
+        ),
+        examples=[0.5],
+    )
+    name_only_identity_factor: float = Field(
+        default=0.6,
+        ge=0.0,
+        le=1.0,
+        description=(
+            "Identity factor for a name-only model identity, whose weights may have changed under "
+            "the name."
+        ),
+        examples=[0.6],
+    )
+    performance_drift_factor: float = Field(
+        default=0.7,
+        ge=0.0,
+        le=1.0,
+        description=(
+            "Environment factor for performance-class evidence after a provider minor change or a "
+            "driver/CUDA change."
+        ),
+        examples=[0.7],
+    )
+    quality_drift_factor: float = Field(
+        default=0.5,
+        ge=0.0,
+        le=1.0,
+        description=(
+            "Environment factor for quality evidence after a provider change with template or "
+            "sampling implications."
+        ),
+        examples=[0.5],
+    )
+    goal_contribution_weight: float = Field(
+        default=1.0,
+        gt=0,
+        description=(
+            "Weight a goal's composite carries as one source among the shipped ones inside the "
+            "capability it declares contributes_to (ADR-0032 §1)."
+        ),
+        examples=[1.0],
+    )
+    capability_weights_path: str | None = Field(
+        default=None,
+        description=(
+            "A custom capability_weights.toml. Unset uses the shipped mapping; a custom file "
+            "derives its own policy version from its content."
+        ),
+        examples=["/home/me/.config/freeweight/capability_weights.toml"],
+    )
+
+    @property
+    def weights_path(self) -> Path | None:
+        """``capability_weights_path`` as a path, expanded, or ``None`` for the shipped file."""
+        if self.capability_weights_path is None:
+            return None
+        return Path(self.capability_weights_path).expanduser()
+
+
 class AuthSettings(BaseModel):
     """Bearer tokens. Empty is the loopback-default, unauthenticated posture (ADR-0014)."""
 
     model_config = ConfigDict(extra="forbid")
 
-    tokens: tuple[str, ...] = ()
+    tokens: tuple[str, ...] = Field(
+        default=(),
+        description=(
+            "Bearer tokens accepted on a non-loopback bind. Secret: never logged, always redacted "
+            "by config show. Comma-separated in the environment."
+        ),
+        examples=[["********"]],
+    )
 
     _split_tokens = field_validator("tokens", mode="before")(_split_csv)
 
@@ -391,9 +791,20 @@ class LoggingSettings(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    level: str = "INFO"
-    format: Literal["text", "json", "auto"] = "auto"
-    include_content: bool = False
+    level: str = Field(default="INFO", description="Log verbosity.", examples=["INFO"])
+    format: Literal["text", "json", "auto"] = Field(
+        default="auto",
+        description="text, json, or auto (text on a TTY, json otherwise).",
+        examples=["auto"],
+    )
+    include_content: bool = Field(
+        default=False,
+        description=(
+            "Log full prompts and responses. Off by default: only hashes and lengths are logged "
+            "(observability standards §3.2)."
+        ),
+        examples=[False],
+    )
 
 
 class Settings(BaseModel):
@@ -417,6 +828,7 @@ class Settings(BaseModel):
     goals: GoalSettings = Field(default_factory=GoalSettings)
     judge: JudgeSettings = Field(default_factory=JudgeSettings)
     calibration: CalibrationSettings = Field(default_factory=CalibrationSettings)
+    evidence: EvidenceSettings = Field(default_factory=EvidenceSettings)
     auth: AuthSettings = Field(default_factory=AuthSettings)
     logging: LoggingSettings = Field(default_factory=LoggingSettings)
 
@@ -735,6 +1147,21 @@ holdout_fraction = 0.4
 partition_seed = 0
 min_agreement = 0.40        # weighted kappa_w below this emits no evidence at all
 n_holdout_target = 10       # shrinkage denominator for judge_validity_factor (ADR-0032 §2)
+
+[evidence]
+# ADR-0017's confidence policy. Every value is recorded on the evidence it produces; changing one
+# derives a new policy_version, so evidence under the old policy is kept beside the new rather
+# than overwritten.
+n_target = 30                       # samples at which the sample factor reaches 1.0
+quality_half_life_days = 90.0       # freshness half-life for quality evidence
+performance_half_life_days = 30.0   # for performance, memory and energy evidence
+freshness_floor = 0.3               # freshness never decays below this
+stale_below = 0.5                   # badge stale below this freshness (about one half-life)
+name_only_identity_factor = 0.6     # a name-only identity's weights may have changed
+performance_drift_factor = 0.7      # provider minor / driver / CUDA change, performance evidence
+quality_drift_factor = 0.5          # provider change with template implications, quality evidence
+goal_contribution_weight = 1.0      # a goal's weight inside the capability it contributes_to
+# capability_weights_path = "~/.config/freeweight/capability_weights.toml"  # unset = shipped
 
 [auth]
 tokens = []                 # required for a non-loopback bind

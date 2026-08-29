@@ -29,79 +29,79 @@
   "target_device": "gpu",
   "metrics": [
     {
-      "key": "prompt_tokens",
+      "metric_key": "prompt_tokens",
       "unit": "count",
       "higher_is_better": true,
       "aggregation": "mean"
     },
     {
-      "key": "prompt_eval_ms",
+      "metric_key": "prompt_eval_ms",
       "unit": "ms",
       "higher_is_better": false,
       "aggregation": "mean"
     },
     {
-      "key": "prompt_tokens_per_second",
+      "metric_key": "prompt_tokens_per_second",
       "unit": "tokens/s",
       "higher_is_better": true,
       "aggregation": "mean"
     },
     {
-      "key": "output_tokens",
+      "metric_key": "output_tokens",
       "unit": "count",
       "higher_is_better": true,
       "aggregation": "mean"
     },
     {
-      "key": "decode_ms",
+      "metric_key": "decode_ms",
       "unit": "ms",
       "higher_is_better": false,
       "aggregation": "mean"
     },
     {
-      "key": "decode_tokens_per_second",
+      "metric_key": "decode_tokens_per_second",
       "unit": "tokens/s",
       "higher_is_better": true,
       "aggregation": "mean"
     },
     {
-      "key": "total_ms",
+      "metric_key": "total_ms",
       "unit": "ms",
       "higher_is_better": false,
       "aggregation": "mean"
     },
     {
-      "key": "ttft_ms",
+      "metric_key": "ttft_ms",
       "unit": "ms",
       "higher_is_better": false,
       "aggregation": "mean"
     },
     {
-      "key": "inter_chunk_ms_mean",
+      "metric_key": "inter_chunk_ms_mean",
       "unit": "ms",
       "higher_is_better": false,
       "aggregation": "mean"
     },
     {
-      "key": "inter_chunk_ms_p50",
+      "metric_key": "inter_chunk_ms_p50",
       "unit": "ms",
       "higher_is_better": false,
       "aggregation": "mean"
     },
     {
-      "key": "inter_chunk_ms_p95",
+      "metric_key": "inter_chunk_ms_p95",
       "unit": "ms",
       "higher_is_better": false,
       "aggregation": "mean"
     },
     {
-      "key": "inter_token_ms_mean",
+      "metric_key": "inter_token_ms_mean",
       "unit": "ms",
       "higher_is_better": false,
       "aggregation": "mean"
     },
     {
-      "key": "load_ms",
+      "metric_key": "load_ms",
       "unit": "ms",
       "higher_is_better": false,
       "aggregation": "mean"

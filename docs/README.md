@@ -23,3 +23,5 @@ and is not.
 - [Development plan](apps/freeweight/development-plan.md) — the phases, their acceptance criteria
   and what each defers
 - [Risk register](apps/freeweight/risks.md) — the risks this design accepts, and their tells
+- [Configuration reference](configuration.md) — generated from the settings model; do not hand-edit
+- [OpenAPI snapshot](openapi.json) — the committed `/api/v1` contract; regenerate with `scripts/generate_openapi_snapshot.py`

@@ -66,8 +66,11 @@ class MetricDefinition:
     """One number a benchmark produces, fully described.
 
     Attributes:
-        key: Stable metric name, identical across every run of this benchmark. The unit belongs
-            in the name wherever the number has one (``decode_tokens_per_second``, not ``speed``).
+        metric_key: Stable metric name, identical across every run of this benchmark. The unit
+            belongs in the name wherever the number has one (``decode_tokens_per_second``, not
+            ``speed``). Spelled the same here, on the wire and in ``metric_values`` — declaring a
+            metric and reporting a value for one name it identically, so a reader moving between a
+            manifest and a result never has to translate.
         unit: The unit as it is shown to a person: ``"ratio"``, ``"ms"``, ``"tokens/s"``,
             ``"bytes"``, ``"count"``.
         higher_is_better: Declared, never inferred. A comparison that guesses direction from a key
@@ -97,7 +100,7 @@ class MetricDefinition:
             than reached by falling through two other sources.
     """
 
-    key: str
+    metric_key: str
     unit: str
     higher_is_better: bool
     aggregation: str

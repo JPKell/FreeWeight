@@ -8,6 +8,100 @@ packaging and release standards §3.
 ## [Unreleased]
 
 ### Added
+- **Capability evidence — the LoadCoach contract (Phase 11, M3).** Every completed run of a
+  measurement subject — a model under a runtime profile on a machine — is folded into one
+  `capability.evidence` record per capability, with ADR-0017's confidence beside the score, and the
+  records leave the process only through SetSpec's own models: `GET /api/v1/evidence` returns a
+  collection of `capability.evidence` envelopes, `GET /api/v1/evidence/export` one
+  `benchmark.evidence_bundle`, and `freeweight evidence show|export` are the same two functions
+  with a different front end. The M3 exit condition is a test: a `setspec`-only subprocess — no
+  FreeWeight import, no database — reads the exported bundle and reconstructs a calibrated
+  `user.*` record with its calibration block intact
+  (`tests/contract/test_evidence_export.py::TestTheM3ExitCondition`).
+
+  *Six factors, one formula, one owner.* `domain/confidence.py` is ADR-0017's `sample ×
+  consistency × freshness × environment × identity`, times ADR-0032's `judge_validity_factor`,
+  clamped to `[0.05, 1.0]` — each factor a pure function asserted against a hand-computed value,
+  and the six recorded on every row so the UI explains a number rather than presenting it. Freshness
+  decays from `measured_at`, the latest `completed_at` among the contributing runs, never from the
+  aggregation time; recomputing unchanged runs lowers confidence or leaves it alone, and a test says
+  so. Every parameter is configuration (`[evidence]`), recorded beside the `policy_version`, and a
+  customised parameter or a custom weights file derives a *different* policy version from its
+  content, so two policies coexist as two rows.
+
+  *Weights are configuration.* `config/capability_weights.toml` is benchmark catalog §6 as a
+  versioned file: for each capability, the shipped metrics that feed it and their weights, with a
+  declared scale for every metric that has no natural `0..1`. A capability none of whose sources has
+  a value is **absent** — never scored zero — and a suite that feeds nothing writes nothing.
+
+  *A goal is emitted twice, or not at all.* A calibrated goal is emitted as `user.<slug>` with its
+  `goal_hash`, `score_method_mix`, `judge_set`, `calibration` and validity factor, and — when it
+  declares `contributes_to` — additionally as one weighted source inside that capability's record,
+  which keeps the goal's identity too; never only as the shipped one. A goal below its calibration
+  gate emits nothing for either, and the aggregation report says which and why rather than skipping
+  silently. Hard separations partition: within a subject only the newest `(suite version, dataset
+  hashes, prompt subset hash)` partition of a suite contributes, and the report names what was kept
+  apart.
+
+  *Evidence is recomputed, never edited.* A run's completion recomputes its subject's evidence;
+  `freeweight evidence show --recompute` rewrites everything from the stored runs and lists every
+  withholding. `capability_evidence` (migration `0007`) carries ADR-0022 §1's field set with
+  `policy_version` in its unique key, `RESTRICT` on every identity key, and two internal columns the
+  wire never sees: the policy parameters and the factor breakdown.
+
+  *Staleness surfaces.* The `/evidence` page badges a record `stale` when its freshness has decayed
+  below `evidence.stale_below` or its environment drifted, with the factors and the contributing
+  metrics one interaction away; `freeweight health` gains an `evidence` component reporting the age
+  of the newest evidence per capability.
+
+- **The blinded grading screen for rung-4 (`human`) criteria.** `/runs/{id}/grade` presents a
+  completed goal run's samples blinded — the model is never fetched — and shuffled, saving each
+  grade on submit; `freeweight goals grade <slug> --run <id>` is the CLI form. A grade lands on the
+  sample's own criterion row, the sample's composite is recomputed through the same function the
+  run engine uses (`verdict_from_outcomes`, now public), the run's aggregate metrics are rewritten
+  (`reaggregate_run`) and the subject's evidence is refreshed. A run whose goal has been edited
+  since is refused: a grade against a different rubric would belong to a measurement it was never
+  part of. Closes PHASE8_ISSUES §9.
+
+- **The generated configuration reference.** `docs/configuration.md` is produced from the settings
+  model by `scripts/generate_config_reference.py` — every field's key path, environment variable,
+  type, default, range, runtime-changeability, security note and example — and CI's new `docs` job
+  fails on drift (configuration standards §8). Every settings field gained a `description` and an
+  `examples` entry to be the source of that document; a field without one fails generation.
+
+- **The OpenAPI snapshot.** `docs/openapi.json`, produced by `scripts/generate_openapi_snapshot.py`
+  and checked by the same `docs` job; the I3 milestone test no longer skips.
+
+- **`[evidence]` configuration**: `n_target`, the two half-lives, `freshness_floor`,
+  `stale_below`, `name_only_identity_factor`, the two drift factors, `goal_contribution_weight` and
+  `capability_weights_path`. Spec §12 lists them.
+
+- `freeweight version` and `GET /api/v1/version` report the schema versions this build writes
+  (`schemas`), as CLI standards §2 asks; `freeweight --version` prints them inline.
+
+- **The release workflow can publish, and can rehearse first.** `release.yml` gained the
+  `publish-testpypi` job every package repository has — manual only, via *Actions → Release → Run
+  workflow* — because packaging and release standards §6 requires a successful TestPyPI publish
+  ahead of a distribution's **first** real release, and `freeweight` is an unclaimed name, so
+  `v1.0.0rc1` is that release. The `release` job gained `environment: pypi`, which must match the
+  Environment name configured on the PyPI trusted publisher; without it the OIDC exchange has
+  nothing to match and the publish is rejected.
+- **`requirements/release.in` and `release.lock`**, hash-pinned — required by packaging standards
+  §4 and present in every package repository, absent here. `release.yml`'s two jobs and CI's
+  `build` job install the locked chain and build with `--no-isolation`, so the wheel CI checks is
+  produced by the same pinned backend as the wheel that ships; `pip-audit` audits the lock rather
+  than the job's own environment. Verified by installing under `--require-hashes` into a clean
+  3.13 interpreter, building, and running `twine check` on both artifacts.
+
+  **`requirements/ci.lock` is deliberately not here yet.** `setspec>=0.3,<0.4` is not on PyPI, so
+  `pip-compile` writes hashes for a locally built artifact that cannot match the wheel published
+  from the tag — every `--require-hashes` install would fail on a mismatch. It lands in the commit
+  after `setspec 0.3.0`; `requirements/README.md` carries the reason and the exact command,
+  including the `--unsafe-package freeweight` this project's self-referencing `dev` extra needs.
+- `jsonschema` and `types-jsonschema` in the `dev` extra: the producer validates what it emits
+  against the *published* JSON Schema SetSpec ships, not only against the model that generated it
+  (testing standards §8.2). Test only.
+
 - **The nine endpoints spec §7.1 declared and no phase built.** `GET /api/v1/models`,
   `/models/{ref}`, `/models/{ref}/results`, `POST /models/discover`; `GET /api/v1/machines` and
   `/machines/{id}`; `GET /api/v1/benchmarks` and `/benchmarks/{key}`; and
@@ -27,6 +121,31 @@ packaging and release standards §3.
   and the export contract, and nothing labelled them.
 
 ### Changed
+- **`setspec>=0.3,<0.4`.** The contract freeze, pinned in the release that ships the evidence
+  export — exactly as the `0.2` pin's own comment promised.
+- **FreeWeight is `1.0.0rc1`** (roadmap §6: `1.0-rc` at M3). The version file still said `0.1.0`
+  through ten delivered phases; the M2 tag was never cut, so `0.9.0b0` is skipped rather than
+  back-dated.
+- **`tests/contract/test_declared_surface.py`'s `SCHEDULED` map is empty.** Both evidence paths
+  are served, so their Phase 11 excuse is removed — the test fails if a served path stays excused.
+- `PHASE8_ISSUES.md` §7 (the gate's conditional assertion) and §8 (`contributes_to` never emitted
+  twice) are closed; the gate's absence is asserted directly, and end to end for both halves.
+- The primary navigation gains **Evidence**, and a completed goal run's page links to its grading
+  screen.
+- **A metric's key is `metric_key` everywhere.** `GET /runs/{id}` and `freeweight run show --json`
+  spelled it `key` while `/results`, the export and `/models/{ref}/results` spelled it
+  `metric_key`; every shipped manifest, `MetricDefinition` and the generated goal manifests spelled
+  it `key` again. One concept, two names, which is what CLAUDE.md's "same concept, same name across
+  all nine repos" exists to prevent — and nothing caught it because no test compared two surfaces.
+
+  Declaring a metric and reporting a value for one now name it identically, so a reader moving
+  between a manifest and a result never has to translate: `MetricDefinition.metric_key`, all
+  fifteen shipped manifests, the goal-suite manifest builder, both API surfaces and the stored
+  `metric_definitions_json`. A contract test scans the Python source **and** every manifest and
+  fails the build if either side drifts back.
+
+  Every `manifest_hash` changes, which separates results from runs recorded before it — correct,
+  and free here because no measurements are being retained pre-1.0.
 - **A goal run generates every sample, then judges them all — the two never overlap.** Judging used
   to happen inside the per-sample loop, immediately after each generation, so with the provider's
   default `keep_alive` the candidate stayed resident while every juror loaded: a jury of three meant
@@ -197,6 +316,13 @@ packaging and release standards §3.
   distinguishable from an *assumed* one at all (ADR-0023 §4).
 
 ### Fixed
+- **Seven run-level metrics were emitted and declared nowhere.** `model_vram_bytes`,
+  `model_total_bytes`, `served_context_observed` and the four telemetry figures go into
+  `metric_values` on every run, and no manifest names them — so a consumer reading that table could
+  not tell what they were or whether to expect them, and the suite-conformance tests were right to
+  refuse them. They are now declared once, in `RUN_PROVENANCE_METRICS`, which is also where the
+  emitters read their unit and direction from; the tests allow exactly that set beyond a manifest
+  and nothing else. Found by the live suite, which is the only place all seven appear together.
 - **The bare `pytest` entry point could not collect five test modules**, and it is the one CI runs.
   Under the default `prepend` import mode pytest puts the *test file's* directory on `sys.path`, not
   the repository root, so the five modules that import shared fixtures as `tests.conftest` resolved

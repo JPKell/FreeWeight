@@ -129,21 +129,21 @@ class ResponseArrivedScorer:
 
 _THROUGHPUT_METRICS: tuple[MetricDefinition, ...] = (
     MetricDefinition(
-        key="prompt_tokens",
+        metric_key="prompt_tokens",
         unit="count",
         higher_is_better=True,
         aggregation="mean",
         description="Prompt tokens the provider reported for this case.",
     ),
     MetricDefinition(
-        key="prompt_eval_ms",
+        metric_key="prompt_eval_ms",
         unit="ms",
         higher_is_better=False,
         aggregation="mean",
         description="Time the provider reported evaluating the prompt.",
     ),
     MetricDefinition(
-        key="prompt_tokens_per_second",
+        metric_key="prompt_tokens_per_second",
         unit="tokens/s",
         higher_is_better=True,
         aggregation="mean",
@@ -156,21 +156,21 @@ _THROUGHPUT_METRICS: tuple[MetricDefinition, ...] = (
 
 _DECODE_METRICS: tuple[MetricDefinition, ...] = (
     MetricDefinition(
-        key="output_tokens",
+        metric_key="output_tokens",
         unit="count",
         higher_is_better=True,
         aggregation="mean",
         description="Generated tokens the provider reported, thinking and tool syntax included.",
     ),
     MetricDefinition(
-        key="decode_ms",
+        metric_key="decode_ms",
         unit="ms",
         higher_is_better=False,
         aggregation="mean",
         description="Time the provider reported generating output tokens.",
     ),
     MetricDefinition(
-        key="decode_tokens_per_second",
+        metric_key="decode_tokens_per_second",
         unit="tokens/s",
         higher_is_better=True,
         aggregation="mean",
@@ -306,7 +306,7 @@ def _combined_request(library: PromptLibrary) -> PerformanceTest:
         streaming=True,
         metrics=(
             MetricDefinition(
-                key="total_ms",
+                metric_key="total_ms",
                 unit="ms",
                 higher_is_better=False,
                 aggregation="mean",
@@ -316,7 +316,7 @@ def _combined_request(library: PromptLibrary) -> PerformanceTest:
                 ),
             ),
             MetricDefinition(
-                key="ttft_ms",
+                metric_key="ttft_ms",
                 unit="ms",
                 higher_is_better=False,
                 aggregation="mean",
@@ -353,14 +353,14 @@ def _streaming_latency(library: PromptLibrary) -> PerformanceTest:
         streaming=True,
         metrics=(
             MetricDefinition(
-                key="ttft_ms",
+                metric_key="ttft_ms",
                 unit="ms",
                 higher_is_better=False,
                 aggregation="mean",
                 description="Time observed before the first streamed delta arrived.",
             ),
             MetricDefinition(
-                key="inter_chunk_ms_mean",
+                metric_key="inter_chunk_ms_mean",
                 unit="ms",
                 higher_is_better=False,
                 aggregation="mean",
@@ -370,21 +370,21 @@ def _streaming_latency(library: PromptLibrary) -> PerformanceTest:
                 ),
             ),
             MetricDefinition(
-                key="inter_chunk_ms_p50",
+                metric_key="inter_chunk_ms_p50",
                 unit="ms",
                 higher_is_better=False,
                 aggregation="mean",
                 description="Median gap between streamed deltas, per sample.",
             ),
             MetricDefinition(
-                key="inter_chunk_ms_p95",
+                metric_key="inter_chunk_ms_p95",
                 unit="ms",
                 higher_is_better=False,
                 aggregation="mean",
                 description="95th-percentile gap between streamed deltas, per sample.",
             ),
             MetricDefinition(
-                key="inter_token_ms_mean",
+                metric_key="inter_token_ms_mean",
                 unit="ms",
                 higher_is_better=False,
                 aggregation="mean",
@@ -415,7 +415,7 @@ def _cold_load(library: PromptLibrary) -> PerformanceTest:
         streaming=False,
         metrics=(
             MetricDefinition(
-                key="load_ms",
+                metric_key="load_ms",
                 unit="ms",
                 higher_is_better=False,
                 aggregation="mean",
@@ -425,7 +425,7 @@ def _cold_load(library: PromptLibrary) -> PerformanceTest:
                 ),
             ),
             MetricDefinition(
-                key="total_ms",
+                metric_key="total_ms",
                 unit="ms",
                 higher_is_better=False,
                 aggregation="mean",

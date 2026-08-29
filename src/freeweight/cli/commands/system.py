@@ -81,11 +81,12 @@ def health(
 
 def _version_payload() -> dict[str, object]:
     from freeweight.__about__ import __version__
+    from freeweight.services.export import EMITTED_SCHEMAS
 
     return {
         "application": {"name": "freeweight", "version": __version__, "git_commit": None},
         "api": {"current": "v1", "supported": ["v1"], "deprecated": []},
-        "schemas": {},
+        "schemas": dict(EMITTED_SCHEMAS),
     }
 
 
@@ -95,8 +96,10 @@ def print_version(*, json_output: bool) -> None:
         typer.echo(json.dumps(_version_payload()))
     else:
         from freeweight.__about__ import __version__
+        from freeweight.services.export import EMITTED_SCHEMAS
 
-        typer.echo(f"freeweight {__version__} (api v1)")
+        schemas = ", ".join(f"{name} {version}" for name, version in EMITTED_SCHEMAS.items())
+        typer.echo(f"freeweight {__version__} (api v1, schemas {schemas})")
 
 
 def version(

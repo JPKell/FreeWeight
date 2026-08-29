@@ -30,7 +30,9 @@ from freeweight.domain.metrics import MeasurementClass, SampleFacts
 
 
 def _metric(key: str, aggregation: str = "mean") -> MetricDefinition:
-    return MetricDefinition(key=key, unit="ms", higher_is_better=False, aggregation=aggregation)
+    return MetricDefinition(
+        metric_key=key, unit="ms", higher_is_better=False, aggregation=aggregation
+    )
 
 
 def _sample(**overrides: object) -> SampleFacts:
@@ -302,13 +304,13 @@ class TestPerSetMetrics:
     def _rows() -> tuple[AggregatedMetric, ...]:
         metrics = (
             MetricDefinition(
-                key="output_tokens_per_success",
+                metric_key="output_tokens_per_success",
                 unit="tokens",
                 higher_is_better=False,
                 aggregation="ratio",
             ),
             MetricDefinition(
-                key="successes_per_million_output_tokens",
+                metric_key="successes_per_million_output_tokens",
                 unit="count/1M tokens",
                 higher_is_better=True,
                 aggregation="ratio",
