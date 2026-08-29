@@ -1,0 +1,38 @@
+# gitleaks configuration — see the `security` job in .github/workflows/ci.yml.
+#
+# The default rule set is kept in full. This file adds one allowlist and disables nothing: a rule
+# is never turned off, and a finding is never allowlisted by fingerprint, because a fingerprint
+# carries the commit SHA and stops matching the moment the file moves — which turns "a person
+# looked at this and it is not a secret" into a silently unscanned line later.
+
+title = "FreeWeight"
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "A metric key is vocabulary, not a credential."
+# `generic-api-key` fires on any `…key = <high-entropy value>` assignment, and this suite names
+# every measurement with a `metric_key` — 129 of them across 51 files, and one per new benchmark.
+# `inter_chunk_ms_p50` and `inter_chunk_ms_p95` clear the rule's entropy floor, so they are
+# reported as secrets; the rest are one lucky character away from joining them, which is why this
+# matches the *shape* of a metric key rather than listing the two names that happen to trip it
+# today.
+#
+# The scan is diff-scoped, so this fails only on a push whose commit touches one of those lines —
+# it has fired three times (a2a0ac5, 92f5602, e6d3c88, the last on the `key` → `metric_key`
+# rename) and passed on every commit that leaves them alone. A green run on an unrelated commit is
+# not evidence that it is fixed.
+#
+# What this permits is narrow: a `…key` field bound to a lowercase snake_case identifier, quoted
+# and ending the match. A real credential is excluded by any of the things it almost always has
+# and an identifier never does — an uppercase letter, a hyphen, a dot, a `+` or `/`, or no
+# underscore at all. Keywords other than `key` are untouched, so `password = "correct_horse_..."`
+# is still a finding.
+#
+# `regexTarget` must be `match`: in a history scan — the mode CI runs in — a finding's `line` is
+# empty, so an allowlist written against the source line matches nothing and silently does not
+# apply. The match text differs between the two modes as well (`metric_key="…"` scanning a working
+# tree, `key="…"` scanning a diff), so the pattern deliberately starts at `key`.
+regexTarget = "match"
+regexes = ['''key["']?\s*[:=]\s*["'][a-z][a-z0-9]*(?:_[a-z0-9]+)+["']$''']
