@@ -16,6 +16,11 @@ executable, and the containment it provides is structural rather than advisory:
   edit the fixtures out from under the next case.
 * **Bounded.** File size, result size, expression length and argument length are all capped, and a
   tool that would exceed one refuses with a code instead of returning a megabyte into a prompt.
+* **The fixture repository is what was authored, not what is on disk.** ``pip`` byte-compiles
+  every ``.py`` file in the wheel, including the ones under ``data/repo`` that are fixture content
+  rather than code, so an *installed* copy grows ``__pycache__`` directories the source checkout
+  never has. They are excluded wherever the repository is enumerated: a model must see the same
+  repository from a wheel as from a checkout, or the benchmark is not measuring one environment.
 
 **Errors are values, not exceptions.** Every tool returns a :class:`ToolOutcome`, because a failed
 tool call is *input to the model* — the whole of ``native.tool_recovery`` depends on the model
@@ -362,15 +367,17 @@ class MockToolbox:
             path = contained_path(REPO_ROOT, str(arguments["path"]))
         except PathEscape:
             return _outside_repository(str(arguments["path"]))
-        if not path.is_file():
+        if not path.is_file() or _is_compiled_cache(path):
             return ToolOutcome.failure(
                 ERROR_NOT_FOUND, f"no file at {arguments['path']!r} in the repository"
             )
         if path.stat().st_size > _MAXIMUM_FILE_BYTES:  # pragma: no cover — fixtures are small
             return ToolOutcome.failure(ERROR_INVALID_ARGUMENT, "the file is too large to return")
-        return ToolOutcome.success(
-            path.read_text(encoding="utf-8"), digest=f"read {arguments['path']}"
-        )
+        try:
+            text = path.read_text(encoding="utf-8")
+        except UnicodeDecodeError:
+            return ToolOutcome.failure(ERROR_INVALID_ARGUMENT, "the file is not UTF-8 text")
+        return ToolOutcome.success(text, digest=f"read {arguments['path']}")
 
     def _list_directory(self, arguments: Mapping[str, Any]) -> ToolOutcome:
         """List one fixture directory."""
@@ -383,7 +390,9 @@ class MockToolbox:
                 ERROR_NOT_FOUND, f"no directory at {arguments['path']!r} in the repository"
             )
         entries = sorted(
-            f"{child.name}/" if child.is_dir() else child.name for child in path.iterdir()
+            f"{child.name}/" if child.is_dir() else child.name
+            for child in path.iterdir()
+            if not _is_compiled_cache(child)
         )
         return ToolOutcome.success("\n".join(entries), digest=f"{len(entries)} entries")
 
@@ -569,13 +578,32 @@ def _load(name: str) -> Any:  # noqa: ANN401 — parsed JSON fixture data
     return json.loads((DATA_ROOT / name).read_text(encoding="utf-8"))
 
 
+def _is_compiled_cache(path: Path) -> bool:
+    """Whether ``path`` is a byte-compiled cache the installer created beside the fixtures.
+
+    Not part of the fixture repository, and invisible through every tool: the ``__pycache__``
+    directory does not appear in a listing, the ``.pyc`` inside it is not searched, and reading
+    one is "no file at that path" — because for the repository this module presents, there is not.
+    """
+    return path.name == "__pycache__" or path.suffix in {".pyc", ".pyo"}
+
+
 def _repository_lines() -> list[tuple[Path, int, str]]:
     """Yield every ``(path, line number, line)`` in the fixture repository, in path order."""
     lines: list[tuple[Path, int, str]] = []
     for path in sorted(REPO_ROOT.rglob("*")):
+        if _is_compiled_cache(path):
+            continue
         if not path.is_file() or path.stat().st_size > _MAXIMUM_FILE_BYTES:
             continue
-        for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), start=1):
+        try:
+            text = path.read_text(encoding="utf-8")
+        except UnicodeDecodeError:
+            # A file that is not text is not searchable, and a search that raises ends the case
+            # instead of feeding the model a result it can act on. Unreachable for the fixtures as
+            # authored; it is what a binary one added later degrades to.
+            continue
+        for number, line in enumerate(text.splitlines(), start=1):
             lines.append((path, number, line))
     return lines
 

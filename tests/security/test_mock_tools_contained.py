@@ -14,6 +14,7 @@ error messages, because an error message goes into the next prompt exactly like 
 from __future__ import annotations
 
 import ast
+import compileall
 from pathlib import Path
 
 import pytest
@@ -183,6 +184,72 @@ class TestNoHostPathsLeak:
     def test_search_results_are_repository_relative(self, toolbox: MockToolbox) -> None:
         outcome = toolbox.invoke("search_symbol", {"symbol": "restock_cost"})
         assert outcome.content.startswith("pkg/pricing.py:")
+
+
+class TestTheRepositoryIsWhatWasAuthored:
+    """An installed copy of the fixtures presents the same repository a checkout does.
+
+    ``pip`` byte-compiles every ``.py`` in the wheel, and the fixture repository under
+    ``data/repo`` is ``.py`` files that are content rather than code — so an installed FreeWeight
+    grows ``__pycache__`` directories that no source checkout has, and the tools were reading them
+    as UTF-8. Every search raised :exc:`UnicodeDecodeError` on the first ``.pyc``, which ends a
+    benchmark case rather than answering it; the caches were also visible in a listing, so the
+    repository a model explored depended on how FreeWeight had been installed. These tests plant
+    the caches the way an installer makes them, because a checkout never has any.
+    """
+
+    @pytest.fixture
+    def installed_copy(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+        """A fixture repository byte-compiled in place, as ``pip install`` leaves one."""
+        planted = tmp_path / "repo"
+        (planted / "pkg").mkdir(parents=True)
+        (planted / "pkg" / "pricing.py").write_text(
+            "def restock_cost(units):\n    return units * 2\n", encoding="utf-8"
+        )
+        (planted / "README.md").write_text("# fixture\n", encoding="utf-8")
+        compileall.compile_dir(str(planted), quiet=2)
+        assert list(planted.rglob("*.pyc")), "precondition: the caches were created"
+        monkeypatch.setattr(toolbox_module, "REPO_ROOT", planted)
+        return planted
+
+    def test_searching_reads_no_byte_compiled_cache(
+        self, toolbox: MockToolbox, installed_copy: Path
+    ) -> None:
+        text = toolbox.invoke("search_text", {"query": "restock_cost"})
+        symbol = toolbox.invoke("search_symbol", {"symbol": "restock_cost"})
+
+        assert text.ok and symbol.ok
+        assert text.content == "pkg/pricing.py:1: def restock_cost(units):"
+        assert symbol.content == "pkg/pricing.py:1: def restock_cost(units):"
+
+    def test_a_cache_is_in_no_listing_and_cannot_be_read(
+        self, toolbox: MockToolbox, installed_copy: Path
+    ) -> None:
+        cache = next(installed_copy.rglob("*.pyc"))
+        relative = cache.relative_to(installed_copy).as_posix()
+
+        listing = toolbox.invoke("list_directory", {"path": "pkg"})
+        read = toolbox.invoke("read_file", {"path": relative})
+
+        assert listing.content == "pricing.py"
+        assert (read.ok, read.error_code) == (False, "NOT_FOUND")
+
+    def test_a_file_that_is_not_text_is_refused_rather_than_ending_the_case(
+        self, toolbox: MockToolbox, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The same guarantee for a binary fixture that is not a cache: a value, not a traceback."""
+        planted = tmp_path / "repo"
+        planted.mkdir()
+        (planted / "pricing.py").write_text("def restock_cost(): ...\n", encoding="utf-8")
+        (planted / "logo.png").write_bytes(b"\x89PNG\r\n\x1a\n\xff\xfe")
+        monkeypatch.setattr(toolbox_module, "REPO_ROOT", planted)
+
+        read = toolbox.invoke("read_file", {"path": "logo.png"})
+        search = toolbox.invoke("search_symbol", {"symbol": "restock_cost"})
+
+        assert (read.ok, read.error_code) == (False, "INVALID_ARGUMENT")
+        assert search.ok
+        assert search.content == "pricing.py:1: def restock_cost(): ..."
 
 
 class TestNoExecution:

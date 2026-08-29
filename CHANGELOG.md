@@ -316,6 +316,20 @@ packaging and release standards §3.
   distinguishable from an *assumed* one at all (ADR-0023 §4).
 
 ### Fixed
+- **Every mock-tool search raised `UnicodeDecodeError` once FreeWeight was installed rather than
+  run from a checkout.** `pip` byte-compiles every `.py` file in the wheel, and the fixture
+  repository under `benchmarks/fixtures/data/repo` is `.py` files that are *content* — a small
+  repository for a model to explore — rather than code. An installed copy therefore grows
+  `__pycache__` directories no source checkout has, and `search_text`/`search_symbol` read every
+  file under the root as UTF-8, so the first `.pyc` ended the benchmark case with an exception
+  instead of answering it. The caches were visible in `list_directory` too, which meant the
+  repository a model explored depended on how FreeWeight had been installed — the one thing a
+  fixture exists to hold still. They are now excluded wherever the repository is enumerated, and a
+  file that is not UTF-8 text is a refusal rather than a traceback, per this module's rule that a
+  failed tool call is a value the model can act on. Only this fixture tree was exposed: every
+  other package-data walk globs `*.json`, and a starter goal pack is a directory of JSON with no
+  `.py` beside it. Found by the release workflow, which is the only job that tests the built
+  wheel.
 - **A corrupt SQLite database made `integrity_check()` raise instead of report, and a restore
   that landed a bad file was left in place because of it.** SQLite answers the same corruption two
   ways — a row naming the damaged pages, or the statement failing outright with "database disk
