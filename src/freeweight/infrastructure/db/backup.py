@@ -31,6 +31,7 @@ from datetime import datetime
 from pathlib import Path
 
 from sqlalchemy import Engine, text
+from sqlalchemy.exc import DBAPIError, SQLAlchemyError
 
 from freeweight.infrastructure.db.base import utcnow
 from freeweight.infrastructure.db.errors import DatabaseError, StorageFull
@@ -515,8 +516,13 @@ def _verify_backup_file(source: Path) -> None:
     try:
         row = probe.execute("PRAGMA integrity_check").fetchone()
     except sqlite3.DatabaseError as exc:
+        # Damage bad enough that the pragma cannot run at all — a corrupt page 1, a file that was
+        # never SQLite — is reported by raising rather than by returning a row naming the bad
+        # pages. Which of the two shapes a given corruption produces is not stable across SQLite
+        # versions, so both say "failed its integrity check": the refusal is the same refusal.
         raise DatabaseError(
-            f"Backup {source} is not a readable SQLite database: {exc}",
+            f"Backup {source} failed its integrity check: it is not a readable SQLite "
+            f"database ({exc}).",
             details={"source": str(source)},
         ) from exc
     finally:
@@ -539,10 +545,23 @@ def integrity_check(engine: Engine) -> IntegrityResult:
         PostgreSQL, which has no equivalent single command, this reports ``ok`` from a successful
         connection and a trivial query — a real corruption check there is an operator running
         ``pg_amcheck`` or restoring onto a scratch instance, out of scope for an in-process call.
+
+        A SQLite database the pragma cannot run against at all — damaged beyond opening, or
+        otherwise refusing the statement — is reported as ``ok=False`` carrying the driver's own
+        message, never by raising: SQLite answers the same corruption either by
+        listing the bad pages in a row or by failing the statement with "database disk image is
+        malformed", and which one it picks varies with the damage and the SQLite version. Every
+        caller here acts on a failed check rather than propagating it — :func:`restore` rolls the
+        original database back, ``db status`` reports the database as failing — and neither can
+        do that if half of all corruptions arrive as an exception instead.
     """
     if engine.dialect.name == "sqlite":
-        with engine.connect() as connection:
-            row = connection.execute(text("PRAGMA integrity_check")).fetchone()
+        try:
+            with engine.connect() as connection:
+                row = connection.execute(text("PRAGMA integrity_check")).fetchone()
+        except SQLAlchemyError as exc:
+            cause = exc.orig if isinstance(exc, DBAPIError) and exc.orig is not None else exc
+            return IntegrityResult(ok=False, detail=str(cause))
         detail = row[0] if row else "unreadable"
         return IntegrityResult(ok=detail == "ok", detail=str(detail))
 

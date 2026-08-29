@@ -95,33 +95,111 @@ def test_restore_leaves_no_pre_restore_file_behind(sqlite_engine: Engine, tmp_pa
     assert not Path(f"{database}.pre-restore").exists()
 
 
-def test_restore_puts_the_original_back_when_the_new_file_is_corrupt(
+def _corrupt(database: Path, *, offset: int) -> None:
+    """Zero a page of ``database`` in place, to make it fail an integrity check."""
+    with database.open("r+b") as handle:
+        handle.seek(offset)
+        handle.write(b"\x00" * 4096)
+
+
+def test_restore_refuses_a_corrupt_backup_before_touching_anything(
     sqlite_engine: Engine, tmp_path: Path
 ) -> None:
-    """The ``.pre-restore`` copy is the rollback, so it must survive until the new file opens.
+    """The source is verified first, so a backup that is already unreadable costs nothing.
 
-    The corruption is introduced *after* the source passes its own verification, which is the only
-    way to reach the post-swap failure branch — a backup that was already unreadable is refused
-    before anything is touched.
+    Both corruptions are the same refusal, and the test asserts both because SQLite does not
+    report them the same way: zeroing an interior page usually returns a row naming the bad
+    pages, while zeroing the header fails the pragma outright with "database disk image is
+    malformed". Which shape a given file produces varies with the SQLite build, so a test that
+    assumed one of them passes on one runner and fails on another.
     """
     good = tmp_path / "good.sqlite3"
     backup(sqlite_engine, good)
     database = sqlite_path(sqlite_engine)
+    checkpoint(sqlite_engine)
     original = database.read_bytes()
 
-    corrupt = tmp_path / "corrupt.sqlite3"
-    corrupt.write_bytes(good.read_bytes())
-    with corrupt.open("r+b") as handle:
-        handle.seek(4096)
-        handle.write(b"\x00" * 4096)
+    for name, offset in (("interior-page", 4096), ("header", 0)):
+        corrupt = tmp_path / f"corrupt-{name}.sqlite3"
+        corrupt.write_bytes(good.read_bytes())
+        _corrupt(corrupt, offset=offset)
+
+        with pytest.raises(DatabaseError) as excinfo:
+            restore(sqlite_engine, corrupt, confirm=True)
+
+        assert "failed its integrity check" in str(excinfo.value), name
+        assert database.read_bytes() == original, name
+        assert not Path(f"{database}.pre-restore").exists(), name
+        assert integrity_check(sqlite_engine).ok is True, name
+        assert _keys(database) == {"original"}, name
+
+
+@pytest.mark.parametrize("offset", [0, 4096])
+def test_restore_puts_the_original_back_when_the_new_file_is_corrupt(
+    sqlite_engine: Engine, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, offset: int
+) -> None:
+    """The ``.pre-restore`` copy is the rollback, so it must survive until the new file opens.
+
+    Reaching this branch means the *restored* file is bad while the backup it came from was not —
+    the source is verified before anything is touched, so the only way there is for the swap
+    itself to land damaged, which is what the post-swap check exists to catch and what the
+    monkeypatched copy simulates. Both offsets are exercised because they are the two ways SQLite
+    reports corruption (a failing row, and a statement that raises); a rollback that only happens
+    for the first is a rollback that does not happen on half of real corruptions.
+    """
+    good = tmp_path / "good.sqlite3"
+    backup(sqlite_engine, good)
+    database = sqlite_path(sqlite_engine)
+
+    real_copyfile = shutil.copyfile
+    landed_corrupt = False
+
+    def copyfile_that_lands_corrupt(
+        source: str | os.PathLike[str],
+        destination: str | os.PathLike[str],
+        *,
+        follow_symlinks: bool = True,
+    ) -> str | os.PathLike[str]:
+        nonlocal landed_corrupt
+        result = real_copyfile(source, destination, follow_symlinks=follow_symlinks)
+        # Only the restore's own copy: the rollback that follows writes to this same path, and
+        # damaging that one would test nothing but the test's own sabotage.
+        if Path(destination) == database and not landed_corrupt:
+            landed_corrupt = True
+            _corrupt(database, offset=offset)
+        return result
+
+    monkeypatch.setattr(shutil, "copyfile", copyfile_that_lands_corrupt)
 
     with pytest.raises(DatabaseError) as excinfo:
-        restore(sqlite_engine, corrupt, confirm=True)
+        restore(sqlite_engine, good, confirm=True)
 
-    assert "integrity check" in str(excinfo.value)
-    assert database.read_bytes() == original
+    assert landed_corrupt, "precondition: the restore's copy was the one sabotaged"
+    assert "the original database has been put back" in str(excinfo.value)
+    assert not Path(f"{database}.pre-restore").exists()
     assert integrity_check(sqlite_engine).ok is True
     assert _keys(database) == {"original"}
+
+
+@pytest.mark.parametrize("offset", [0, 4096])
+def test_integrity_check_reports_a_malformed_database_rather_than_raising(
+    sqlite_engine: Engine, offset: int
+) -> None:
+    """Corruption is an answer, not an error: every caller acts on ``ok=False``.
+
+    Header damage makes ``PRAGMA integrity_check`` fail the statement instead of returning a row,
+    and a version of this that propagated the driver's exception took the restore rollback and
+    ``db status`` down with it.
+    """
+    database = sqlite_path(sqlite_engine)
+    checkpoint(sqlite_engine)
+    sqlite_engine.dispose()
+    _corrupt(database, offset=offset)
+
+    result = integrity_check(sqlite_engine)
+
+    assert result.ok is False
+    assert result.detail != "ok"
 
 
 def test_restore_refuses_a_backup_at_an_unknown_revision(

@@ -316,6 +316,17 @@ packaging and release standards §3.
   distinguishable from an *assumed* one at all (ADR-0023 §4).
 
 ### Fixed
+- **A corrupt SQLite database made `integrity_check()` raise instead of report, and a restore
+  that landed a bad file was left in place because of it.** SQLite answers the same corruption two
+  ways — a row naming the damaged pages, or the statement failing outright with "database disk
+  image is malformed" — and which one it picks varies with the damage and the SQLite build. Only
+  the first was handled, so on the other half `restore()` propagated a raw SQLAlchemy error past
+  its own rollback: the corrupt file stayed as the live database, the `.pre-restore` copy was
+  orphaned beside it, and `db status` reported "could not open the database" rather than an
+  integrity failure. Both shapes are now the same `ok=False` result carrying the driver's message,
+  and `restore()` puts the original back either way. A corrupt backup is likewise refused with one
+  wording ("failed its integrity check") whichever shape SQLite reports. Found by CI, where the
+  version-dependent branch was the one that ran.
 - **Seven run-level metrics were emitted and declared nowhere.** `model_vram_bytes`,
   `model_total_bytes`, `served_context_observed` and the four telemetry figures go into
   `metric_values` on every run, and no manifest names them — so a consumer reading that table could
