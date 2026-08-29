@@ -7,6 +7,19 @@ packaging and release standards §3.
 
 ## [Unreleased]
 
+### Changed
+- **`freeweight.services.prompts` now delegates to `setspec.prompts` (`setspec>=0.4,<0.5`).**
+  The prompt record loader, validator, `StrictUndefined` renderer and both hash functions
+  (`prompt_record_hash`, `prompt_subset_hash`/`pack_hash`) moved to `setspec.prompts` at SetSpec
+  Phase 5 / LoadCoach Phase 4 (ADR-0011, ADR-0028) — this module is now a thin wrapper supplying
+  only FreeWeight's own `PACK_ROOT` default. Every name this module exported before the move is
+  still importable from here, unchanged, and the shipped pack hashes identically before and after
+  the move (`pack_hash sha256:b1b0ffd0a5941fee5e0013d2a826732ea02a285b229bdc006ebd6dd25ff4ceb4`,
+  golden-verified). Two of `tests/security/test_goal_pack_import.py`'s tests import the private
+  sandboxed-environment constructor directly for a security assertion; those three import
+  statements now point at `setspec.prompts` instead, which is the only source change outside
+  `services/prompts.py` itself. The full test suite (2,297 tests) passes unchanged otherwise.
+
 ### Added
 - **Capability evidence — the LoadCoach contract (Phase 11, M3).** Every completed run of a
   measurement subject — a model under a runtime profile on a machine — is folded into one

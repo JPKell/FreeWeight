@@ -290,7 +290,9 @@ class TestGoalTemplatesCannotReachTheFilesystemOrNetwork:
     """User-authored goal content renders in the same sandbox shipped prompts do (spec §14)."""
 
     def test_the_environment_has_no_loader_so_include_and_extends_fail(self) -> None:
-        from freeweight.services.prompts import _environment
+        # freeweight.services.prompts is now a thin wrapper around setspec.prompts (ADR-0028);
+        # the sandboxed environment itself, including this private constructor, moved there too.
+        from setspec.prompts import _environment
 
         environment = _environment()
         assert environment.loader is None
@@ -307,8 +309,7 @@ class TestGoalTemplatesCannotReachTheFilesystemOrNetwork:
         # A loader-less environment raises ``TypeError`` here rather than a Jinja2 error, which is
         # why ``PromptRecord.render`` catches both and reports one refusal.
         from jinja2 import TemplateError
-
-        from freeweight.services.prompts import _environment
+        from setspec.prompts import _environment
 
         with pytest.raises((TemplateError, TypeError)):
             _environment().from_string(template).render()
@@ -348,8 +349,7 @@ class TestGoalTemplatesCannotReachTheFilesystemOrNetwork:
         # ``__class__`` is the doorway to ``open`` and to the socket module, and a goal pack
         # imported from another machine is somebody else's file. The sandbox closes it.
         from jinja2 import TemplateError
-
-        from freeweight.services.prompts import _environment
+        from setspec.prompts import _environment
 
         with pytest.raises((TemplateError, TypeError)):
             _environment().from_string(template).render()

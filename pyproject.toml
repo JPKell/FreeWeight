@@ -22,11 +22,12 @@ classifiers = [
 # weightsdb and mirrorwall are adopted at Phase 12 (extracted from this application's own in-app plumbing at LoadCoach P1/P4); not a dependency until then.
 dependencies = [
     "baseaicore>=0.4,<0.5",
-    # 0.3 is the contract freeze (SetSpec Phase 4, M3): the schemas this release exports evidence
-    # under, with the goldens its contract tests validate against. Pinned here in the same
-    # release that ships the evidence export, exactly as the 0.2 pin promised; packaging
-    # standards §4 dates the ranges and the roadmap's §6 table is the authority for the next move.
-    "setspec>=0.3,<0.4",
+    # 0.4 adds setspec.prompts (SetSpec Phase 5): the prompt loader, renderer and hasher this
+    # module now delegates to (freeweight.services.prompts is a thin default-path wrapper around
+    # it as of this release) — extracted from this application's own in-app implementation at
+    # LoadCoach Phase 4 / SetSpec Phase 5 (ADR-0011, ADR-0028), with FreeWeight's existing pack
+    # proven to hash identically before and after the move.
+    "setspec>=0.4,<0.5",
     "modelrack>=0.5,<0.6",
     "sweatmeter>=0.4,<0.5",
     "fastapi>=0.115,<1",
