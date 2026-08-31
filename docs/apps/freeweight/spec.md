@@ -2,9 +2,9 @@
 
 **Type:** Application · **Import/distribution name:** `freeweight` · **Default port:** 8765 · **Env prefix:** `FREEWEIGHT_`
 **Status:** Specified, not implemented. Corrected 2026-08-21 by the
-final architecture audit (ADR-0022, ADR-0024, ADR-0026–0028).
-Extended 2026-08-26 with user-defined goal benchmarks (ADR-0031,
-ADR-0032).
+[final architecture audit](../../reviews/final_architecture_audit.md) (ADR-0022, ADR-0024, ADR-0026–0028).
+Extended 2026-08-26 with user-defined goal benchmarks ([ADR-0031](../../adr/0031-user-defined-goal-benchmarks.md),
+[ADR-0032](../../adr/0032-judge-validity-and-user-capability-namespace.md)).
 **Related:** [Benchmark Catalog](benchmark-catalog.md) · [Subjective Goals](subjective-goals.md) · [API](api.md) · [Data Model](data-model.md) · [Development Plan](development-plan.md) · [Risks](risks.md)
 
 ---
@@ -17,7 +17,7 @@ machine, for this capability, under these settings?*
 And, for work whose ground truth lives in the user's head rather than in a corpus: *how well does
 this model meet **my** stated goal — and how much should I trust that answer?* A goal is measurable
 here only once the user has graded enough examples for FreeWeight to characterize the instrument
-measuring it (ADR-0031).
+measuring it ([ADR-0031](../../adr/0031-user-defined-goal-benchmarks.md)).
 
 FreeWeight measures local open-weight models across capability, efficiency, reliability and resource
 use; preserves every raw measurement and enough provenance to reproduce it; presents the results in
@@ -38,7 +38,7 @@ particular — can consume without touching FreeWeight's internals.
 * Provenance and reproducibility fingerprints.
 * Comparison: models, quantizations, runtime profiles, machines, time.
 * Capability evidence aggregation with confidence and freshness
-  (ADR-0017).
+  ([ADR-0017](../../adr/0017-benchmark-confidence-and-freshness.md)).
 * Export and a read-only evidence API.
 * Web UI and CLI over one service layer.
 
@@ -54,15 +54,15 @@ particular — can consume without touching FreeWeight's internals.
 * No single universal "model score" as a default.
 * **No automatic rewriting of a user's rubric.** FreeWeight diagnoses which criteria a judge
   disagrees with the user on; it never reworks the criterion to make it measurable. That would
-  optimize the target into the instrument (ADR-0031 §3).
+  optimize the target into the instrument ([ADR-0031 §3](../../adr/0031-user-defined-goal-benchmarks.md)).
 * **No judged capability evidence without calibration.** A goal below the agreement gate produces a
   full, inspectable result and no evidence
-  (ADR-0032 §3).
+  ([ADR-0032 §3](../../adr/0032-judge-validity-and-user-capability-namespace.md)).
 * No comparison of goal results across users who do not share a goal pack — two people's "good tone"
   are two different measurements, separated by `goal_hash`.
 * No shared or hosted goal library; goal packs move as files, between machines the user controls.
 * No execution of model-generated code outside a sandbox
-  (ADR-0018).
+  ([ADR-0018](../../adr/0018-external-benchmark-isolation.md)).
 * No writing to another application's database, and no reading of one.
 
 ## 4. Responsibilities
@@ -86,7 +86,7 @@ particular — can consume without touching FreeWeight's internals.
 ## 5. Dependencies
 
 **Suite:** `baseaicore`, `setspec` (capability vocabulary **≥ 1.1**, for the `user` root —
-ADR-0032 §1), `modelrack`,
+[ADR-0032 §1](../../adr/0032-judge-validity-and-user-capability-namespace.md)), `modelrack`,
 `sweatmeter`, `weightsdb` (adopted at Phase 12), `mirrorwall` (adopted at Phase 12).
 **Third party:** `fastapi`, `uvicorn[standard]`, `typer`, `pydantic`, `pydantic-settings`,
 `sqlalchemy`, `alembic`, `jinja2`.
@@ -171,7 +171,7 @@ freeweight token create|list|revoke                                  (waits on A
 ```
 
 `run start` takes `--context-size` to override `[runtime]` for one run
-(ADR-0023 §3). A group marked with a phase is
+([ADR-0023](../../adr/0023-runtime-profile-resolution.md) §3). A group marked with a phase is
 scheduled and deliberately absent until then — a verb that exists and does nothing is worse than one
 that does not, because `--help` advertises it. `benchmarks list|show` goes to Phase 12 with the
 rest of the CLI surface work; its HTTP form ships now, so the data is reachable in the meantime.
@@ -182,7 +182,7 @@ rest of the CLI surface work; its HTTP form ships now, so the data is reachable 
 `benchmark.goal_pack`, `benchmark.calibration_report` (all SetSpec-versioned), plus flattened CSV
 for spreadsheet use, plus `freeweight.export` — the result export, which is FreeWeight's own
 document rather than a shared contract
-(ADR-0035).
+([ADR-0035](../../adr/0035-application-owned-document-schemas.md)).
 
 **Two different artifacts carry a goal pack, and they are not interchangeable:**
 
@@ -192,7 +192,7 @@ document rather than a shared contract
 | **Goal pack bundle** | `freeweight goals export` | Every file of the pack directory, hash-pinned — `goal.json`, `tasks/`, `prompts/`, `pack.json`, and the user's calibration samples and grades where present | `freeweight goals import` and `POST /api/v1/goals/import` |
 
 The envelope is a description; the bundle is the pack itself, and only the bundle round-trips
-(ADR-0031 §6). Its format is described in
+([ADR-0031 §6](../../adr/0031-user-defined-goal-benchmarks.md)). Its format is described in
 [Subjective Goals §2.3](subjective-goals.md).
 
 ### 7.4 A goal run has two phases
@@ -266,32 +266,32 @@ application.
 1. **Evidence contract.** `capability.evidence` and `benchmark.evidence_bundle` are the supported
    integration surface. LoadCoach consumes them and never queries FreeWeight's tables.
 2. **Provenance contract.** Every exported result carries the full provenance set from
-   Machine Identity §6.
+   [Machine Identity §6](../../architecture/machine-identity-and-reproducibility.md).
 3. **Confidence contract.** FreeWeight computes capability confidence per
-   ADR-0017; consumers apply it and do not
+   [ADR-0017](../../adr/0017-benchmark-confidence-and-freshness.md); consumers apply it and do not
    recompute it.
 4. **Comparability contract.** Exports carry the measurement subject and benchmark version; consumers
    can therefore determine comparability without asking FreeWeight.
-5. **API contract.** `/api/v1` per API Standards;
+5. **API contract.** `/api/v1` per [API Standards](../../standards/api-and-contract-standards.md);
    additive within v1.
 6. **Unsupported contract.** Unavailable measurements are `"unsupported"` everywhere — API, export,
    UI, database.
 7. **Calibration contract.** A goal's judged criteria emit `capability.evidence` only when weighted
    `kappa_w` reaches `calibration.min_agreement`. Below it the run completes, every sample is
    inspectable, the result is badged `uncalibrated`, and **no evidence is emitted** — not discounted
-   evidence, none (ADR-0032 §3).
+   evidence, none ([ADR-0032 §3](../../adr/0032-judge-validity-and-user-capability-namespace.md)).
 8. **Goal identity contract.** `goal_hash` separates results exactly as a benchmark version does, and
    so does the judge set identity. A different rubric, or a different instrument, is a different
    measurement — never an average.
 9. **Namespace contract.** Goal evidence is emitted under `user.<slug>`, a specialization of the
    reserved `user` root added at SetSpec capability vocabulary 1.1. A goal may *additionally* declare
    a shipped capability it contributes to; it is never emitted **only** as that shipped capability
-   (ADR-0032 §1).
+   ([ADR-0032 §1](../../adr/0032-judge-validity-and-user-capability-namespace.md)).
 
 ## 12. Configuration
 
 `~/.config/freeweight/config.toml`, `FREEWEIGHT_*` environment variables, CLI flags, per
-Configuration Standards. Principal sections:
+[Configuration Standards](../../standards/configuration-standards.md). Principal sections:
 
 ```toml
 [server]      host = "127.0.0.1"   port = 8765   allow_lan_exposure = false
@@ -344,7 +344,7 @@ recorded on the evidence it produces beside a `policy_version`; customising any 
 pointing `capability_weights_path` at a copy of the shipped
 `capability_weights.toml` ([benchmark catalog §6](benchmark-catalog.md)), derives a distinct
 version from the content, so evidence computed under two policies coexists as two rows rather
-than one row meaning two things (ADR-0022 §3).
+than one row meaning two things ([ADR-0022 §3](../../adr/0022-capability-evidence-record-contract.md)).
 
 Goal runs store full response text by default (`store_prompts`/`store_responses` forced on): a
 judged score that cannot be re-read by the person who defined the rubric is not auditable, which
@@ -358,14 +358,14 @@ hours to reproduce a number that was already correct.
 
 The deletion a user actually needs is **by model**: `DELETE /api/v1/database/results` with
 `scope=model` removes every run of a model that is no longer installed, previewed and confirmed
-like every other destructive operation (database standards
-§8). `scope=before` remains for a user who wants an age
+like every other destructive operation ([database standards
+§8](../../standards/database-standards.md)). `scope=before` remains for a user who wants an age
 cut-off, applied deliberately rather than on a schedule. `storage.backup_retention` is unrelated and
 unchanged: it rotates automatic pre-migration *backups*, not results.
 
 **`[runtime]` is the default runtime profile, and it is sent to the provider — not merely
 recorded.** Every field it sets is hashed into `runtime_profile_hash` and therefore separates
-results (ADR-0023); a field left unset is *not*
+results ([ADR-0023](../../adr/0023-runtime-profile-resolution.md)); a field left unset is *not*
 sent, and the served value is then resolved from what the provider reports or, failing that,
 assumed. `freeweight run start --context-size` overrides it per run, and `POST /api/v1/runs` takes
 the same shape as a `runtime` block. A repeat reuses the original run's stored profile rather than
@@ -398,8 +398,8 @@ that have nothing to do with the model.
 in the FreeWeight repository is produced from the settings model by
 `scripts/generate_config_reference.py` — key path, environment variable, type, default, range,
 runtime-changeability, security implications and an example per field — and a CI job fails when
-the committed file differs from what the model generates (Configuration Standards
-§8). This section is the summary; where the two
+the committed file differs from what the model generates ([Configuration Standards
+§8](../../standards/configuration-standards.md)). This section is the summary; where the two
 disagree, the generated document is right and this one is stale.
 
 Benchmark **execution parameters** additionally resolve through the second precedence chain
@@ -455,7 +455,7 @@ Behavioural rules:
   one GPU" honest rather than merely documented.
 * On a machine where more than one GPU is visible and the provider does not report placement, memory,
   KV and energy tests are **skipped** with `multi_gpu_placement_unknown`; quality, throughput and
-  latency tests run normally (ADR-0027).
+  latency tests run normally ([ADR-0027](../../adr/0027-multi-gpu-semantics.md)).
 * **A goal below the agreement gate is not an error.** The run completes normally; the result is
   badged `uncalibrated` and emits no evidence. `CALIBRATION_INSUFFICIENT` is raised only when fewer
   than `calibration.min_samples` grades exist — that is, when the user has not yet done the work,
@@ -464,7 +464,7 @@ Behavioural rules:
   calibration record at all executes normally, emits **no** evidence, and reports
   `judge_validity_factor` and the grading progress so the author can see what is missing. This
   supersedes an earlier reading of this section, which raised `CALIBRATION_REQUIRED` at run start.
-  ADR-0032 §3's argument — that
+  [ADR-0032 §3](../../adr/0032-judge-validity-and-user-capability-namespace.md)'s argument — that
   the diagnostic data is exactly what the user needs to fix the rubric, and it costs one GPU-bound
   run to obtain — applies *more* strongly before the first calibration than after a failed gate:
   the author has nothing at all to look at, and refusing denies them the only thing that would tell
@@ -482,20 +482,20 @@ Behavioural rules:
 * Rule criteria never depend on a provider. A goal whose criteria are entirely rungs 1–3 runs with
   no model judging at all, and is fully available when the provider is down.
 * Cancellation is honoured at every phase and leaves consistent data.
-* Full degradation matrix: Graceful Degradation.
+* Full degradation matrix: [Graceful Degradation](../../architecture/graceful-degradation.md).
 
 ## 14. Security considerations
 
 * Loopback by default; non-loopback requires tokens, the exposure acknowledgement and
   `server.allowed_hosts`. The `Host` header is validated on every request before routing
-  (ADR-0026).
+  ([ADR-0026](../../adr/0026-local-http-hardening.md)).
 * **Model-generated code is never executed on the host.** Tiered sandbox, refusal at the bottom tier.
 * Native tool benchmarks expose only mock tools over fixture data — no shell, no unrestricted
   filesystem, no network, no real database. A tool runs only when the case put it on the model's
   allowlist and its arguments validate against the tool's own schema; every path is proved contained
   after symlink resolution, and reads and writes have separate roots. A containment refusal names the
   path that was requested and never the path it resolved to — an error message is input to the next
-  prompt exactly as a result is (ADR-0033 §7).
+  prompt exactly as a result is ([ADR-0033 §7](../../adr/0033-benchmark-interaction-protocol.md)).
 * External benchmark adapters run as subprocesses with an argument list, a timeout and captured
   output; their results are parsed as untrusted input.
 * Datasets are verified against pinned hashes before use; archive extraction is hardened.
@@ -551,7 +551,7 @@ work; host telemetry is `unsupported` (GPU telemetry works where `nvidia-smi` is
 KV-cache and energy benchmarks are **skipped with a recorded reason**; code-execution benchmarks
 require a container runtime. Goal suites are fully supported on every platform: rule criteria need
 nothing but Python, and judged criteria need only a provider. See
-Cross-Platform Standards.
+[Cross-Platform Standards](../../standards/cross-platform-standards.md).
 
 ## 17. Observability
 
@@ -590,7 +590,7 @@ The default suite runs with **no GPU, no Ollama, no network**.
   invalidating them.
 * A benchmark's provenance carries the `prompt_subset_hash` of **the prompts that benchmark declares**,
   not the whole pack's hash — so editing an unrelated prompt separates nothing
-  (ADR-0028).
+  ([ADR-0028](../../adr/0028-prompt-pack-granularity.md)).
 * Database migrations are forward-only with tested upgrade paths from every released version.
 * Result data is never silently reinterpreted by an upgrade: if a metric definition changes, the
   metric gets a new key and the old key is retained.
@@ -608,7 +608,7 @@ The default suite runs with **no GPU, no Ollama, no network**.
 6. Unsupported measurements appear as `—` in the UI and `"unsupported"` in exports — never `0`.
 6a. Recomputing capability evidence over unchanged runs does not raise its confidence: freshness comes
    from `measured_at`, the latest completed run that contributed
-   (ADR-0022).
+   ([ADR-0022](../../adr/0022-capability-evidence-record-contract.md)).
 7. Cold and warm measurements are never mixed in one headline number.
 8. An evidence bundle exported by FreeWeight is imported by LoadCoach with no FreeWeight code or
    database access.
@@ -616,7 +616,7 @@ The default suite runs with **no GPU, no Ollama, no network**.
 10. The full test suite passes with no GPU, no Ollama and no network; coverage ≥ 85 % overall and
     ≥ 95 % in `domain/`.
 11. Deleting results never deletes model or machine history, and always previews first.
-12. All gold standards for FreeWeight in Gold Standards §2 are met.
+12. All gold standards for FreeWeight in [Gold Standards §2](../../standards/gold-standards.md) are met.
 13. A user with no prior setup can, from the UI alone, define a goal ("essays in my voice"), be shown
     which of their criteria a deterministic rule can check, supply their own tasks, grade twelve
     samples inline, and see a calibration report — without reading documentation and without editing
@@ -647,6 +647,6 @@ The default suite runs with **no GPU, no Ollama, no network**.
 * Active-learning calibration: the application proposes which sample would most improve agreement if
   graded next, rather than a fixed holdout fraction.
 * Bayesian judge-reliability modelling behind the same interface, once enough calibration data
-  exists to fit it (ADR-0032).
+  exists to fit it ([ADR-0032](../../adr/0032-judge-validity-and-user-capability-namespace.md)).
 * Multi-grader goals: several people grade one calibration set, with inter-grader agreement measured
   alongside judge agreement — a house style is a shared instrument, not one person's.

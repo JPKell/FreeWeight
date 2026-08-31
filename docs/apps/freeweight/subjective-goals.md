@@ -1,7 +1,7 @@
 # FreeWeight — Subjective Goals
 
 **Owner:** FreeWeight. **Status:** Specification.
-**Decision records:** ADR-0031 (goal suites and the calibrated-judge instrument), ADR-0032 (judge validity, the gate, the `user.*` namespace).
+**Decision records:** [ADR-0031](../../adr/0031-user-defined-goal-benchmarks.md) (goal suites and the calibrated-judge instrument), [ADR-0032](../../adr/0032-judge-validity-and-user-capability-namespace.md) (judge validity, the gate, the `user.*` namespace).
 **Related:** [Spec](spec.md) · [Benchmark Catalog](benchmark-catalog.md) · [Data Model](data-model.md) · [API](api.md)
 
 ---
@@ -28,7 +28,7 @@ The user-facing sentence, which the wizard says on its first screen:
 
 ## 2. The goal pack
 
-One directory per goal, JSON throughout (ADR-0019),
+One directory per goal, JSON throughout ([ADR-0019](../../adr/0019-python-baseline-and-config-format.md)),
 hand-editable, git-trackable, portable.
 
 ```text
@@ -126,7 +126,7 @@ $XDG_CONFIG_HOME/freeweight/goals/<slug>/
 }
 ```
 
-Field rules mirror Prompt Standards §2.1: `slug`
+Field rules mirror [Prompt Standards §2.1](../../standards/prompt-management-standards.md): `slug`
 is stable and never renamed (a rename is a new goal); `goal_pack_version` is semantic, with a
 **major** bump for any change to criteria, weights, rung, rule parameters, scales or the judge
 configuration — that is, anything inside `goal_hash`.
@@ -352,7 +352,7 @@ validity:  v_c = 1.0                                                    rungs 1�
            judge_validity_factor = Σ(weight_c × v_c) / Σ(weight_c)      clamped [0.05, 1.0]
 ```
 
-Both are defined in ADR-0032 §2–3.
+Both are defined in [ADR-0032 §2–3](../../adr/0032-judge-validity-and-user-capability-namespace.md).
 The shrinkage term is why six holdout samples at `kappa_w = 0.71` yield 0.55, not 0.71.
 
 ### 5.5 Interpretation shown to the user
@@ -380,7 +380,7 @@ sorted by contribution to the disagreement:
 
 **FreeWeight proposes no rewritten criterion text.** It names the problem and shows the evidence.
 The rubric is the user's, and a model that edited it until it could measure it would be measuring
-its own edit (ADR-0031 §3).
+its own edit ([ADR-0031 §3](../../adr/0031-user-defined-goal-benchmarks.md)).
 
 ---
 

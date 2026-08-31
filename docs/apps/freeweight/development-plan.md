@@ -6,8 +6,8 @@
 
 Every phase ends in something a person can run and look at. No phase is "implement the backend".
 
-**Amended 2026-08-26** by ADR-0031 and
-ADR-0032, which add user-defined
+**Amended 2026-08-26** by [ADR-0031](../../adr/0031-user-defined-goal-benchmarks.md) and
+[ADR-0032](../../adr/0032-judge-validity-and-user-capability-namespace.md), which add user-defined
 goal benchmarks: **Phases 8A, 8B and 10A** below, an amendment to Phase 11, and one upstream
 prerequisite (§0).
 
@@ -29,7 +29,7 @@ without it and it is trivially easy to forget.
 * Add the reserved root `user` to `setspec.vocabulary.CAPABILITIES`; bump
   `CAPABILITY_VOCABULARY_VERSION` to `"1.1"` (an addition, therefore minor — spec §11.8 rule 8).
 * Extend `capability.evidence` with the goal-sourced field group from
-  ADR-0032 §5, all optional, absent
+  [ADR-0032 §5](../../adr/0032-judge-validity-and-user-capability-namespace.md), all optional, absent
   on non-goal records.
 * Add `benchmark.goal_pack` and `benchmark.calibration_report` schemas with goldens.
 * `CHANGELOG.md` under `## [Unreleased]`.
@@ -54,10 +54,10 @@ without it and it is trivially easy to forget.
 **Prerequisites:** `baseaicore>=0.4,<0.5`.
 
 **Work**
-* Repository skeleton per Packaging Standards;
+* Repository skeleton per [Packaging Standards](../../standards/packaging-and-release-standards.md);
   `src/freeweight/` with `domain/ services/ infrastructure/ web/ cli/ observability/`.
 * Typed settings with the documented precedence and startup validation, including the unsafe-binding
-  refusals (Configuration Standards).
+  refusals ([Configuration Standards](../../standards/configuration-standards.md)).
 * FastAPI app: `/api/v1/health`, `/api/v1/version`, error-envelope handler, request-ID middleware,
   size limits, one HTML page (the shell with a placeholder body).
 * Typer CLI: `serve`, `health`, `version`, `config show|validate|init|path`, with lazy imports so
@@ -307,10 +307,10 @@ for the run and a complete reproducibility fingerprint — and the same run can 
 **Work**
 * Prompt library: record schema, pack manifest, `StrictUndefined` renderer, canonical hashing,
   `prompt_subset_hash`, startup validation — written as if it were a package, because it becomes one
-  at LoadCoach P4 (ADR-0028).
+  at LoadCoach P4 ([ADR-0028](../../adr/0028-prompt-pack-granularity.md)).
 * `native.performance` and `native.token_economy` per the [Benchmark Catalog](benchmark-catalog.md).
 * Telemetry table split (host rows and per-GPU rows) and `execution.gpu_index` attribution
-  (ADR-0027); idle-detection outcome per
+  ([ADR-0027](../../adr/0027-multi-gpu-semantics.md)); idle-detection outcome per
   [spec §13](spec.md).
 * Served context resolved and recorded with its source.
 * Warm-up/cooldown, idle detection, cold/warm labelling, repetition handling, `perf_counter_ns`
@@ -371,7 +371,7 @@ measured with entirely deterministic scoring.
 
 **Work**
 * Benchmark prompt records and the `prompts list|show|build` CLI
-  (Prompt Standards); the loader, renderer and
+  ([Prompt Standards](../../standards/prompt-management-standards.md)); the loader, renderer and
   hashing already exist from P6.
 * `native.instruction_following`, `native.structured_output`, `native.tool_use`,
   `native.tool_recovery`, `native.agent`.
@@ -382,11 +382,11 @@ measured with entirely deterministic scoring.
   `unsupported_capability`, never a zero. A test's whole `requires.provider_capabilities` block is
   enforced, not only tool calling, and a name that is not a `ProviderCapabilities` field fails
   registry construction rather than skipping forever
-  (ADR-0033 §9).
+  ([ADR-0033 §9](../../adr/0033-benchmark-interaction-protocol.md)).
 * The **interaction seam** three of these suites need: a benchmark test may declare a bounded
   multi-turn interaction — a tool loop, or a call plus one corrective retry — and the run engine
   executes it, owning the provider, the frozen execution parameters, the step budget and the cost
-  accounting (ADR-0033). Trajectories are stored
+  accounting ([ADR-0033](../../adr/0033-benchmark-interaction-protocol.md)). Trajectories are stored
   as `tool_calls` rows and scored by a trajectory scorer, never on their final sentence.
 
 **Files/subsystems**
@@ -430,7 +430,7 @@ tests/live/test_real_run.py
 capability; tool fixtures leaking real paths.
 **Gold standards:** deterministic scoring; honest skips; contained tools.
 **Deferred:** judged suites. Prompt overrides
-(Prompt Standards §6) stay unwired here and are
+([Prompt Standards §6](../../standards/prompt-management-standards.md)) stay unwired here and are
 delivered at P8A, which renders user-authored content through the same loader.
 
 ---
@@ -515,7 +515,7 @@ the goal machinery on the deterministic half of the ladder before any model judg
   interview writing a pack.
 * The rubric lint: flags a `judge` criterion a rule could check and names the rule; refuses a `judge`
   criterion with no scale descriptors.
-* **Prompt overrides, wired** (Prompt Standards §6),
+* **Prompt overrides, wired** ([Prompt Standards §6](../../standards/prompt-management-standards.md)),
   which arrive here because this is the phase where user-authored content first reaches the same
   loader: `$XDG_CONFIG_HOME/freeweight/prompts/` is loaded at startup and marked
   `prompt_source = "user_override"` on every record that used it; a benchmark run with an overridden
@@ -540,7 +540,7 @@ tests/integration/test_goal_run_rules_only.py  tests/security/test_goal_pack_imp
 
 **Tests**
 * Every rule type: known-pass, known-fail, boundary, empty input, unicode, and a text that trips it
-  in an obvious way. Each is a metric formula and gets the full Testing Standards §5 treatment.
+  in an obvious way. Each is a metric formula and gets the full [Testing Standards §5](../../standards/testing-standards.md) treatment.
 * `goal_hash` **changes** when a criterion's rule parameters, weight, rung or scale descriptors
   change; **does not change** when a display name, `intent` or `contributes_to` changes. Both
   directions asserted — a hash that never changes and a hash that always changes are equally useless.
@@ -591,13 +591,13 @@ measured is refused entry to the evidence contract while still producing a fully
   prior run samples), the seeded stratified anchor/holdout partition, grade capture with resumable
   progress.
 * Anchor injection: the judge prompt record renders the anchors as few-shot exemplars with the user's
-  grades and notes. It is a prompt record (ADR-0012) —
+  grades and notes. It is a prompt record ([ADR-0012](../../adr/0012-prompt-storage-format.md)) —
   no exception, no f-strings.
 * Agreement mathematics: quadratic-weighted Cohen's kappa, Spearman rho, MAE, signed bias, all with
   `n_holdout` inseparable from the coefficient in every representation.
 * The gate: weighted `kappa_w` against `calibration.min_agreement`; `judge_validity_factor` with the
   `sqrt(n_holdout / n_holdout_target)` shrinkage
-  (ADR-0032 §2).
+  ([ADR-0032 §2](../../adr/0032-judge-validity-and-user-capability-namespace.md)).
 * Disagreement diagnostics: the worst-diverging holdout samples, both rationales, sorted by
   contribution to the disagreement, with the lint's read on the likely cause.
 * The grade-distribution check that refuses to compute agreement on a set with no variance.
@@ -754,7 +754,7 @@ tests/accessibility/test_ui_checklist.py  tests/performance/test_dashboard_queri
 * UI checklist: themes, `—` rendering, keyboard, contrast, 1280×720, empty/loading/error states.
 
 **Acceptance criteria**
-1. Every acceptance item in UI/UX Standards §13 passes.
+1. Every acceptance item in [UI/UX Standards §13](../../standards/ui-ux-standards.md) passes.
 2. No headline number is more than two interactions from its raw source.
 3. Deleting results is previewed, confirmed, transactional and backed up.
 4. Exports stream a 10 000-sample run within budget.
@@ -777,7 +777,7 @@ entirely from the UI, and walk away owning an editable file.
 **Work**
 * The seven-step wizard of [Subjective Goals §7](subjective-goals.md): intent → criteria → proposed
   rules → tasks → generate and grade → agreement → save. Server-rendered with progressive
-  enhancement (ADR-0020); no SPA.
+  enhancement ([ADR-0020](../../adr/0020-ui-rendering-strategy.md)); no SPA.
 * **Step 2 is the part that earns the feature**: for each criterion the wizard asks whether two people
   reading the description would grade the same text the same way, and whether it is one quality or
   two fused together. Splitting "not LinkedIn" into a vocabulary criterion and a register criterion is
@@ -854,18 +854,18 @@ application can consume with no FreeWeight code and no database access.
 
 **Work**
 * Capability mapping configuration (benchmark metrics → capabilities, with weights), versioned.
-* Aggregation implementing ADR-0017:
+* Aggregation implementing [ADR-0017](../../adr/0017-benchmark-confidence-and-freshness.md):
   sample, consistency, freshness, environment, identity **and `judge_validity_factor`** — six factors,
   the sixth being 1.0 for every rung 1–4 measurement so no previously specified result changes value
-  (ADR-0032 §2); hard separations
+  ([ADR-0032 §2](../../adr/0032-judge-validity-and-user-capability-namespace.md)); hard separations
   **including `goal_hash` and judge set identity**; policy version recorded. Freshness decays from `measured_at` — the latest `completed_at` among the contributing
   runs — never from `computed_at`
-  (ADR-0022 §2).
+  ([ADR-0022 §2](../../adr/0022-capability-evidence-record-contract.md)).
 * The full `capability.evidence` field set from
-  ADR-0022 §1, including
+  [ADR-0022 §1](../../adr/0022-capability-evidence-record-contract.md), including
   `vocabulary_version`, `dataset_hashes` and per-benchmark `prompt_subset_hashes`.
 * Goal evidence: emitted under `user.<slug>`; the goal-sourced field group from
-  ADR-0032 §5; the optional
+  [ADR-0032 §5](../../adr/0032-judge-validity-and-user-capability-namespace.md); the optional
   secondary emission into a declared `contributes_to` capability as one weighted source among
   others — **never as that capability alone**.
 * The gate wired into aggregation: a goal below `calibration.min_agreement` produces **no evidence
@@ -875,8 +875,8 @@ application can consume with no FreeWeight code and no database access.
 * `capability_evidence` table, recomputation service, staleness detection and badging.
 * `GET /api/v1/evidence`, `GET /api/v1/evidence/export`, `freeweight evidence show|export`.
 * Contract tests against SetSpec goldens; publish the OpenAPI snapshot.
-* **The generated configuration reference** (Configuration Standards
-  §8): `docs/configuration.md`, produced from the
+* **The generated configuration reference** ([Configuration Standards
+  §8](../../standards/configuration-standards.md)): `docs/configuration.md`, produced from the
   settings model so it cannot drift, listing per field its key path, environment variable, type,
   default, valid range, whether it is runtime-changeable, its security implications and an example.
   A CI job fails when the committed file differs from the generated one.
@@ -947,7 +947,7 @@ tests/integration/test_human_grading.py
 recording the policy version, and revisiting with real data.
 **Likely failure modes:** absence of evidence rendered as zero capability; merging across versions;
 emitting uncalibrated goal evidence at the confidence floor because "degrade, never discard" was
-applied without reading ADR-0032 §3,
+applied without reading [ADR-0032 §3](../../adr/0032-judge-validity-and-user-capability-namespace.md),
 which deliberately departs from it here.
 **Gold standards:** versioned contracts; no cross-application coupling; explainable scores.
 **Deferred:** WeightsDB/MirrorWall adoption; external adapters.
@@ -969,7 +969,7 @@ their adoption checklists.
 * Replace local templates, tokens, components and JS with MirrorWall's, keeping FreeWeight's pages and
   navigation.
 * Replace `freeweight.services.prompts` with `setspec.prompts`, keeping FreeWeight's own pack and its
-  `prompts` CLI commands (ADR-0028). Prompt hashes must be
+  `prompts` CLI commands ([ADR-0028](../../adr/0028-prompt-pack-granularity.md)). Prompt hashes must be
   byte-identical before and after — a golden test over the existing pack is the acceptance criterion.
 * Delete the superseded code; keep every existing test passing **unchanged** — that is the proof the
   adoption changed nothing observable.
@@ -1060,7 +1060,7 @@ acceptance criteria.
 
 **Work**
 * Performance pass against every budget in the [spec](spec.md) §15; fix regressions.
-* Security pass: full checklist in Security Standards §14,
+* Security pass: full checklist in [Security Standards §14](../../standards/security-standards.md),
   including `Host` validation, the CSRF token on form routes, and the refusal to start when a
   non-loopback bind lacks `server.allowed_hosts`.
 * Documentation: README, quickstart, configuration reference (generated), API docs, benchmark guide,
@@ -1083,7 +1083,7 @@ tests/performance/**  tests/security/**  tests/e2e/test_full_journeys.py
 
 **Acceptance criteria**
 1. All 18 acceptance criteria in the [spec](spec.md) §20 pass.
-2. All FreeWeight gold standards in Gold Standards §2 are met.
+2. All FreeWeight gold standards in [Gold Standards §2](../../standards/gold-standards.md) are met.
 3. Documentation complete; `freeweight doctor` diagnoses every failure mode in the troubleshooting
    guide.
 4. `freeweight 1.0.0` published and installable from PyPI.
@@ -1105,7 +1105,7 @@ Two different questions get asked with the same words, so both are answered, sep
 which model **builds** FreeWeight (A.1, A.2), and which model FreeWeight **uses as a juror** at run
 time (A.3).
 
-**Relationship to the suite-wide guide.** `roadmap/model-assignment.md`
+**Relationship to the suite-wide guide.** [`roadmap/model-assignment.md`](../../roadmap/model-assignment.md)
 answers the same build-time question at one row per phase for all nine repositories, and its own
 §2.7 covers FreeWeight. This appendix is the deeper, FreeWeight-specific cut — per-step rather than
 per-phase, plus the runtime-juror question the suite-wide guide does not address. Where the two
@@ -1211,7 +1211,7 @@ decorrelation** between jurors.
 **For the remote opt-in**, a frontier model is a materially better instrument on style and tone, and
 the current Claude models (`claude-opus-5`, `claude-sonnet-5`) are the natural choice where the user
 has enabled it. It is off by default, requires two separate opt-ins, is recorded in the fingerprint,
-and separates results — see ADR-0031 §4. The
+and separates results — see [ADR-0031 §4](../../adr/0031-user-defined-goal-benchmarks.md). The
 default install measures offline, and should.
 
 **For the calibration sample spread** (§5.1 of [Subjective Goals](subjective-goals.md)), deliberately

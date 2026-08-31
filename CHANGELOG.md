@@ -9,6 +9,21 @@ packaging and release standards §3.
 
 ## [1.0.0] - 2026-08-30
 
+- **`GET /goals/new` no longer 500s.** The goal wizard's first page rendered `{{ intent or '' }}`
+  as its sticky form value with no `intent` in the fresh-GET context, and StrictUndefined turned
+  the omission into an internal error — the M6-3 defect class, on the one page every "from the UI
+  alone" journey begins at. The journeys never saw it because they post the form directly; the
+  POST error path echoes the submitted text back and so never renders the page the way a browser
+  reaches it first. Found on a real socket during the suite review; a new test class GETs every
+  wizard step fresh, watched failing against the unfixed route.
+- **Placeholder dataset pins are flagged everywhere a user would start a real external run
+  (M6-8).** The shipped adapter manifests pin datasets to `sha256:000…0`-style placeholders —
+  the real datasets are not redistributable and were never hashed where this build was made. The
+  sources page now states it, `freeweight external list` marks each affected adapter (and its
+  `--json` carries `has_placeholder_pins`), and a hash-mismatch against a placeholder pin says
+  "record the true sha256" instead of "the file changed since it was pinned", which would send a
+  user chasing corruption that never happened. `is_placeholder_pin` joins
+  `freeweight.external.datasets`.
 - **Responsive fixes for phone width (UI/UX §13).** A safety net in `app.css` makes any table
   scroll within its own box below 768 px, and constrains form controls (an input's `size` attribute
   and a fieldset's implicit `min-content` width) so no page scrolls sideways at 375 px. Verified in

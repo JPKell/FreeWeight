@@ -27,9 +27,9 @@ is.
 only when its agreement with user-supplied ground truth has been measured and is reported alongside
 every number it produces. An uncalibrated judge is an opinion with a decimal point, and FreeWeight
 exports no capability evidence from one
-(ADR-0031,
-ADR-0032 §3). This is also the line
-that reconciles rung 5 with Testing Standards §3: no model
+([ADR-0031](../../adr/0031-user-defined-goal-benchmarks.md),
+[ADR-0032 §3](../../adr/0032-judge-validity-and-user-capability-namespace.md)). This is also the line
+that reconciles rung 5 with [Testing Standards §3](../../standards/testing-standards.md): no model
 ever decides whether FreeWeight's own code is correct, or FreeWeight's control flow. That ban is
 untouched.
 
@@ -95,7 +95,7 @@ Every metric in this suite is attributed to `execution.gpu_index` and carries it
 GPU is visible and the provider does not report placement, the whole suite is **skipped** with
 `multi_gpu_placement_unknown` — a VRAM slope measured against the wrong device reads as zero bytes per
 token, which is a fabricated measurement, not an approximate one
-(ADR-0027 §3). The context axis of every test is the
+([ADR-0027 §3](../../adr/0027-multi-gpu-semantics.md)). The context axis of every test is the
 **served** context, recorded with its source, not the advertised maximum.
 
 ### 3.3 `native.token_economy` — Token efficiency
@@ -141,11 +141,11 @@ tools; parallel independent tools; invalid argument; tool failure; empty result;
 tool unavailable.
 
 **"Parallel independent tools" means order-independent, not concurrent, in 1.0.** The run engine has
-one synchronous execution path (ADR-0003); the scenario
+one synchronous execution path ([ADR-0003](../../adr/0003-sync-vs-async-strategy.md)); the scenario
 is scored with ordering accuracy switched off, so a model that answers both halves in either order is
 correct. Genuine concurrency is the same gap as the optional concurrency-scaling row in §3.1 and
 would need its own decision about what a concurrent trajectory's timings mean
-(ADR-0033, "revisit when").
+([ADR-0033](../../adr/0033-benchmark-interaction-protocol.md), "revisit when").
 
 Metrics: tool-selection accuracy, argument schema validity, argument semantic correctness,
 unnecessary-call rate, missed-tool rate, hallucinated-tool rate, multi-tool sequence accuracy,
@@ -265,7 +265,7 @@ they are **out of 1.0 scope**, and nothing above promises them.
 | Suite | Deferred | Blocked on |
 |---|---|---|
 | `native.audit` | bug-category accuracy, severity accuracy, explanation correctness, suggested-fix correctness | A graded defect taxonomy the mutation corpus does not carry: each mutation would need a category and a severity that a human agreed to, and inventing them at generation time would measure the generator |
-| `native.audit` | patch compile rate, patch test-pass rate, regression rate | A sandbox that applies a patch and runs a test suite. The sandbox exists (ADR-0018) and nothing drives it this way; the missing part is a corpus whose projects build and test inside it |
+| `native.audit` | patch compile rate, patch test-pass rate, regression rate | A sandbox that applies a patch and runs a test suite. The sandbox exists ([ADR-0018](../../adr/0018-external-benchmark-isolation.md)) and nothing drives it this way; the missing part is a corpus whose projects build and test inside it |
 | `native.long_context` | accuracy AUC across context | Nothing technical — it is a summary of the depth sweep this suite already reports, and a single number that hides the shape of the curve is worth less than the curve |
 | `native.long_context` | latency, VRAM and prompt throughput by context | A per-context resource series, which is a *study across runs* now that context is configuration ([spec §12](spec.md)) rather than a sweep inside one — see `results compare`'s context sweep, which measures exactly this for VRAM |
 | `native.judge` | repetition-stability variance | The agreement rate ships; the variance beside it needs the per-repetition spread retained at aggregation, which `judge_verdicts` already stores and no metric reads |
@@ -278,7 +278,7 @@ context sweep, and finishing it means deciding that the sweep belongs to more th
 
 ## 4. External benchmark adapters
 
-Run as isolated subprocesses (ADR-0018), installed
+Run as isolated subprocesses ([ADR-0018](../../adr/0018-external-benchmark-isolation.md)), installed
 by the user, pinned by version and dataset hash. FreeWeight never redistributes their datasets.
 
 | Adapter | Area | 1.0 scope | Notes |
@@ -373,13 +373,13 @@ results, which depends on whoever edits them remembering to bump it.
 is the reproducibility-fingerprint input and the evidence-separation input. A change to a prompt this
 benchmark uses forces this suite's version bump and separates its results; a change elsewhere in the
 application's pack separates nothing
-(ADR-0028).
+([ADR-0028](../../adr/0028-prompt-pack-granularity.md)).
 
 `requires.provider_capabilities` names
-`ProviderCapabilities` fields and is **enforced before the test
+[`ProviderCapabilities`](../../packages/modelrack/spec.md) fields and is **enforced before the test
 runs**: an unmet requirement skips the test with `unsupported_capability` and contributes no score,
 and a name that is not a capability field is treated as unmet and fails registry construction rather
-than skipping the suite forever (ADR-0033 §9).
+than skipping the suite forever ([ADR-0033 §9](../../adr/0033-benchmark-interaction-protocol.md)).
 
 ### 5.1 Where a metric's value comes from
 
@@ -391,14 +391,14 @@ it, in this order.
 | 1 | Sample facts | One sample | The key is a provider-reported count or duration, or is derived from one | `decode_tokens_per_second`, `ttft_ms` |
 | 2 | **Scorer detail** | One test | Any completed sample in the test carries a number under that key in its `ScoreResult.detail` | `tool_selection_accuracy`, `instruction_level_accuracy` |
 | 3 | The sample's score | One test | Neither of the above | `harness_roundtrip_success` |
-| 4 | **Run derivation** | One run | The figure exists in no sample at all: it needs the descriptor, the telemetry series or every stored repetition (ADR-0034) | `observed_kv_bytes_per_token`, `gpu_energy_joules`, `coefficient_of_variation` |
+| 4 | **Run derivation** | One run | The figure exists in no sample at all: it needs the descriptor, the telemetry series or every stored repetition ([ADR-0034](../../adr/0034-run-level-derived-metrics.md)) | `observed_kv_bytes_per_token`, `gpu_energy_joules`, `coefficient_of_variation` |
 
 The scorer-detail source exists because a single scorer often measures several things at once — a
 tool trajectory yields a dozen figures, and a suite without this source would report its headline
 score under a dozen different names. The decision is made per *test*, not per sample: a sample that
 measured no value for a key is excluded from that metric with `not_measured_for_this_case` and is
 counted in `excluded_count`, never contributing a zero
-(ADR-0016, ADR-0033 §6).
+([ADR-0016](../../adr/0016-unavailable-is-not-zero.md), [ADR-0033 §6](../../adr/0033-benchmark-interaction-protocol.md)).
 
 This is what makes a rate with an empty denominator *absent* rather than zero: ordering accuracy for
 a case that requires one tool call, calls-per-success for a case that failed, recovery rate for a
@@ -416,13 +416,13 @@ direction in the manifest like any other, are stored run-level in `metric_values
 compared, exported and drilled by the same paths. What is special is only where the *inputs* come
 from — and the boundary that goes with it: a derived metric is a function of **one run**. A figure
 that needs two runs is a study over results, not a benchmark result, and its home is the comparison
-surface (ADR-0034 §6).
+surface ([ADR-0034 §6](../../adr/0034-run-level-derived-metrics.md)).
 
 ### 5.2 Suites that need more than one call per sample
 
 A test may declare an **interaction** — a bounded tool loop, or a call plus one corrective retry —
 and the run engine executes it instead of making a single call
-(ADR-0033). The benchmark decides what to say
+([ADR-0033](../../adr/0033-benchmark-interaction-protocol.md)). The benchmark decides what to say
 next; the engine owns the provider, the frozen execution parameters, the step budget and the cost
 accounting. Token counts are summed across the turns; provider-reported durations are not, because a
 sum across calls is a figure no provider produced.
@@ -448,8 +448,8 @@ shipped with defaults, versioned with the evidence.
 | `structured_output` | `native.structured_output` |
 | `tool_use` | `native.tool_use`, `native.tool_recovery`, BFCL |
 | `agentic` | `native.agent` |
-| `summarization` / `creative_writing` | User-authored goal suites (§7), judged criteria calibrated against the user's own grades, with judge trustworthiness and agreement linked. **No shipped suite scores these** — a house voice has no corpus ground truth, so the ground truth is the user's (ADR-0031) |
-| `user.<slug>` | The goal suite of that name, emitted under the reserved `user` root (ADR-0032 §1). Opt-in for routing; never weighted unless a task profile names it |
+| `summarization` / `creative_writing` | User-authored goal suites (§7), judged criteria calibrated against the user's own grades, with judge trustworthiness and agreement linked. **No shipped suite scores these** — a house voice has no corpus ground truth, so the ground truth is the user's ([ADR-0031](../../adr/0031-user-defined-goal-benchmarks.md)) |
+| `user.<slug>` | The goal suite of that name, emitted under the reserved `user` root ([ADR-0032 §1](../../adr/0032-judge-validity-and-user-capability-namespace.md)). Opt-in for routing; never weighted unless a task profile names it |
 | `judging` | `native.judge`, JudgeBench, LLMBar (bias metrics reduce the score) |
 | `critiquing` | `native.critique` (regression rate reduces the score) |
 | `long_context` | `native.long_context` effective context, RULER |
@@ -467,8 +467,8 @@ so a user can always answer "why is this model's coding score 0.71?"
 ## 7. Goal suites — user-authored (1.0 scope)
 
 Full contract: [Subjective Goals](subjective-goals.md). Decisions:
-ADR-0031,
-ADR-0032.
+[ADR-0031](../../adr/0031-user-defined-goal-benchmarks.md),
+[ADR-0032](../../adr/0032-judge-validity-and-user-capability-namespace.md).
 
 A **goal suite** is a benchmark the user writes, for work whose ground truth lives in their head
 rather than in a corpus: *"essays in my voice"*, *"our house style"*, *"summaries that invent

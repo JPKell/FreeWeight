@@ -1,9 +1,9 @@
 # FreeWeight — Data Model
 
 **Database:** `freeweight.sqlite3` (or a PostgreSQL database), owned exclusively by FreeWeight.
-**Corrected 2026-08-21** by the final architecture audit:
+**Corrected 2026-08-21** by the [final architecture audit](../../reviews/final_architecture_audit.md):
 ADR-0022 (evidence contract), ADR-0027 (telemetry split, target GPU), ADR-0028 (prompt subset hash).
-**Conventions:** Database Standards — ULID primary keys,
+**Conventions:** [Database Standards](../../standards/database-standards.md) — ULID primary keys,
 `snake_case`, units in names, timezone-aware UTC timestamps, enforced foreign keys, `NULL` + reason
 for unavailable measurements.
 
@@ -54,7 +54,7 @@ gpus_json · storage_json · python_version · first_seen_at · last_seen_at
 Index: `machine_fingerprint` (unique).
 
 ### `models`
-Canonical model identity (Canonical Model Identity §6).
+Canonical model identity ([Canonical Model Identity §6](../../architecture/canonical-model-identity.md)).
 
 ```text
 id ULID PK · provider_kind TEXT NOT NULL · provider_model_name TEXT NOT NULL
@@ -224,12 +224,12 @@ sample's own provider-reported facts; a number the scorer recorded under that ke
 `samples.result_json`; or the sample's `score`. A sample that measured no value for a key is
 excluded from that metric with `unavailable_reason = "not_measured_for_this_case"` and counted in
 `excluded_count` — a rate with an empty denominator is absent, never zero
-([Benchmark Catalog §5.1](benchmark-catalog.md), ADR-0033).
+([Benchmark Catalog §5.1](benchmark-catalog.md), [ADR-0033](../../adr/0033-benchmark-interaction-protocol.md)).
 
 ### `tool_calls`
 One row per tool invocation a model requested, so a tool metric drills to the exact call that went
 wrong rather than to a rate. Written by every suite that declares an interaction with a toolbox
-(ADR-0033).
+([ADR-0033](../../adr/0033-benchmark-interaction-protocol.md)).
 
 ```text
 id ULID PK · sample_id FK ON DELETE CASCADE · turn_index · call_index
@@ -244,7 +244,7 @@ offered is a hallucinated tool, and it is a row here with `status = "unknown_too
 missing one. `expected_tool` is the call the case required at this position, or `NULL` where the case
 required none; `correct_tool` and `correct_arguments` are `NULL` when the case declares no
 expectation to compare against, which is not the same as `false`
-(ADR-0016).
+([ADR-0016](../../adr/0016-unavailable-is-not-zero.md)).
 
 `result_hash` and never the result text: a tool result is content, and content is stored as a hash by
 default (§14 of the [specification](spec.md)). The whole trajectory, including a bounded digest of
@@ -279,7 +279,7 @@ Index: `(run_id, gpu_index, timestamp)` via the parent's timestamp; `(telemetry_
 
 The split exists because a single table duplicated every host field across a machine's GPUs, so any
 host aggregate double-counted on a two-GPU machine — silently, and only on hardware the reference
-machine does not have (ADR-0027 §4). Retention policy
+machine does not have ([ADR-0027 §4](../../adr/0027-multi-gpu-semantics.md)). Retention policy
 configurable; GPU rows cascade with their host row.
 
 ### `run_events`
@@ -303,7 +303,7 @@ Files live under the artifact directory with mode `0600`; deleting a run deletes
 Aggregated, exportable, consumed by LoadCoach.
 
 The field set is normative and matches the consumer's — see
-ADR-0022.
+[ADR-0022](../../adr/0022-capability-evidence-record-contract.md).
 
 ```text
 id ULID PK · model_id FK · runtime_profile_id FK · machine_id FK
@@ -335,7 +335,7 @@ UNIQUE (model_id, runtime_profile_id, machine_id, capability_id, policy_version)
 ```
 Goal-sourced rows exist only above the calibration gate: a goal below
 `calibration.min_agreement` writes **no row here at all**, rather than a low-confidence one
-(ADR-0032 §3). A test asserts
+([ADR-0032 §3](../../adr/0032-judge-validity-and-user-capability-namespace.md)). A test asserts
 the absence, because "we emitted it quietly at the floor" is exactly the failure this rule exists
 to prevent.
 Index: `(capability_id, score DESC)`, `(model_id, capability_id)`, `(computed_at)` for the
@@ -347,7 +347,7 @@ parameters and the breakdown stay on the row and reach a person through `GET /ev
 `freeweight evidence show`, never through the bundle.
 
 ### `goals`
-User-authored measurement definitions (ADR-0031,
+User-authored measurement definitions ([ADR-0031](../../adr/0031-user-defined-goal-benchmarks.md),
 [Subjective Goals](subjective-goals.md)). The pack on disk is the source of truth; these rows are the
 loaded, validated projection of it.
 
@@ -446,7 +446,7 @@ UNIQUE (sample_id, goal_criterion_id)
 ```
 Rule: a `skipped` criterion has `raw_score = NULL`, never `0`, and is excluded from the composite
 with the exclusion visible in the weight actually applied
-(ADR-0016).
+([ADR-0016](../../adr/0016-unavailable-is-not-zero.md)).
 
 ### `judge_verdicts`
 One row per juror per repetition. Retained in full — the jury's dispersion *is* the measurement's
@@ -471,7 +471,7 @@ UNIQUE (criterion_score_id, juror_ordinal, repetition)
 key TEXT PK · value_json · updated_at
 ```
 Runtime-changeable settings only; never security-relevant ones
-(Configuration Standards §7). Goal-wizard drafts
+([Configuration Standards §7](../../standards/configuration-standards.md)). Goal-wizard drafts
 used to live here under `wizard.draft.<id>` and now have their own table, because a draft has a lifecycle a key-value store cannot express — and because `db status`
 was counting half-written goals as settings.
 

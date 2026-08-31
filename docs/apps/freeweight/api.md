@@ -1,6 +1,6 @@
 # FreeWeight — Public API
 
-**Base path:** `/api/v1` · **Conventions:** API and Contract Standards
+**Base path:** `/api/v1` · **Conventions:** [API and Contract Standards](../../standards/api-and-contract-standards.md)
 **Generated documentation:** `/api/v1/openapi.json`, `/api/v1/docs` (loopback only by default).
 
 Everything here is additive within v1. The committed OpenAPI snapshot is diff-checked in CI.
@@ -12,7 +12,7 @@ Everything here is additive within v1. The committed OpenAPI snapshot is diff-ch
 | Endpoint | Purpose |
 |---|---|
 | `GET /health` | Component health (`database`, `provider`, `gpu_telemetry`, `sandbox`, `external_benchmarks`, `prompts`) |
-| `GET /version` | Application version, API versions, SetSpec schema versions. **Never authenticated** (ADR-0026 §5) |
+| `GET /version` | Application version, API versions, SetSpec schema versions. **Never authenticated** ([ADR-0026 §5](../../adr/0026-local-http-hardening.md)) |
 | `GET /system/status` | Active run, queue depth, telemetry snapshot, threadpool saturation, disk headroom |
 | `GET /system/telemetry/stream` | SSE — `telemetry.sampled` events at the configured interval |
 
@@ -30,7 +30,7 @@ Everything here is additive within v1. The committed OpenAPI snapshot is diff-ch
 `model_ref` is the application-local ULID, or an unambiguous prefix of one; an ambiguous prefix
 returns 400 listing the candidates. **The canonical ID is never a path segment** — it contains `/`,
 `:` and `@`, and a percent-encoded `/` does not survive common reverse proxies
-(ADR-0024). Request bodies and CLI arguments
+([ADR-0024](../../adr/0024-canonical-id-and-model-references.md)). Request bodies and CLI arguments
 still accept a canonical ID, a bare name or an unambiguous prefix.
 
 ## 3. Benchmarks
@@ -43,8 +43,8 @@ still accept a canonical ID, a bare name or an unambiguous prefix.
 ## 3a. Goals (user-authored suites)
 
 Full contract: [Subjective Goals](subjective-goals.md).
-Decisions: ADR-0031,
-ADR-0032.
+Decisions: [ADR-0031](../../adr/0031-user-defined-goal-benchmarks.md),
+[ADR-0032](../../adr/0032-judge-validity-and-user-capability-namespace.md).
 
 | Endpoint | Notes |
 |---|---|
@@ -106,7 +106,7 @@ fields it omits keep their configured values. It accepts `context_size`, `gpu_la
 silently ignored one, because a runtime setting that is accepted and not applied produces a run
 whose record describes conditions it was never served under. Every field set here is hashed into
 `runtime_profile_hash` and therefore separates results
-(ADR-0023).
+([ADR-0023](../../adr/0023-runtime-profile-resolution.md)).
 
 `POST /runs/{id}/repeat` reuses the **original run's stored profile**, not the current
 configuration.
@@ -155,7 +155,7 @@ of the fit beside it so a sweep taken on a busy GPU shows rather than quietly bi
 This is a **study across runs**, not a benchmark result, and it cannot be either the other way
 round: `size_vram` scales with the context a model was *loaded* at, so a sweep of prompt lengths
 inside one run measures KV fill rather than KV cost, and a benchmark is one run under one profile
-(ADR-0034 §6).
+([ADR-0034 §6](../../adr/0034-run-level-derived-metrics.md)).
 
 `subjects` accepts **either** a run reference or a model reference. A run subject is guarded by
 `suite`: naming a run of a different suite is refused by name. A *model* subject requires `suite`,
@@ -168,7 +168,7 @@ document has no pagination because it is a document, not a page. The refusal nam
 points at the window.
 
 **`since` and `until` bound the export by run creation time, and the window is half-open** —
-`since, until)`. That is what makes windowing *complete* rather than merely smaller: a run created
+`[since, until)`. That is what makes windowing *complete* rather than merely smaller: a run created
 exactly at the boundary belongs to the window that starts there and not to the one that ends there,
 so consecutive windows tile without duplicating a run or dropping one between them. A history
 larger than one document is therefore exported as several that reassemble exactly. Every document
@@ -177,7 +177,7 @@ states the window it covers, so a reader can tell a slice from a whole.
 **`include_prompts=true` exports prompt *identity*** — each sample's `prompt_id`,
 `prompt_version`, `prompt_hash` and `rendered_prompt_hash`. That is the right default: a database of
 measurements should not become a second copy of the prompt pack, and [prompt standards
-§4 makes the identity sufficient to re-render —
+§4](../../standards/prompt-management-standards.md) makes the identity sufficient to re-render —
 *on the machine that has the pack*. A reader elsewhere does not, which is the difference between an
 export that is auditable and one that is merely referential.
 
@@ -192,11 +192,11 @@ since the run simply does not appear, and the reader gets no text rather than th
 
 | Endpoint | Notes |
 |---|---|
-| `GET /evidence` | Current `capability.evidence` records; filter by capability, model, machine, runtime profile, minimum confidence. A **collection** envelope (`items`/`page`) whose items are SetSpec envelopes. `user.*` records carry `goal_hash`, `score_method_mix`, `judge_set`, `calibration` and `judge_validity_factor` (ADR-0032 §5) |
+| `GET /evidence` | Current `capability.evidence` records; filter by capability, model, machine, runtime profile, minimum confidence. A **collection** envelope (`items`/`page`) whose items are SetSpec envelopes. `user.*` records carry `goal_hash`, `score_method_mix`, `judge_set`, `calibration` and `judge_validity_factor` ([ADR-0032 §5](../../adr/0032-judge-validity-and-user-capability-namespace.md)) |
 | `GET /evidence/export` | A complete `benchmark.evidence_bundle` (SetSpec-versioned), optionally filtered; the file form of the same data. A **single** SetSpec envelope, with no collection wrapper |
 
 The two envelopes compose in exactly that order and never the reverse
-(ADR-0025 §2). Consumers check `schema_version` and reject
+([ADR-0025 §2](../../adr/0025-envelope-boundaries.md)). Consumers check `schema_version` and reject
 unsupported majors. These endpoints are **read-only** and require only the `read` scope when
 authentication is enabled.
 
@@ -213,7 +213,7 @@ authentication is enabled.
 
 A capability with no evidence is **absent** from the collection, never present with a score of
 zero, and a goal below its calibration gate has no record at all
-(ADR-0032 §3). The page form,
+([ADR-0032 §3](../../adr/0032-judge-validity-and-user-capability-namespace.md)). The page form,
 `/evidence`, shows the same records with ADR-0017's staleness badge and, one interaction away, the
 six confidence factors and the contributing metrics that explain each score.
 
@@ -228,7 +228,7 @@ Every bundle declares `complete: true|false`. `since` — or any filter — prod
 bundle (`complete: false`), which can add and update evidence but can never tell a consumer that
 something was removed; only a bundle nothing narrowed is complete. A consumer observes removals only from a complete bundle, and marks locally-held evidence
 absent from one as `superseded` rather than deleting it
-(ADR-0022 §5). A consumer that has never
+([ADR-0022 §5](../../adr/0022-capability-evidence-record-contract.md)). A consumer that has never
 imported from this source pulls complete.
 
 ## 7. Database management
@@ -261,7 +261,7 @@ including the sampler interval.
 ## 9. Authentication
 
 Loopback with no configured tokens: open. Otherwise `Authorization: Bearer <token>` with scopes
-`read` / `write` / `admin` (ADR-0014). Read-only
+`read` / `write` / `admin` ([ADR-0014](../../adr/0014-authentication-strategy.md)). Read-only
 endpoints — including `/evidence` — need only `read`.
 
 ## 10. Client guidance for LoadCoach
@@ -277,12 +277,12 @@ endpoints — including `/evidence` — need only `read`.
    versions, dataset hashes or prompt subset hashes.
 4a. Evidence for a model you have not discovered is normal, not an error: retain it, mark it
    unmatched, and bind it when discovery produces a match
-   (ADR-0022 §4).
+   ([ADR-0022 §4](../../adr/0022-capability-evidence-record-contract.md)).
 4b. Take freshness from `measured_at`, never from `computed_at`.
 4c. Use evidence only for an execution whose resolved runtime profile hash matches the evidence's
-   (ADR-0023).
+   ([ADR-0023](../../adr/0023-runtime-profile-resolution.md)).
 4d. Never merge across differing `goal_hash` or judge set identity — both are hard separations
-   (ADR-0032 §4).
+   ([ADR-0032 §4](../../adr/0032-judge-validity-and-user-capability-namespace.md)).
 4e. **`user.*` capabilities are opt-in.** Do not weight one unless a task profile names it
    explicitly. A capability that one person's taste defines must not acquire routing influence
    merely by existing.
@@ -296,10 +296,10 @@ endpoints — including `/evidence` — need only `read`.
 ## 11. Error codes and HTTP statuses
 
 Every non-2xx response uses the one error envelope from
-API Standards §4 — `{"error": {"code", "message",
+[API Standards §4](../../standards/api-and-contract-standards.md) — `{"error": {"code", "message",
 "details", "request_id", "timestamp"}}` — never wrapped in a SetSpec envelope, because an error
 describes one request rather than a document that outlives it
-(ADR-0025).
+([ADR-0025](../../adr/0025-envelope-boundaries.md)).
 
 The codes are listed in [spec §13](spec.md); this is the status each one carries.
 
@@ -354,7 +354,7 @@ a result never has to translate.
 `freeweight.export` is an **application-owned document**, in FreeWeight's own namespace because
 SetSpec does not describe it and must not have to: its shape follows this endpoint's query model
 (`scope`, `include_samples`, `include_prompts`), and no shared schema can carry keyed metric rows or
-raw samples (ADR-0035). It **embeds** a real
+raw samples ([ADR-0035](../../adr/0035-application-owned-document-schemas.md)). It **embeds** a real
 `benchmark.run_summary` per run under `summary`, so the shared contract is exercised rather than
 paraphrased.
 
