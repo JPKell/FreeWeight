@@ -98,3 +98,7 @@ node_modules/
 
 # ---- Build artifacts from docs generation ----
 docs/api/openapi-v1.json.tmp
+
+# Test fixtures are committed assets, not a data root (they must exist on a fresh CI checkout).
+!tests/fixtures/databases/
+!tests/fixtures/databases/*.sqlite3
