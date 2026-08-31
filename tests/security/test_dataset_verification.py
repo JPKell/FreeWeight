@@ -18,6 +18,7 @@ from freeweight.external.datasets import (
     DatasetSpec,
     extract_archive,
     install_dataset,
+    is_placeholder_pin,
     sha256_file,
     verify_dataset,
 )
@@ -44,9 +45,11 @@ class TestVerification:
         assert "external install" in str(excinfo.value.message)
 
     def test_a_mismatch_refuses_and_names_both_hashes(self, tmp_path: Path) -> None:
+        # A *varied* wrong pin: a repeated-character pin is recognized as a shipped
+        # placeholder (M6-8) and takes the other branch, tested below.
         data = tmp_path / "d.jsonl"
         actual = _write(data, b"real content")
-        wrong = "sha256:" + "a" * 64
+        wrong = "sha256:" + "ab" * 32
 
         with pytest.raises(DatasetHashMismatch) as excinfo:
             verify_dataset(data, wrong, name="d")
@@ -56,6 +59,34 @@ class TestVerification:
         assert excinfo.value.details["actual_sha256"] == actual
         assert wrong in str(excinfo.value.message)
         assert actual in str(excinfo.value.message)
+        assert "placeholder" not in str(excinfo.value.message)
+
+    def test_a_placeholder_pin_mismatch_says_it_is_a_placeholder(self, tmp_path: Path) -> None:
+        """M6-8: the shipped pins are placeholders, and the refusal must say so.
+
+        A user who installs a real dataset against a shipped manifest hits this exact error;
+        "the file changed since it was pinned" would send them chasing corruption that never
+        happened, when the actual remedy is recording the true hash.
+        """
+        data = tmp_path / "d.jsonl"
+        actual = _write(data, b"the real dataset")
+        placeholder = "sha256:" + "0" * 64
+
+        with pytest.raises(DatasetHashMismatch) as excinfo:
+            verify_dataset(data, placeholder, name="d")
+
+        assert excinfo.value.code == "DATASET_HASH_MISMATCH"
+        assert excinfo.value.details["placeholder_pin"] is True
+        assert "placeholder" in str(excinfo.value.message)
+        assert actual in str(excinfo.value.message)
+
+    def test_is_placeholder_pin_recognizes_only_the_shipped_shape(self) -> None:
+        assert is_placeholder_pin("sha256:" + "0" * 64) is True
+        assert is_placeholder_pin("sha256:" + "1" * 64) is True
+        assert is_placeholder_pin("sha256:" + "ab" * 32) is False
+        assert is_placeholder_pin("sha256:" + "0" * 63) is False
+        assert is_placeholder_pin("md5:" + "0" * 64) is False
+        assert is_placeholder_pin("0" * 64) is False
 
 
 class TestInstall:

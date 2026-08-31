@@ -12,6 +12,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 from freeweight.external.adapters import ADAPTERS, get_adapter
+from freeweight.external.datasets import is_placeholder_pin
 from freeweight.external.environment import BenchmarkEnvironment
 from freeweight.external.errors import ExternalBenchmarkFailed
 
@@ -45,6 +46,9 @@ class ExternalBenchmarkInfo:
         requires_sandbox: Whether it executes code and needs a sandbox tier.
         installed: Whether this benchmark's environment has been created here.
         dataset_names: The datasets it pins.
+        has_placeholder_pins: Whether any dataset pin is a shipped placeholder rather than a
+            recorded hash (M6-8). ``True`` means an install will refuse at verification until
+            the true sha256 is recorded, and no result from this benchmark is publishable.
     """
 
     key: str
@@ -58,6 +62,7 @@ class ExternalBenchmarkInfo:
     requires_sandbox: bool
     installed: bool
     dataset_names: tuple[str, ...]
+    has_placeholder_pins: bool
 
 
 def _external_root(settings: Settings) -> Path:
@@ -88,6 +93,9 @@ def list_benchmarks(settings: Settings) -> list[ExternalBenchmarkInfo]:
                 requires_sandbox=manifest.requires_sandbox,
                 installed=environment.is_installed(),
                 dataset_names=tuple(manifest.dataset_names()),
+                has_placeholder_pins=any(
+                    is_placeholder_pin(spec.sha256) for spec in manifest.datasets
+                ),
             )
         )
     return infos

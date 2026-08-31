@@ -32,6 +32,7 @@ __all__ = [
     "DatasetSpec",
     "extract_archive",
     "install_dataset",
+    "is_placeholder_pin",
     "sha256_file",
     "verify_dataset",
 ]
@@ -72,6 +73,27 @@ def sha256_file(path: Path) -> str:
     return f"sha256:{digest.hexdigest()}"
 
 
+def is_placeholder_pin(sha256: str) -> bool:
+    """Whether a manifest pin is a shipped placeholder rather than a recorded hash.
+
+    The shipped adapters carry pins like ``sha256:000…0`` because the real datasets are not
+    redistributable and were never downloaded where this build was made (M6-8). A pin whose hex
+    is one repeated character is such a placeholder — no real content hashes to it in practice,
+    and every shipped placeholder uses this shape deliberately so it can be recognized here.
+
+    Args:
+        sha256: The pin, ``sha256:``-prefixed.
+
+    Returns:
+        ``True`` for a placeholder, ``False`` for anything else — including a malformed pin,
+        which is a different defect and must not be softened into "placeholder".
+    """
+    prefix, _, hexpart = sha256.partition(":")
+    if prefix != "sha256" or len(hexpart) != 64:  # noqa: PLR2004 — sha256 hex length
+        return False
+    return len(set(hexpart)) == 1
+
+
 def verify_dataset(path: Path, expected_sha256: str, *, name: str) -> None:
     """Prove an installed dataset still matches its pin, or refuse naming both hashes.
 
@@ -94,6 +116,19 @@ def verify_dataset(path: Path, expected_sha256: str, *, name: str) -> None:
         )
     actual = sha256_file(path)
     if actual != expected_sha256:
+        if is_placeholder_pin(expected_sha256):
+            raise DatasetHashMismatch(
+                f"Dataset {name!r} is pinned to a shipped placeholder ({expected_sha256}), not "
+                f"a recorded hash — the real dataset was never hashed where this build was made "
+                "(it is not redistributable). Record the true sha256 in the manifest before any "
+                f"result from this benchmark is published; the installed file hashes to {actual}.",
+                details={
+                    "dataset": name,
+                    "expected_sha256": expected_sha256,
+                    "actual_sha256": actual,
+                    "placeholder_pin": True,
+                },
+            )
         raise DatasetHashMismatch(
             f"Dataset {name!r} does not match its pinned hash: expected {expected_sha256}, "
             f"got {actual}. The file changed since it was pinned — a result measured against "

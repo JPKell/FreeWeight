@@ -7,6 +7,14 @@
   other people's work, run under its own licence with its datasets installed by you rather than
   redistributed here. Every result records the pinned version and commit below.
 </p>
+{% if benchmarks | selectattr("has_placeholder_pins") | list | length %}
+<p class="muted">
+  <strong>Dataset pins are placeholders.</strong> The shipped manifests do not yet carry recorded
+  hashes for these datasets — they are not redistributable, and were not downloaded where this
+  build was made. Installation will refuse at verification until the true sha256 is recorded in
+  the manifest, and no result from an external benchmark is publishable before that.
+</p>
+{% endif %}
 <div class="table-scroll">
 <table data-table="sources">
   <caption class="muted">{{ benchmarks | length }} external benchmark adapter(s).</caption>

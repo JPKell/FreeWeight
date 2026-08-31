@@ -53,6 +53,7 @@ def list_command(config: _ConfigOption = None, as_json: _JsonOption = False) -> 
                         "requires_sandbox": info.requires_sandbox,
                         "installed": info.installed,
                         "datasets": list(info.dataset_names),
+                        "has_placeholder_pins": info.has_placeholder_pins,
                     }
                     for info in infos
                 ],
@@ -66,6 +67,11 @@ def list_command(config: _ConfigOption = None, as_json: _JsonOption = False) -> 
         typer.echo(f"{info.key}  ({info.name}){sandbox}")
         typer.echo(f"    {info.category} → {', '.join(info.capabilities) or '—'}   {state}")
         typer.echo(f"    {info.source_repository} @ {info.release_tag} ({info.license})")
+        if info.has_placeholder_pins:
+            typer.echo(
+                "    dataset pins: PLACEHOLDER — record the real sha256 in the manifest "
+                "before a real run; verification refuses until then (M6-8)"
+            )
 
 
 @app.command("install")

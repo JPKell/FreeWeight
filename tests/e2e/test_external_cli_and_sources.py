@@ -116,3 +116,28 @@ class TestSourcesPage:
         response = client.get("/sources")
 
         assert 'href="/sources" aria-current="page"' in response.text
+
+    def test_the_page_flags_placeholder_dataset_pins(self, client: TestClient) -> None:
+        """M6-8: a user reading the page a real run starts from must see the pins are not real."""
+        response = client.get("/sources")
+
+        assert "Dataset pins are placeholders" in response.text
+
+
+class TestPlaceholderPinsAreFlagged:
+    """M6-8: shipped dataset pins are placeholders, flagged everywhere a user would try a run."""
+
+    def test_the_cli_list_flags_placeholder_pins(self, config_file: Path) -> None:
+        result = runner.invoke(cli_app, ["external", "list", "--config", str(config_file)])
+        assert result.exit_code == 0, result.output
+        assert "PLACEHOLDER" in result.output
+
+    def test_the_cli_json_carries_the_flag(self, config_file: Path) -> None:
+        import json
+
+        result = runner.invoke(
+            cli_app, ["external", "list", "--config", str(config_file), "--json"]
+        )
+        payload = json.loads(result.output)
+        flagged = [row["key"] for row in payload if row["has_placeholder_pins"]]
+        assert flagged, "every shipped adapter with datasets carries placeholder pins today"
