@@ -90,6 +90,7 @@
 </details>
 {% endif %}
 <form method="post" action="/goals/starters/{{ pack.key }}/fork">
+    {% include "partials/_csrf.html" %}
   <div class="field">
     <label for="slug-{{ pack.key }}">Name it (optional)</label>
     <input id="slug-{{ pack.key }}" name="slug" placeholder="{{ pack.key }}">
@@ -99,6 +100,7 @@
   </p>
 </form>
 <form method="post" action="/goals/starters/{{ pack.key }}/customise">
+    {% include "partials/_csrf.html" %}
   <p>
     <button type="submit" data-variant="primary">Customise in the wizard</button>
     <span class="unit">Opens step 2 with these criteria, so the badge comes off in one sitting.</span>

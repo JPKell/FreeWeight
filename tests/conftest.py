@@ -129,3 +129,39 @@ def run_environment(tmp_path: Path) -> Iterator[Callable[..., RunEnvironment]]:
     finally:
         for handle in handles:
             handle.close()
+
+
+@pytest.fixture(autouse=True)
+def _browser_faithful_csrf(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Make TestClient form posts carry the CSRF token a browser would (ADR-0026 §2, Phase 14).
+
+    FreeWeight's CsrfMiddleware rejects a form post without a matching ``csrf_token`` field, and
+    ``__Host-`` cookies are Secure — which httpx will not send over the ``http://`` a TestClient
+    uses, and which a real browser *does* send on ``localhost`` because it is a secure context (the
+    M5 cookie lesson). This fixture closes that gap once for every e2e test: a form-encoded post
+    with no explicit ``csrf_token`` gets the token from the client's own cookie jar (fetching one
+    with a GET if the jar is empty), and the cookie is echoed on the request so the double-submit
+    check sees both halves. A test that wants to prove *rejection* passes ``csrf_token`` explicitly
+    (or an empty one), which this fixture leaves untouched.
+    """
+    from mirrorwall import CSRF_COOKIE_NAME
+    from starlette.testclient import TestClient
+
+    original_post = TestClient.post
+
+    def post_with_csrf(self: TestClient, url: str, **kwargs: Any) -> Any:  # noqa: ANN401 — httpx passthrough
+        data = kwargs.get("data")
+        if isinstance(data, dict) and "csrf_token" not in data:
+            token = self.cookies.get(CSRF_COOKIE_NAME)
+            if not token:
+                original_get(self, "/")
+                token = self.cookies.get(CSRF_COOKIE_NAME)
+            if token:
+                kwargs["data"] = {**data, "csrf_token": token}
+                headers = dict(kwargs.get("headers") or {})
+                headers.setdefault("Cookie", f"{CSRF_COOKIE_NAME}={token}")
+                kwargs["headers"] = headers
+        return original_post(self, url, **kwargs)
+
+    original_get = TestClient.get
+    monkeypatch.setattr(TestClient, "post", post_with_csrf)

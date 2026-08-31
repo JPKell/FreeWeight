@@ -66,6 +66,7 @@
   picking one you will recognise.
 </p>
 <form method="post" action="/goals/new/{{ draft.draft_id }}/save">
+    {% include "partials/_csrf.html" %}
   <div class="field">
     <label for="s-name">Name</label>
     <input id="s-name" name="name" value="{{ draft.name }}" required>

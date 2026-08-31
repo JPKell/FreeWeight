@@ -4,6 +4,7 @@
 {% block content %}
 <h2>Models</h2>
 <form method="post" action="/models/discover">
+    {% include "partials/_csrf.html" %}
   <button type="submit">Refresh from provider</button>
 </form>
 {% if last_discovery %}

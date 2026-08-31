@@ -17,7 +17,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from mirrorwall import create_template_environment
+from mirrorwall import CSRF_FIELD_NAME, create_template_environment
 
 from freeweight.__about__ import __version__
 
@@ -66,6 +66,12 @@ def templates() -> Environment:
             "theme_storage_key": "freeweight-theme",
             "show_telemetry_bar": True,
             "telemetry_stream_url": TELEMETRY_STREAM_URL,
+            # CSRF defaults so a form's `_csrf` partial renders under StrictUndefined on any page.
+            # A form page rendered through `web.csrf.render_form_page` overrides these with a real
+            # token and sets the matching `__Host-` cookie; a non-form page keeps the empty token,
+            # which its forms (there are none) never submit (ADR-0026 §2).
+            "csrf_token": "",
+            "csrf_field_name": CSRF_FIELD_NAME,
         },
     )
     environment.filters["bytes"] = environment.filters["bytes_human"]
@@ -82,4 +88,10 @@ def render(template_name: str, /, **context: Any) -> str:
     Returns:
         The rendered HTML.
     """
+    # The CSRF token the request bound (empty outside a request, or on a page with no form).
+    # Injected centrally so no route has to remember it (ADR-0026 §2); an explicit value in
+    # ``context`` still wins, which keeps a test that renders a template in isolation in control.
+    from freeweight.web.csrf import current_csrf_token
+
+    context.setdefault("csrf_token", current_csrf_token())
     return templates().get_template(template_name).render(**context)

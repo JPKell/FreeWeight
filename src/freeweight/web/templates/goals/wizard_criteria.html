@@ -59,6 +59,7 @@
         <td class="mono">{{ criterion.split_from or '—' }}</td>
         <td>
           <form method="post" action="/goals/new/{{ draft.draft_id }}/criteria">
+    {% include "partials/_csrf.html" %}
             <input type="hidden" name="action" value="answer">
             <input type="hidden" name="criterion" value="{{ criterion.key }}">
             <fieldset style="border: 0; padding: 0;">
@@ -93,6 +94,7 @@
               describe the top, the middle and the bottom in your own words.
             </p>
             <form method="post" action="/goals/new/{{ draft.draft_id }}/criteria">
+    {% include "partials/_csrf.html" %}
               <input type="hidden" name="action" value="describe">
               <input type="hidden" name="criterion" value="{{ criterion.key }}">
               <div class="field">
@@ -132,6 +134,7 @@
               {% endif %}
             </p>
             <form method="post" action="/goals/new/{{ draft.draft_id }}/criteria">
+    {% include "partials/_csrf.html" %}
               <input type="hidden" name="action" value="split">
               <input type="hidden" name="criterion" value="{{ criterion.key }}">
               <div class="field">
@@ -160,6 +163,7 @@
 
 <h3>Add a criterion</h3>
 <form method="post" action="/goals/new/{{ draft.draft_id }}/criteria">
+    {% include "partials/_csrf.html" %}
   <input type="hidden" name="action" value="add">
   <div class="field">
     <label for="c-name">Name</label>
@@ -173,6 +177,7 @@
 </form>
 
 <form method="post" action="/goals/new/{{ draft.draft_id }}/criteria">
+    {% include "partials/_csrf.html" %}
   <input type="hidden" name="action" value="next">
   <p><button type="submit" data-variant="primary">Next: rules that could carry part of these</button></p>
 </form>

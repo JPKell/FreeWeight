@@ -7,6 +7,15 @@ packaging and release standards §3.
 
 ## [Unreleased]
 
+- **CSRF double-submit on every HTML form route (ADR-0026 §2, Phase 14).** MirrorWall's
+  `CsrfMiddleware` validates a `__Host-mw-csrf` cookie against a hidden `csrf_token` field;
+  `web.csrf.CsrfCookieMiddleware` issues the token once per request and `render` injects it into
+  every page, so a form only includes the `_csrf` partial and no route has to remember the token.
+  Host validation is now outermost, so a DNS-rebinding form post is 421 before CSRF runs. The JSON
+  API stays exempt on the stated content-type/CORS grounds.
+- **Performance budgets: every spec §15 figure measured and asserted** (`tests/performance/`),
+  with run start measured on a real socket (a `freeweight serve` subprocess), not only in-process.
+
 ### Added
 
 - **External benchmark adapters (Phase 13).** Nine adapters — lm-evaluation-harness (MMLU-Pro,

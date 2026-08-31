@@ -1,0 +1,6 @@
+{# partials/_csrf.html — the double-submit CSRF hidden field (ADR-0026 §2).
+
+   Every POST form includes this inside its form element. The value comes from
+   freeweight.web.csrf (bound per request by CsrfCookieMiddleware, injected by render), which also
+   sets the matching __Host- cookie; MirrorWall's CsrfMiddleware compares the two. #}
+<input type="hidden" name="{{ csrf_field_name }}" value="{{ csrf_token }}">

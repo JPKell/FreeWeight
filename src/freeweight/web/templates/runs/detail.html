@@ -104,6 +104,7 @@
 
 {% if not run.is_terminal %}
 <form method="post" action="/runs/{{ run.id }}/cancel">
+    {% include "partials/_csrf.html" %}
   <button type="submit">Cancel run</button>
 </form>
 {% endif %}

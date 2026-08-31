@@ -77,6 +77,7 @@
         </td>
         <td colspan="3">
           <form method="post" action="/goals/{{ goal.slug }}/grade">
+    {% include "partials/_csrf.html" %}
             <input type="hidden" name="sample_id" value="{{ sample.id }}">
             <input type="hidden" name="criterion" value="{{ criterion.key }}">
             <fieldset style="border: 0; padding: 0;">

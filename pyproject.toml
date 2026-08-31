@@ -111,6 +111,8 @@ ignore = ["D100", "D104"]
 "src/freeweight/infrastructure/db/migrations/versions/*.py" = ["D1"]
 # A developer script whose entire output is what it tells the person who ran it.
 "scripts/*.py" = ["T201"]
+# Performance tests print their measured figures so the numbers are part of the -s record.
+"tests/performance/*.py" = ["S101", "D1", "T201"]
 
 [tool.ruff.lint.pydocstyle]
 convention = "google"

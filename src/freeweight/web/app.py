@@ -16,6 +16,7 @@ from fastapi import FastAPI
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from mirrorwall import (
+    CsrfMiddleware,
     HostValidationMiddleware,
     RequestIdMiddleware,
     loopback_allowlist,
@@ -31,6 +32,7 @@ from freeweight.services.runs import build_registry, build_registry_for
 from freeweight.services.scheduler import RunScheduler
 from freeweight.services.settings import apply_stored
 from freeweight.services.telemetry import TelemetryService, build_collector
+from freeweight.web.csrf import CsrfCookieMiddleware
 from freeweight.web.errors import register_exception_handlers
 from freeweight.web.middleware import BodySizeLimitMiddleware
 from freeweight.web.rendering import render, templates
@@ -194,9 +196,19 @@ def create_app(settings: Settings, *, goals: Sequence[LoadedGoal] = ()) -> FastA
     app.state.goals = tuple(goals)
     app.state.registry = build_registry(goals=goals, rule_timeout_ms=settings.goals.rule_timeout_ms)
 
+    # Starlette wraps in reverse order of these calls, so the last added is outermost. From the
+    # outside in the stack is therefore: Host validation, body-size limit, CSRF validation, the
+    # CSRF cookie issuer, then request-ID innermost. Host validation is outermost so a DNS-rebinding
+    # attempt is 421 before it reaches CSRF or a route — the check "runs before authentication"
+    # (ADR-0026 §1) and, here, before every other control. The cookie issuer sits just outside the
+    # request-ID middleware so it sees the final response and can set the cookie on it, and CSRF
+    # validation sits outside the issuer so a forged post is rejected before a fresh cookie is
+    # minted for it (ADR-0026 §2, Security Standards §14).
     app.add_middleware(RequestIdMiddleware)
-    app.add_middleware(HostValidationMiddleware, allowed_hosts=_resolve_allowed_hosts(settings))
+    app.add_middleware(CsrfCookieMiddleware)
+    app.add_middleware(CsrfMiddleware)
     app.add_middleware(BodySizeLimitMiddleware, max_body_bytes=_MAX_REQUEST_BODY_BYTES)
+    app.add_middleware(HostValidationMiddleware, allowed_hosts=_resolve_allowed_hosts(settings))
 
     register_exception_handlers(app)
 

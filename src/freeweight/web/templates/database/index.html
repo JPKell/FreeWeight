@@ -77,6 +77,7 @@
 
 <h3>Delete results</h3>
 <form class="filter-bar" method="post" action="/database/preview" aria-label="Choose what to delete">
+    {% include "partials/_csrf.html" %}
   <div class="field">
     <label for="d-scope">Scope</label>
     <select id="d-scope" name="scope">
@@ -133,6 +134,7 @@
     {% endif %}
   </p>
   <form method="post" action="/database/delete">
+    {% include "partials/_csrf.html" %}
     <input type="hidden" name="scope" value="{{ preview.selection.scope.value }}">
     <input type="hidden" name="selector" value="{{ preview.selection.selector or '' }}">
     <input type="hidden" name="token" value="{{ preview.token }}">
@@ -190,9 +192,11 @@
 
 <h3>Maintenance</h3>
 <form method="post" action="/database/backup" style="display: inline-block; margin-right: 1rem;">
+    {% include "partials/_csrf.html" %}
   <button type="submit">Take a backup now</button>
 </form>
 <form method="post" action="/database/vacuum" style="display: inline-block;">
+    {% include "partials/_csrf.html" %}
   <button type="submit">Vacuum (reclaim free space)</button>
 </form>
 <p class="muted">

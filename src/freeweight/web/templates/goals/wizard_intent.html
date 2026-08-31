@@ -14,6 +14,7 @@
 {% endif %}
 
 <form method="post" action="/goals/new">
+    {% include "partials/_csrf.html" %}
   <div class="field">
     <label for="intent">What are you trying to get?</label>
     <textarea id="intent" name="intent" rows="4" cols="80" required>{{ intent or '' }}</textarea>

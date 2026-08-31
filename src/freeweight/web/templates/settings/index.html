@@ -20,6 +20,7 @@
 {% endif %}
 
 <form method="post" action="/settings">
+    {% include "partials/_csrf.html" %}
   <input type="hidden" name="booleans"
          value="{{ views | selectattr('setting.kind', 'equalto', 'bool') | map(attribute='setting.key') | join(',') }}">
   <div class="table-scroll">

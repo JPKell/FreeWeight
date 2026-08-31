@@ -26,6 +26,7 @@
 <p class="muted">{{ proposal.explanation }}</p>
 {% if not proposal.accepted %}
 <form method="post" action="/goals/new/{{ draft.draft_id }}/rules">
+    {% include "partials/_csrf.html" %}
   <input type="hidden" name="action" value="accept">
   <input type="hidden" name="criterion" value="{{ proposal.criterion_key }}">
   <input type="hidden" name="rule_type" value="{{ proposal.rule_type }}">
@@ -52,6 +53,7 @@
 {% endif %}
 
 <form method="post" action="/goals/new/{{ draft.draft_id }}/rules">
+    {% include "partials/_csrf.html" %}
   <input type="hidden" name="action" value="next">
   <p><button type="submit" data-variant="primary">Next: your tasks</button></p>
 </form>
