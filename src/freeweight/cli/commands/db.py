@@ -95,7 +95,8 @@ def upgrade(
     Example:
         freeweight db upgrade
     """
-    from freeweight.infrastructure.db.errors import DatabaseError
+    from weightsdb import DatabaseError
+
     from freeweight.services.database import upgrade as upgrade_database
 
     with _open_database(config) as (database, storage):
@@ -141,7 +142,8 @@ def status(
     Example:
         freeweight db status --json
     """
-    from freeweight.infrastructure.db.errors import DatabaseError
+    from weightsdb import DatabaseError
+
     from freeweight.services.database import get_status
 
     with _open_database(config) as (database, _):
@@ -194,7 +196,8 @@ def backup(
     Example:
         freeweight db backup --output ./freeweight-before-upgrade.sqlite3
     """
-    from freeweight.infrastructure.db.errors import DatabaseError
+    from weightsdb import DatabaseError
+
     from freeweight.services.database_admin import backup_database
 
     with _open_database(config) as (database, storage):
@@ -239,7 +242,8 @@ def restore(
     Example:
         freeweight db restore ./backups/freeweight-0006-20260828T090000Z.sqlite3 --yes
     """
-    from freeweight.infrastructure.db.errors import DatabaseError
+    from weightsdb import DatabaseError
+
     from freeweight.services.database_admin import restore_database
 
     if not yes:
@@ -270,7 +274,8 @@ def vacuum(
     Example:
         freeweight db vacuum
     """
-    from freeweight.infrastructure.db.errors import DatabaseError
+    from weightsdb import DatabaseError
+
     from freeweight.services.database_admin import vacuum_database
 
     with _open_database(config) as (database, _):

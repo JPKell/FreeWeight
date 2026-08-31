@@ -165,7 +165,7 @@ def start(  # noqa: PLR0913 — every parameter is a documented run option, not 
     it even if the run is later cancelled or fails (CLI standards §11).
 
     ``Ctrl-C`` cancels the run cleanly and exits ``6``: the write in flight is rolled back by
-    :func:`~freeweight.infrastructure.db.session.session_scope` (which catches ``BaseException``
+    :func:`~weightsdb.session_scope` (which catches ``BaseException``
     for this reason), every sample already committed is kept, and the run is finished as
     ``cancelled`` rather than being left in ``cancelling``.
 
@@ -301,7 +301,8 @@ def list_command(
     Example:
         freeweight run list --status completed --limit 20
     """
-    from freeweight.infrastructure.db.errors import DatabaseError
+    from weightsdb import DatabaseError
+
     from freeweight.services.runs import list_runs
 
     with _open_backend(config) as (_settings, database, _provider):

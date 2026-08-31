@@ -25,9 +25,9 @@ from sqlalchemy import (
     text,
 )
 from sqlalchemy.orm import Mapped, mapped_column
+from weightsdb import PortableJSON, UtcDateTime, ulid_primary_key
 
 from freeweight.infrastructure.db.base import Base, utcnow
-from freeweight.infrastructure.db.types import PortableJSON, UtcDateTime, ulid_primary_key
 
 __all__ = ["ApiToken", "Machine", "Model", "ModelDescriptor", "RuntimeProfile", "Setting"]
 

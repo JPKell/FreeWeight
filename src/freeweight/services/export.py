@@ -57,9 +57,9 @@ from baseaicore import (
     utc_now,
 )
 from setspec.envelope import GeneratorInfo, SchemaVersion
+from weightsdb import DatabaseUnavailable
 
 from freeweight.__about__ import __version__
-from freeweight.infrastructure.db.errors import DatabaseUnavailable
 
 if TYPE_CHECKING:
     from datetime import datetime

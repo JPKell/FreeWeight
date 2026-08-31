@@ -23,10 +23,10 @@ from typing import TYPE_CHECKING, Annotated, Any, Protocol
 
 from fastapi import APIRouter, Form, Query, Request, Response, status
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, StreamingResponse
+from weightsdb import DatabaseError
 
 from freeweight.__about__ import __version__
 from freeweight.domain.benchmark import BenchmarkNotFound
-from freeweight.infrastructure.db.errors import DatabaseError
 from freeweight.services.events import (
     POLL_INTERVAL_SECONDS,
     RunEventPublisher,

@@ -26,10 +26,9 @@ from typing import Any
 
 import pytest
 from fastapi.testclient import TestClient
+from weightsdb import MigrationRunner, create_engine_for
 
 from freeweight.config import load_settings
-from freeweight.infrastructure.db.engine import create_engine_for
-from freeweight.infrastructure.db.migration import MigrationRunner
 from freeweight.services.database import MIGRATIONS_LOCATION, Database
 from freeweight.web.app import create_app
 

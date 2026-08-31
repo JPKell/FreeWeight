@@ -31,9 +31,9 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 from baseaicore import SuiteError, utc_now
+from weightsdb import DatabaseUnavailable
 
 from freeweight.domain.run_state import RunStatus
-from freeweight.infrastructure.db.errors import DatabaseUnavailable
 from freeweight.infrastructure.db.repositories.runs import RunRepository
 from freeweight.services.events import RunEventPublisher
 from freeweight.services.runs import build_registry, execute_run

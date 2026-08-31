@@ -31,9 +31,8 @@ from typing import Any
 
 import pytest
 from sqlalchemy import text
+from weightsdb import MigrationRunner, create_engine_for
 
-from freeweight.infrastructure.db.engine import create_engine_for
-from freeweight.infrastructure.db.migration import MigrationRunner
 from freeweight.services.database import MIGRATIONS_LOCATION, Database
 from freeweight.services.results import (
     DashboardFilter,

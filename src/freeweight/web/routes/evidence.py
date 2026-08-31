@@ -26,9 +26,9 @@ from typing import TYPE_CHECKING, Annotated, Any
 from baseaicore import SuiteError, ValidationError, from_rfc3339, utc_now
 from fastapi import APIRouter, Query, Request, Response
 from fastapi.responses import HTMLResponse
+from weightsdb import DatabaseError
 
 from freeweight.__about__ import __version__
-from freeweight.infrastructure.db.errors import DatabaseError
 from freeweight.services.evidence import (
     DEFAULT_EVIDENCE_LIMIT,
     EvidenceQuery,

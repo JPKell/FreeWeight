@@ -23,7 +23,8 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import TYPE_CHECKING
 
-from freeweight.infrastructure.db.errors import DatabaseError, DatabaseUnavailable
+from weightsdb import DatabaseError, DatabaseUnavailable
+
 from freeweight.infrastructure.db.repositories.machines import MachineRepository
 from freeweight.infrastructure.db.repositories.models import ModelRepository
 
@@ -39,7 +40,7 @@ def _translated() -> Iterator[None]:
 
     Without this, a database that has never been migrated reaches the caller as a raw
     ``sqlalchemy.exc.OperationalError`` ("no such table: models") — which a route handler catching
-    :class:`~freeweight.infrastructure.db.errors.DatabaseError` does not catch, so the page 500s
+    :class:`~weightsdb.DatabaseError` does not catch, so the page 500s
     instead of rendering the error state it already has.
     """
     try:

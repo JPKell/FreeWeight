@@ -62,6 +62,7 @@ from baseaicore import (
 )
 from setspec.envelope import GeneratorInfo, SchemaVersion, dump_envelope
 from setspec.vocabulary import CAPABILITY_VOCABULARY_VERSION
+from weightsdb import DatabaseUnavailable
 
 from freeweight.__about__ import __version__
 from freeweight.config import EvidenceSettings
@@ -80,7 +81,6 @@ from freeweight.domain.confidence import (
     freshness_factor,
     is_stale,
 )
-from freeweight.infrastructure.db.errors import DatabaseUnavailable
 from freeweight.infrastructure.db.repositories.evidence import EvidenceRepository
 from freeweight.services.export import model_identity_payload
 

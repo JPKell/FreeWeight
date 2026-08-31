@@ -8,6 +8,14 @@ packaging and release standards §3.
 ## [Unreleased]
 
 ### Changed
+
+- Adopted `weightsdb` (0.2.x) for all database plumbing: engine construction, session/transaction
+  scopes, upsert, the migration runner, backup/restore and the typed error hierarchy. The
+  in-application copies under `freeweight.infrastructure.db` (engine, session, upsert, migration,
+  backup, errors — ~1,380 lines) are deleted; `types.py` remains as a re-export shim so existing
+  migration revisions keep importing by their historical path. FreeWeight's models, declarative
+  base and migration history are untouched: an existing 1.0.0rc1 database opens at head with no
+  new revision, proven against a database file from a real rc1 install.
 - **`freeweight.services.prompts` now delegates to `setspec.prompts` (`setspec>=0.4,<0.5`).**
   The prompt record loader, validator, `StrictUndefined` renderer and both hash functions
   (`prompt_record_hash`, `prompt_subset_hash`/`pack_hash`) moved to `setspec.prompts` at SetSpec

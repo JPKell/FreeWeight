@@ -16,17 +16,16 @@ from __future__ import annotations
 import pytest
 from sqlalchemy import Engine, text
 from sqlalchemy.exc import OperationalError
-
-from freeweight.infrastructure.db.session import session_factory, session_scope
+from weightsdb import session_factory, session_scope, transaction
 
 
 def test_two_read_only_transactions_run_concurrently(engine: Engine) -> None:
     """The concurrency an unconditional BEGIN IMMEDIATE gives away."""
     factory = session_factory(engine)
 
-    with session_scope(factory, read_only=True) as first:
+    with session_scope(factory) as first, transaction(first, immediate=False):
         first.execute(text("SELECT count(*) FROM settings")).scalar_one()
-        with session_scope(factory, read_only=True) as second:
+        with session_scope(factory) as second, transaction(second, immediate=False):
             assert second.execute(text("SELECT count(*) FROM settings")).scalar_one() == 0
 
 
@@ -34,7 +33,7 @@ def test_a_reader_does_not_block_a_writer(engine: Engine) -> None:
     """A page view must not queue behind, or in front of, a run recording its samples."""
     factory = session_factory(engine)
 
-    with session_scope(factory, read_only=True) as reader:
+    with session_scope(factory) as reader, transaction(reader, immediate=False):
         reader.execute(text("SELECT count(*) FROM settings")).scalar_one()
         with session_scope(factory) as writer:
             writer.execute(
@@ -44,7 +43,7 @@ def test_a_reader_does_not_block_a_writer(engine: Engine) -> None:
                 )
             )
 
-    with session_scope(factory, read_only=True) as after:
+    with session_scope(factory) as after, transaction(after, immediate=False):
         assert after.execute(text("SELECT count(*) FROM settings")).scalar_one() == 1
 
 
@@ -60,7 +59,8 @@ def test_writing_inside_a_read_only_scope_is_refused(engine: Engine, dialect: st
 
     with (
         pytest.raises(OperationalError, match="readonly database"),
-        session_scope(factory, read_only=True) as session,
+        session_scope(factory) as session,
+        transaction(session, immediate=False),
     ):
         session.execute(
             text(
@@ -79,7 +79,11 @@ def test_a_connection_reused_after_a_read_only_scope_can_still_write(engine: Eng
     """
     factory = session_factory(engine)
 
-    with pytest.raises(RuntimeError), session_scope(factory, read_only=True) as session:
+    with (
+        pytest.raises(RuntimeError),
+        session_scope(factory) as session,
+        transaction(session, immediate=False),
+    ):
         session.execute(text("SELECT 1")).scalar_one()
         raise RuntimeError("something went wrong mid-read")
 
@@ -90,5 +94,5 @@ def test_a_connection_reused_after_a_read_only_scope_can_still_write(engine: Eng
                 "VALUES ('after-a-failed-read', '1', '2026-08-26 00:00:00')"
             )
         )
-    with session_scope(factory, read_only=True) as session:
+    with session_scope(factory) as session, transaction(session, immediate=False):
         assert session.execute(text("SELECT count(*) FROM settings")).scalar_one() == 1

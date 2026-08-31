@@ -279,8 +279,8 @@ class TestHttpLevel:
 
     @pytest.fixture
     def client(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Any:
-        from freeweight.infrastructure.db.engine import create_engine_for
-        from freeweight.infrastructure.db.migration import MigrationRunner
+        from weightsdb import MigrationRunner, create_engine_for
+
         from freeweight.services.database import MIGRATIONS_LOCATION
 
         database = tmp_path / "freeweight.sqlite3"

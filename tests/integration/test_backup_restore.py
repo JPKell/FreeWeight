@@ -13,8 +13,8 @@ from pathlib import Path
 
 import pytest
 from sqlalchemy import Engine, text
-
-from freeweight.infrastructure.db.backup import (
+from weightsdb import DatabaseError, MigrationRunner, create_engine_for
+from weightsdb.backup import (
     backup,
     backup_revision,
     checkpoint,
@@ -25,9 +25,7 @@ from freeweight.infrastructure.db.backup import (
     restore,
     sqlite_path,
 )
-from freeweight.infrastructure.db.engine import create_engine_for
-from freeweight.infrastructure.db.errors import DatabaseError
-from freeweight.infrastructure.db.migration import MigrationRunner
+
 from freeweight.services.database import MIGRATIONS_LOCATION
 
 

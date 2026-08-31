@@ -21,10 +21,10 @@ from typing import TYPE_CHECKING, Protocol
 from baseaicore import DependencyUnavailableError
 from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse, StreamingResponse
+from weightsdb import DatabaseError
 
 from freeweight.__about__ import __version__
 from freeweight.config import data_dir
-from freeweight.infrastructure.db.errors import DatabaseError
 from freeweight.services.export import EMITTED_SCHEMAS
 from freeweight.services.health import get_health_report
 from freeweight.services.telemetry import format_heartbeat, format_sample_event, snapshot_to_json

@@ -33,8 +33,8 @@ from typing import TYPE_CHECKING, Any, cast
 from baseaicore import UNSUPPORTED, SuiteError, sha256_of
 from baseaicore.timeutil import from_rfc3339, to_rfc3339
 from modelrack.errors import ModelNotFound, ProviderError
+from weightsdb import DatabaseUnavailable
 
-from freeweight.infrastructure.db.errors import DatabaseUnavailable
 from freeweight.infrastructure.db.repositories.model_descriptors import ModelDescriptorRepository
 from freeweight.infrastructure.db.repositories.models import ModelRepository
 from freeweight.infrastructure.db.repositories.settings import SettingsRepository

@@ -13,9 +13,9 @@ from typing import Any
 from baseaicore import to_rfc3339
 from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse
+from weightsdb import DatabaseError
 
 from freeweight.__about__ import __version__
-from freeweight.infrastructure.db.errors import DatabaseError
 from freeweight.services.database import Database
 from freeweight.services.inventory import list_machines
 from freeweight.web.rendering import render

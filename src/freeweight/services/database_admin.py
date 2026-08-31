@@ -22,9 +22,8 @@ from typing import TYPE_CHECKING, Any, Final
 
 from baseaicore import ValidationError, from_rfc3339, sha256_of, to_rfc3339
 from sqlalchemy import Engine, delete, func, select, text
-
-from freeweight.config import data_dir
-from freeweight.infrastructure.db.backup import (
+from weightsdb import DatabaseError
+from weightsdb.backup import (
     BackupResult,
     RestoreResult,
     backup,
@@ -35,8 +34,9 @@ from freeweight.infrastructure.db.backup import (
     restore,
     sqlite_path,
 )
+
+from freeweight.config import data_dir
 from freeweight.infrastructure.db.base import utcnow
-from freeweight.infrastructure.db.errors import DatabaseError
 from freeweight.services.database import DatabaseStatus, migration_runner
 
 if TYPE_CHECKING:
@@ -75,7 +75,7 @@ def _backups_dir(engine: Engine) -> Path:
 
     Beside the database file on SQLite, and under the XDG data directory on PostgreSQL, which has
     no local file to sit beside — the case that previously reached
-    :func:`~freeweight.infrastructure.db.backup.sqlite_path` and failed with "Expected a SQLite
+    :func:`~weightsdb.backup.sqlite_path` and failed with "Expected a SQLite
     engine" for the entirely ordinary ``freeweight db backup`` with no ``--output``.
     """
     if engine.dialect.name == "sqlite":
@@ -113,7 +113,7 @@ def backup_database(
             this function never deletes files from a directory they chose.
 
     Returns:
-        The :class:`~freeweight.infrastructure.db.backup.BackupResult`.
+        The :class:`~weightsdb.backup.BackupResult`.
     """
     engine = database.engine
     if output is not None:
@@ -143,12 +143,12 @@ def restore_database(database: Database, *, source: Path, confirm: bool) -> Rest
             would otherwise prompt.
 
     Returns:
-        The :class:`~freeweight.infrastructure.db.backup.RestoreResult`.
+        The :class:`~weightsdb.backup.RestoreResult`.
 
     Raises:
         DatabaseError: ``confirm`` is ``False``, the dialect is PostgreSQL, or the backup is
             missing, fails its integrity check, or sits at a revision this build does not know.
-            See :func:`~freeweight.infrastructure.db.backup.restore`.
+            See :func:`~weightsdb.backup.restore`.
     """
     engine = database.engine
     known = migration_runner(engine).known_revisions()
@@ -191,7 +191,7 @@ def vacuum_database(database: Database) -> VacuumOutcome:
     ``VACUUM`` cannot run inside a transaction block on either dialect, so this runs it over a
     connection explicitly set to ``AUTOCOMMIT`` rather than through the ORM session — the one
     place in this module that deliberately does not go through
-    :func:`~freeweight.infrastructure.db.session.session_scope`.
+    :func:`~weightsdb.session_scope`.
 
     Args:
         database: The application's database handle.

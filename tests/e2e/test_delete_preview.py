@@ -20,11 +20,10 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 from typer.testing import CliRunner
+from weightsdb import MigrationRunner, create_engine_for
 
 from freeweight.cli.main import app as cli_app
 from freeweight.config import load_settings
-from freeweight.infrastructure.db.engine import create_engine_for
-from freeweight.infrastructure.db.migration import MigrationRunner
 from freeweight.services.database import MIGRATIONS_LOCATION, Database, get_status
 from freeweight.services.database_admin import (
     DeletionScope,
@@ -161,7 +160,7 @@ class TestThePreviewMatchesTheDeletion:
         assert second_run != first_run
 
         with _database(workspace) as database:
-            from freeweight.infrastructure.db.errors import DatabaseError
+            from weightsdb import DatabaseError
 
             with pytest.raises(DatabaseError, match="Preview it again"):
                 delete_results(database, selection, token=stale.token)
@@ -174,7 +173,7 @@ class TestThePreviewMatchesTheDeletion:
     ) -> None:
         run_id = _completed_run(client)
         with _database(workspace) as database:
-            from freeweight.infrastructure.db.errors import DatabaseError
+            from weightsdb import DatabaseError
 
             one = preview_deletion(
                 database, DeletionSelection(scope=DeletionScope.RUN, selector=run_id)

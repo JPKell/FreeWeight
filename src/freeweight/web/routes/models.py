@@ -21,9 +21,9 @@ from baseaicore import ValidationError, to_rfc3339
 from fastapi import APIRouter, Query, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from modelrack.errors import ModelNotFound, ProviderError
+from weightsdb import DatabaseError
 
 from freeweight.__about__ import __version__
-from freeweight.infrastructure.db.errors import DatabaseError
 from freeweight.services.database import Database
 from freeweight.services.models import (
     discover_models,

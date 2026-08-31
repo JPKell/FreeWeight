@@ -88,9 +88,8 @@ def run_environment(tmp_path: Path) -> Iterator[Callable[..., RunEnvironment]]:
     from modelrack.testing import FakeProvider, FakeScript
     from sweatmeter import TelemetryCollector
     from sweatmeter.testing import NullGpuReader, NullHostReader
+    from weightsdb import MigrationRunner, create_engine_for
 
-    from freeweight.infrastructure.db.engine import create_engine_for
-    from freeweight.infrastructure.db.migration import MigrationRunner
     from freeweight.services.database import MIGRATIONS_LOCATION, Database
     from freeweight.services.events import RunEventPublisher
     from freeweight.services.models import discover_models

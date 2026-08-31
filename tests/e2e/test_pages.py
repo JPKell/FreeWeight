@@ -14,13 +14,11 @@ from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
+from weightsdb import MigrationRunner, create_engine_for, session_factory, session_scope
 
 from freeweight.config import load_settings
-from freeweight.infrastructure.db.engine import create_engine_for
-from freeweight.infrastructure.db.migration import MigrationRunner
 from freeweight.infrastructure.db.repositories.machines import MachineRepository
 from freeweight.infrastructure.db.repositories.models import ModelRepository
-from freeweight.infrastructure.db.session import session_factory, session_scope
 from freeweight.services.database import MIGRATIONS_LOCATION
 from freeweight.web.app import create_app
 

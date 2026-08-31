@@ -95,8 +95,8 @@ def list_models(config: _ConfigOption = None, json_output: _JsonOption = False) 
         freeweight models list --json
     """
     from baseaicore.timeutil import to_rfc3339
+    from weightsdb import DatabaseError
 
-    from freeweight.infrastructure.db.errors import DatabaseError
     from freeweight.services.models import get_last_discovery, list_models_with_latest_descriptor
 
     with _open_database(config) as database:

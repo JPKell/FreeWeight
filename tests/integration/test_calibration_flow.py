@@ -32,14 +32,13 @@ from baseaicore import ValidationError
 from modelrack.providers.fake import FakeModel
 from modelrack.testing import FakeGeneration, FakeProvider, FakeScript
 from sqlalchemy import func, inspect, select, text
+from weightsdb import MigrationRunner, create_engine_for
 
 from freeweight.config import JudgeSettings
 from freeweight.domain.calibration import CalibrationState
 from freeweight.domain.goals.pack import Criterion
 from freeweight.domain.jury import assemble_jury
 from freeweight.domain.scorers.judged import JudgedCriterionResult, JurorVerdict, combine_verdicts
-from freeweight.infrastructure.db.engine import create_engine_for
-from freeweight.infrastructure.db.migration import MigrationRunner
 from freeweight.infrastructure.db.models_goals import CalibrationReport, CalibrationSample
 from freeweight.services.calibration import (
     CalibrationInsufficient,

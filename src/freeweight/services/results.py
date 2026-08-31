@@ -37,8 +37,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, ClassVar
 
 from baseaicore import NotFoundError, SuiteError, ValidationError, to_rfc3339
-
-from freeweight.infrastructure.db.errors import DatabaseUnavailable
+from weightsdb import DatabaseUnavailable
 
 if TYPE_CHECKING:
     from sqlalchemy.orm import Session

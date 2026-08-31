@@ -28,9 +28,8 @@ from pathlib import Path
 
 import pytest
 from sqlalchemy import Engine, text
+from weightsdb import MigrationRunner, create_engine_for
 
-from freeweight.infrastructure.db.engine import create_engine_for
-from freeweight.infrastructure.db.migration import MigrationRunner
 from freeweight.services.database import MIGRATIONS_LOCATION
 
 _DEFAULT_POSTGRES_URL = "postgresql+psycopg://freeweight:freeweight@localhost:5432/freeweight_test"

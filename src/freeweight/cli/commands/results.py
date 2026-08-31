@@ -206,8 +206,8 @@ def compare(
         freeweight results compare ollama/qwen3.5:9b ollama/llama3:8b --suite native.performance
     """
     from baseaicore import SuiteError
+    from weightsdb import DatabaseError
 
-    from freeweight.infrastructure.db.errors import DatabaseError
     from freeweight.services.comparison import compare_runs, comparison_json, enforce_suite
     from freeweight.services.results import resolve_subject_runs
 
@@ -279,8 +279,8 @@ def list_results(  # noqa: PLR0913 — the documented filter set, one option eac
     ``3`` a configuration error; ``4`` the database is unavailable.
     """
     from baseaicore import SuiteError, from_rfc3339
+    from weightsdb import DatabaseError
 
-    from freeweight.infrastructure.db.errors import DatabaseError
     from freeweight.services.results import ResultsQuery, query_results
 
     try:
@@ -353,8 +353,8 @@ def show(
     error; ``4`` the database is unavailable.
     """
     from baseaicore import SuiteError
+    from weightsdb import DatabaseError
 
-    from freeweight.infrastructure.db.errors import DatabaseError
     from freeweight.services.runs import get_run
 
     with _open_database(config) as database:
@@ -512,8 +512,8 @@ def export(  # noqa: PLR0913 — the documented parameter set, one option each
     from pathlib import Path
 
     from baseaicore import SuiteError
+    from weightsdb import DatabaseError
 
-    from freeweight.infrastructure.db.errors import DatabaseError
     from freeweight.services.export import (
         ExportFormat,
         ExportScope,

@@ -27,9 +27,9 @@ from baseaicore import to_rfc3339
 from fastapi import APIRouter, Form, Request, status
 from fastapi.responses import HTMLResponse, JSONResponse
 from pydantic import BaseModel, ConfigDict, Field
+from weightsdb import DatabaseError
 
 from freeweight.__about__ import __version__
-from freeweight.infrastructure.db.errors import DatabaseError
 from freeweight.services.database_admin import (
     DeletionScope,
     DeletionSelection,

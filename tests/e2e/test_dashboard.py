@@ -22,13 +22,12 @@ from typing import Any
 import pytest
 from fastapi.testclient import TestClient
 from typer.testing import CliRunner
+from weightsdb import MigrationRunner, create_engine_for
 
 from freeweight.cli.main import app as cli_app
 from freeweight.config import load_settings
 from freeweight.domain.aggregation import SampleGroup, aggregate_run
 from freeweight.domain.metrics import MeasurementClass
-from freeweight.infrastructure.db.engine import create_engine_for
-from freeweight.infrastructure.db.migration import MigrationRunner
 from freeweight.services.database import MIGRATIONS_LOCATION, Database
 from freeweight.services.results import DashboardFilter, build_dashboard
 from freeweight.services.runs import _sample_row_facts, build_registry

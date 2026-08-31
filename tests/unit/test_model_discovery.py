@@ -18,11 +18,9 @@ from baseaicore import ValidationError
 from modelrack import ProviderStatus
 from modelrack.errors import ModelNotFound
 from modelrack.testing import FakeModel, FakeProvider, FakeScript
+from weightsdb import MigrationRunner, create_engine_for, session_scope, transaction
 
-from freeweight.infrastructure.db.engine import create_engine_for
-from freeweight.infrastructure.db.migration import MigrationRunner
 from freeweight.infrastructure.db.models import Model
-from freeweight.infrastructure.db.session import session_scope
 from freeweight.services.database import MIGRATIONS_LOCATION, Database
 from freeweight.services.inventory import list_models
 from freeweight.services.models import (
@@ -119,7 +117,7 @@ class TestRediscovery:
         (model,) = list_models(database)
         # last_seen_at moved; the identity and its one descriptor snapshot did not multiply.
         assert model.last_seen_at == LATER
-        with session_scope(database.sessions, read_only=True) as session:
+        with session_scope(database.sessions) as session, transaction(session, immediate=False):
             from freeweight.infrastructure.db.repositories.model_descriptors import (
                 ModelDescriptorRepository,
             )
@@ -165,7 +163,7 @@ class TestRediscovery:
         )
 
         assert (outcome.added, outcome.updated, outcome.unchanged) == (0, 1, 0)
-        with session_scope(database.sessions, read_only=True) as session:
+        with session_scope(database.sessions) as session, transaction(session, immediate=False):
             from freeweight.infrastructure.db.repositories.model_descriptors import (
                 ModelDescriptorRepository,
             )
@@ -323,13 +321,14 @@ class TestUnmigratedDatabase:
 
     def test_inventory_list_models_also_translates(self, unmigrated_database: Database) -> None:
         """The Phase 2 helper this module's own translation was modelled on, checked directly."""
-        from freeweight.infrastructure.db.errors import DatabaseUnavailable
+        from weightsdb import DatabaseUnavailable
 
         with pytest.raises(DatabaseUnavailable):
             list_models(unmigrated_database)
 
     def test_list_raises_a_translated_error(self, unmigrated_database: Database) -> None:
-        from freeweight.infrastructure.db.errors import DatabaseUnavailable
+        from weightsdb import DatabaseUnavailable
+
         from freeweight.services.models import list_models_with_latest_descriptor
 
         with pytest.raises(DatabaseUnavailable):
@@ -338,7 +337,7 @@ class TestUnmigratedDatabase:
     def test_get_last_discovery_raises_a_translated_error(
         self, unmigrated_database: Database
     ) -> None:
-        from freeweight.infrastructure.db.errors import DatabaseUnavailable
+        from weightsdb import DatabaseUnavailable
 
         with pytest.raises(DatabaseUnavailable):
             get_last_discovery(unmigrated_database)
@@ -346,7 +345,7 @@ class TestUnmigratedDatabase:
     def test_get_model_detail_raises_a_translated_error(
         self, unmigrated_database: Database
     ) -> None:
-        from freeweight.infrastructure.db.errors import DatabaseUnavailable
+        from weightsdb import DatabaseUnavailable
 
         with pytest.raises(DatabaseUnavailable):
             get_model_detail(unmigrated_database, _provider(), "anything", now=NOW)

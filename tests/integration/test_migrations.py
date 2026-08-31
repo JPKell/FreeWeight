@@ -16,12 +16,16 @@ import pytest
 from baseaicore import ValidationError
 from sqlalchemy import Column, Engine, Integer, MetaData, Table, insert, inspect, text
 from sqlalchemy.exc import IntegrityError, StatementError
+from weightsdb import (
+    MigrationFailed,
+    MigrationRunner,
+    create_engine_for,
+    session_factory,
+    session_scope,
+)
+from weightsdb.backup import backup as take_snapshot
 
-from freeweight.infrastructure.db.backup import backup as take_snapshot
 from freeweight.infrastructure.db.base import Base
-from freeweight.infrastructure.db.engine import create_engine_for
-from freeweight.infrastructure.db.errors import MigrationFailed
-from freeweight.infrastructure.db.migration import MigrationRunner
 from freeweight.infrastructure.db.models import (
     ApiToken,
     Machine,
@@ -30,8 +34,7 @@ from freeweight.infrastructure.db.models import (
     RuntimeProfile,
     Setting,
 )
-from freeweight.infrastructure.db.session import session_factory, session_scope
-from freeweight.services.database import MIGRATIONS_LOCATION
+from freeweight.services.database import MIGRATIONS_LOCATION, Database, ensure_ready
 
 _EXPECTED_TABLES = {
     Machine.__tablename__,
@@ -285,3 +288,45 @@ def test_migration_outcome_states_the_dialect_restore_difference(runner: Migrati
     # A fresh database has nothing to roll back to, on either dialect.
     assert fresh.restore_on_failure_available is False
     assert fresh.backed_up is False
+
+
+def test_rc1_database_opens_at_head_with_no_new_revision(tmp_path: Path) -> None:
+    """P12's named failure mode: a migration history broken by a changed version table name.
+
+    The fixture is a database file created by a real ``1.0.0rc1`` install (commit ``0a6bc40``,
+    migrated by the pre-adoption in-application runner) — not one this test created — with real
+    rows in it. WeightsDB's runner must find that history's ``alembic_version`` rows, report the
+    database already at head, apply **no** new revision, and leave the rows readable.
+    """
+    fixture = (
+        Path(__file__).parent.parent / "fixtures" / "databases" / "freeweight-1.0.0rc1.sqlite3"
+    )
+    working_copy = tmp_path / "rc1.sqlite3"
+    shutil.copyfile(fixture, working_copy)
+
+    engine = create_engine_for(f"sqlite:///{working_copy}")
+    try:
+        runner = MigrationRunner(engine, script_location=MIGRATIONS_LOCATION)
+        current_before = runner.current()
+        assert current_before is not None, "the rc1 fixture must carry a recorded revision"
+        assert runner.is_at_head(), (
+            f"an rc1 database must open at head; found {current_before!r} "
+            f"against heads {runner.heads()!r} — the version table was not found or the history "
+            "gained a revision the adoption was forbidden to add"
+        )
+
+        outcome = ensure_ready(Database(engine), auto_migrate=True)
+        assert outcome is None, "an rc1 database needs no migration; one ran"
+
+        with engine.connect() as connection:
+            hostname = connection.execute(
+                text("SELECT hostname FROM machines WHERE machine_fingerprint = :fp"),
+                {"fp": "a" * 64},
+            ).scalar_one()
+            cooldown = connection.execute(
+                text("SELECT value_json FROM settings WHERE key = 'execution.cooldown_seconds'")
+            ).scalar_one()
+        assert hostname == "rc1-fixture-host"
+        assert cooldown == 7
+    finally:
+        engine.dispose()

@@ -2,7 +2,7 @@
 
 The one place that turns :class:`~freeweight.config.Settings` into a live database connection.
 Route handlers and CLI command bodies never call
-:func:`~freeweight.infrastructure.db.engine.create_engine_for` directly (CLI standards §1 / coding
+:func:`~weightsdb.engine.create_engine_for` directly (CLI standards §1 / coding
 standards §5); they call a function here, which is what makes ``freeweight health --json`` and
 ``GET /api/v1/health`` report identical database status by construction, the same way Phase 1's
 health report does for the rest of the application.
@@ -18,16 +18,20 @@ from types import TracebackType
 
 from sqlalchemy import Engine, func, select
 from sqlalchemy.orm import Session, sessionmaker
-
-from freeweight.infrastructure.db.backup import database_size_bytes, integrity_check
-from freeweight.infrastructure.db.engine import create_engine_for
-from freeweight.infrastructure.db.errors import (
+from weightsdb import (
     DatabaseError,
     DatabaseUnavailable,
+    MigrationOutcome,
     MigrationRequired,
+    MigrationRunner,
     SchemaAhead,
+    create_engine_for,
+    session_factory,
+    session_scope,
+    transaction,
 )
-from freeweight.infrastructure.db.migration import MigrationOutcome, MigrationRunner
+from weightsdb.backup import database_size_bytes, integrity_check
+
 from freeweight.infrastructure.db.models import (
     ApiToken,
     Machine,
@@ -60,7 +64,6 @@ from freeweight.infrastructure.db.models_runs import (
     TelemetrySample,
     ToolCall,
 )
-from freeweight.infrastructure.db.session import session_factory, session_scope
 from freeweight.services.health import HealthComponent
 
 __all__ = [
@@ -163,7 +166,7 @@ class Database:
 
     Read and write transactions are asked for separately (:meth:`read`, :meth:`write`) because on
     SQLite they are genuinely different transactions — see
-    :data:`~freeweight.infrastructure.db.engine.READ_ONLY_EXECUTION_OPTION`. There is no default;
+    :data:`~weightsdb.engine.READ_ONLY_EXECUTION_OPTION`. There is no default;
     a caller has to say which it wants.
     """
 
@@ -194,10 +197,12 @@ class Database:
         """One read-only unit of work.
 
         Enforced, not merely declared: a write attempted inside this scope is refused by SQLite
-        rather than silently taken. See
-        :func:`~freeweight.infrastructure.db.session.session_scope`.
+        rather than silently taken. WeightsDB's :func:`~weightsdb.session_scope` dropped the
+        ``read_only`` parameter its FreeWeight ancestor had; read-only intent is now declared by
+        composing :func:`~weightsdb.transaction` with ``immediate=False`` inside the scope
+        (WeightsDB adoption checklist §3), which enforces exactly what the old parameter did.
         """
-        with session_scope(self._sessions, read_only=True) as session:
+        with session_scope(self._sessions) as session, transaction(session, immediate=False):
             yield session
 
     @contextmanager
@@ -225,7 +230,7 @@ class Database:
 
 
 def migration_runner(engine: Engine, *, backup_retention: int = 5) -> MigrationRunner:
-    """Build the :class:`~freeweight.infrastructure.db.migration.MigrationRunner` for ``engine``.
+    """Build the :class:`~weightsdb.MigrationRunner` for ``engine``.
 
     Always points at this application's own migration scripts
     (``freeweight/infrastructure/db/migrations``) — every application in the suite owns its own

@@ -76,6 +76,7 @@ from modelrack import GenerationRequest, Message, Role, SamplingParameters
 from modelrack.errors import ProviderError
 from modelrack.residency import find_resident
 from modelrack.streaming import StreamCompleted, StreamFailed, ThinkingDelta, TokenDelta
+from weightsdb import DatabaseUnavailable
 
 from freeweight.__about__ import __version__
 from freeweight.benchmarks.agent import benchmark as agent_benchmark
@@ -131,7 +132,6 @@ from freeweight.domain.scorers.tools import (
     annotate_calls,
 )
 from freeweight.domain.scoring import ScoreResult
-from freeweight.infrastructure.db.errors import DatabaseUnavailable
 from freeweight.infrastructure.db.repositories.calibration import JudgeVerdictRepository
 from freeweight.infrastructure.db.repositories.goals import CriterionScoreRepository
 from freeweight.infrastructure.db.repositories.model_descriptors import ModelDescriptorRepository

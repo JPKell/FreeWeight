@@ -20,9 +20,9 @@ from typing import Annotated, Any
 from baseaicore import SuiteError
 from fastapi import APIRouter, Form, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
+from weightsdb import DatabaseError
 
 from freeweight.__about__ import __version__
-from freeweight.infrastructure.db.errors import DatabaseError
 from freeweight.services.calibration import (
     RunGradeSubmission,
     record_run_grades,

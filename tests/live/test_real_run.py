@@ -152,8 +152,8 @@ def live_environment(provider: Any, tmp_path: Any) -> Any:
     """A migrated database, the real provider, and one discovered model."""
     from datetime import UTC, datetime
 
-    from freeweight.infrastructure.db.engine import create_engine_for
-    from freeweight.infrastructure.db.migration import MigrationRunner
+    from weightsdb import MigrationRunner, create_engine_for
+
     from freeweight.services.database import MIGRATIONS_LOCATION, Database
     from freeweight.services.models import discover_models
     from freeweight.services.runs import build_registry
@@ -848,10 +848,9 @@ def test_a_subjective_goal_is_authored_calibrated_and_scored_on_real_weights(
     import time
 
     from fastapi.testclient import TestClient
+    from weightsdb import MigrationRunner, create_engine_for
 
     from freeweight.config import load_settings
-    from freeweight.infrastructure.db.engine import create_engine_for
-    from freeweight.infrastructure.db.migration import MigrationRunner
     from freeweight.services.database import MIGRATIONS_LOCATION
     from freeweight.web.app import create_app
 

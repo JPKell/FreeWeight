@@ -17,11 +17,11 @@ from datetime import UTC, datetime
 import pytest
 from sqlalchemy import Engine
 from sqlalchemy.orm import Session, sessionmaker
+from weightsdb import session_factory, session_scope
 
 from freeweight.infrastructure.db.models import Model
 from freeweight.infrastructure.db.repositories.machines import MachineRepository
 from freeweight.infrastructure.db.repositories.models import ModelRepository
-from freeweight.infrastructure.db.session import session_factory, session_scope
 
 DIGEST = "sha256:" + "a" * 64
 

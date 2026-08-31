@@ -70,8 +70,7 @@ def _open(config: str | None) -> Iterator[tuple[Settings, Database]]:
 def _exit_for(exc: Exception) -> typer.Exit:
     """Map a service failure onto the documented exit codes (CLI standards §4)."""
     from baseaicore import SuiteError
-
-    from freeweight.infrastructure.db.errors import DatabaseError
+    from weightsdb import DatabaseError
 
     if isinstance(exc, DatabaseError):
         typer.echo(f"Error: {exc.message} ({exc.code})", err=True)

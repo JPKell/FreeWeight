@@ -32,9 +32,9 @@ from typing import TYPE_CHECKING, Annotated, Any
 from baseaicore import NotFoundError, SuiteError, ValidationError, from_rfc3339
 from fastapi import APIRouter, Query, Request
 from fastapi.responses import HTMLResponse, StreamingResponse
+from weightsdb import DatabaseError
 
 from freeweight.__about__ import __version__
-from freeweight.infrastructure.db.errors import DatabaseError
 from freeweight.services.export import (
     ExportFormat,
     ExportScope,

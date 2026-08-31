@@ -115,6 +115,23 @@ class TestTheShippedPack:
         assert library.pack_id == "freeweight.core"
         assert library.ids()
 
+    def test_the_pack_hash_is_the_golden_one_recorded_across_the_setspec_adoption(self) -> None:
+        """The P12 acceptance criterion for the `setspec.prompts` adoption (ADR-0028 §2).
+
+        This literal was computed by the pre-adoption in-application implementation over the
+        shipped pack, and the adoption's claim is byte-identity: the same records, hashed by
+        `setspec.prompts`, produce the same value. A benchmark's `prompt_subset_hash` reaches the
+        reproducibility fingerprint and separates evidence across applications, so a hasher that
+        drifted here would silently separate results that share every prompt they used. Editing a
+        shipped prompt legitimately changes this — update the literal in the same commit, with the
+        prompt-standards version bump that edit already requires.
+        """
+        library = load_pack()
+        assert (
+            library.pack_hash()
+            == "sha256:b1b0ffd0a5941fee5e0013d2a826732ea02a285b229bdc006ebd6dd25ff4ceb4"
+        )
+
     def test_every_record_renders_with_its_documented_variables(self) -> None:
         library = load_pack()
         for record in library.all_records():

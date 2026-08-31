@@ -24,6 +24,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from weightsdb import MigrationRunner, create_engine_for
 
 from freeweight.domain.goals.lint import Severity
 from freeweight.domain.jury import assemble_jury
@@ -37,8 +38,6 @@ from freeweight.goals.starters import (
     load_starter_calibration,
     starter_directory,
 )
-from freeweight.infrastructure.db.engine import create_engine_for
-from freeweight.infrastructure.db.migration import MigrationRunner
 from freeweight.services.calibration import (
     GradeSubmission,
     add_samples,

@@ -45,11 +45,11 @@ from sqlalchemy import (
     UniqueConstraint,
 )
 from sqlalchemy.orm import Mapped, mapped_column
+from weightsdb import PortableJSON, UtcDateTime, ulid_primary_key
 
 from freeweight.infrastructure.db import models as _models  # noqa: F401 — see below
 from freeweight.infrastructure.db import models_runs as _models_runs  # noqa: F401 — see below
 from freeweight.infrastructure.db.base import Base, utcnow
-from freeweight.infrastructure.db.types import PortableJSON, UtcDateTime, ulid_primary_key
 
 # The two sibling model modules are imported for their side effect of registering ``models``,
 # ``samples`` and the rest on the shared ``Base.metadata``. Three tables here point at them —

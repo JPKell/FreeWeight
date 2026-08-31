@@ -1,7 +1,7 @@
 """Unit tests for the ``freeweight db`` service layer's dialect handling.
 
 The paths here are the ones that used to be SQLite-only by accident: ``freeweight db backup`` with
-no ``--output`` reached :func:`~freeweight.infrastructure.db.backup.sqlite_path` on a PostgreSQL
+no ``--output`` reached :func:`~weightsdb.backup.sqlite_path` on a PostgreSQL
 engine and failed with "Expected a SQLite engine", which is a true statement about a call the
 operator never made.
 """
@@ -10,8 +10,9 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from weightsdb import create_engine_for
+
 from freeweight.config import data_dir
-from freeweight.infrastructure.db.engine import create_engine_for
 from freeweight.services.database_admin import _backups_dir, _default_backup_path
 
 

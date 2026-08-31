@@ -21,9 +21,9 @@ from typing import TYPE_CHECKING, Annotated
 from baseaicore import NotFoundError, ValidationError, from_rfc3339
 from fastapi import APIRouter, Query, Request
 from fastapi.responses import HTMLResponse
+from weightsdb import DatabaseError
 
 from freeweight.__about__ import __version__
-from freeweight.infrastructure.db.errors import DatabaseError
 from freeweight.services.results import DashboardFilter, build_dashboard
 from freeweight.web.rendering import render
 

@@ -19,9 +19,13 @@ classifiers = [
     "Programming Language :: Python :: 3.13",
     "Typing :: Typed",
 ]
-# weightsdb and mirrorwall are adopted at Phase 12 (extracted from this application's own in-app plumbing at LoadCoach P1/P4); not a dependency until then.
 dependencies = [
     "baseaicore>=0.4,<0.5",
+    # Adopted at Phase 12: both were extracted from this application's own in-app plumbing at
+    # LoadCoach P1/P4 (ADR-0011), and the in-app copies are deleted in the same phase. The
+    # acceptance criterion for the swap was the pre-existing test suite passing unchanged.
+    "weightsdb>=0.2,<0.3",
+    "mirrorwall>=0.2,<0.3",
     # 0.4 adds setspec.prompts (SetSpec Phase 5): the prompt loader, renderer and hasher this
     # module now delegates to (freeweight.services.prompts is a thin default-path wrapper around
     # it as of this release) — extracted from this application's own in-app implementation at
