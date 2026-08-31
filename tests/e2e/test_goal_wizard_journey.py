@@ -583,3 +583,31 @@ class TestGoalResultsCarryTheirMix:
         assert page.status_code == 200
         assert "Score method mix" in page.text
         assert "Deterministic, free, and never disagrees with you." in page.text
+
+
+class TestEveryWizardPageSurvivesAFreshGet:
+    """The M6-3 defect class, held down for the whole wizard.
+
+    StrictUndefined turns a missing sticky-value default into a 500, and only on the fresh GET:
+    the POST error paths echo the submitted values back, so journeys that drive the forms never
+    render a page the way a browser reaches it first. ``GET /goals/new`` shipped exactly that way
+    at 1.0.0rc1 — ``{{ intent or '' }}`` with no ``intent`` in the fresh-GET context — and no
+    test asked for the page a user sees before typing anything.
+    """
+
+    def test_the_intent_page_renders_fresh(self, client: TestClient) -> None:
+        response = client.get("/goals/new")
+        assert response.status_code == 200, response.text[:300]
+        assert 'name="intent"' in response.text
+
+    def test_every_draft_step_renders_fresh(self, client: TestClient) -> None:
+        started = client.post(
+            "/goals/new",
+            data={"intent": "Essays that sound like me.", "name": "Voice"},
+            follow_redirects=False,
+        )
+        assert started.status_code == 303, started.text[:300]
+        draft_id = _draft_id(started)
+        for step in ("criteria", "rules", "tasks", "save"):
+            response = client.get(f"/goals/new/{draft_id}/{step}")
+            assert response.status_code == 200, f"{step}: {response.text[:300]}"

@@ -172,7 +172,11 @@ def customise_starter_form(request: Request, key: str) -> Any:  # noqa: ANN401
 def wizard_start(request: Request) -> HTMLResponse:
     """Step 1: what are you trying to get?"""
     del request
-    return _page("goals/wizard_intent.html", step=WizardStep.INTENT, error=None)
+    # `intent` must be passed explicitly: the template renders `{{ intent or '' }}` as the
+    # sticky form value, and StrictUndefined turns the omission into a 500 on the fresh GET —
+    # the M6-3 defect class, which the POST error path below never hits because it echoes the
+    # submitted text back.
+    return _page("goals/wizard_intent.html", step=WizardStep.INTENT, error=None, intent="")
 
 
 @router.post("/goals/new")
