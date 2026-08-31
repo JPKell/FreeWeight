@@ -1,0 +1,40 @@
+/* freeweight/app.css — the rules that are FreeWeight's, not MirrorWall's.
+
+   MirrorWall ships the shell, tokens, tables and generic components; anything naming this
+   application's own vocabulary (run states, the event log, the comparison heatmap, the scatter
+   and telemetry charts) stays here — the package's term-scan test forbids it there, and rightly.
+   Copied verbatim from the pre-Phase-12 inline style block so the swap changes nothing visible. */
+
+/* UI standards §4.1: colour is never the only signal, so a status is always its own word as well
+   as its colour, and the border carries it in monochrome and forced-colours mode. These map this
+   application's run/sample states onto the token palette. */
+.status-queued, .status-pending, .status-cancelled, .status-skipped { color: var(--mw-text-muted); }
+.status-preparing, .status-warming { color: var(--mw-info); }
+.status-running, .status-cancelling, .status-awaiting_judgement { color: var(--mw-accent); }
+.status-completed, .status-passed { color: var(--mw-success); }
+.status-failed, .status-timeout { color: var(--mw-danger); }
+.status-interrupted, .status-degraded { color: var(--mw-warning); }
+
+/* Charts are decoration over a table that carries the same figures, so a reader who cannot see
+   them loses nothing (UI standards §5, §7). */
+.telemetry-chart {
+  width: 100%;
+  height: 6rem;
+  border-bottom: 1px solid var(--mw-border);
+  border-left: 1px solid var(--mw-border);
+}
+.scatter { width: 100%; max-width: 34rem; height: 16rem; }
+.scatter .axis { stroke: var(--mw-border); stroke-width: 1; }
+.scatter .point { fill: var(--mw-chart-1); }
+/* 11px is the small-label size from UI standards §2 and the floor for any text in the UI. */
+.scatter .label { fill: var(--mw-text-muted); font-size: 11px; }
+
+.heatmap td.cell { font-variant-numeric: tabular-nums; text-align: right; }
+.heatmap td.cell a { text-decoration: none; }
+.heatmap .best { font-weight: 700; }
+.heatmap .separated { border-left: 3px double var(--mw-warning); }
+
+.event-log { font-variant-numeric: tabular-nums; max-height: 24rem; overflow-y: auto; }
+.event-log li { margin-bottom: var(--mw-space-1); }
+progress { width: 100%; }
+.band { font-weight: 650; }

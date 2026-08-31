@@ -1,50 +1,7 @@
-<style>
-  .telemetry-bar {
-    display: flex;
-    align-items: center;
-    gap: 1rem;
-    height: var(--mw-telemetry-h);
-    font-variant-numeric: tabular-nums;
-    font-size: 0.875rem;
-    color: var(--mw-text-muted);
-    border-top: 1px solid var(--mw-border);
-    overflow-x: auto;
-    white-space: nowrap;
-  }
-  .telemetry-field { display: inline-flex; align-items: baseline; gap: 0.35rem; }
-  .telemetry-label { font-weight: 600; }
-  .telemetry-value { display: inline-block; min-width: 3.5ch; text-align: right; }
-  .telemetry-value--temp::after { content: "\00b0C"; }
-  .telemetry-value--percent::after { content: "%"; }
-  .telemetry-value--power::after { content: "W"; }
-  .telemetry-sep { border-left: 1px solid var(--mw-border); height: 1rem; }
-  .telemetry-unit { color: var(--mw-text-muted); }
-</style>
-<div class="telemetry-bar" id="telemetry-bar" aria-label="System telemetry">
-  <span class="telemetry-field" data-group="cpu">
-    <span class="telemetry-label">CPU</span>
-    <span class="telemetry-value telemetry-value--percent" data-field="cpu_percent">—</span>
-    <span class="telemetry-value telemetry-value--temp" data-field="cpu_temperature_c">—</span>
-  </span>
-  <span class="telemetry-sep" aria-hidden="true"></span>
-  <span class="telemetry-field" data-group="ram">
-    <span class="telemetry-label">RAM</span>
-    <span class="telemetry-value" data-field="ram_used_bytes">—</span>
-    <span class="telemetry-unit">/</span>
-    <span class="telemetry-value" data-field="ram_total_bytes">—</span>
-  </span>
-  <span class="telemetry-sep" aria-hidden="true"></span>
-  <span class="telemetry-field" data-group="gpu">
-    <span class="telemetry-label">GPU</span>
-    <span class="telemetry-value telemetry-value--percent" data-field="gpu_utilization_percent">—</span>
-    <span class="telemetry-value telemetry-value--temp" data-field="gpu_temperature_c">—</span>
-    <span class="telemetry-value telemetry-value--power" data-field="gpu_power_watts">—</span>
-  </span>
-  <span class="telemetry-sep" aria-hidden="true"></span>
-  <span class="telemetry-field" data-group="vram">
-    <span class="telemetry-label">VRAM</span>
-    <span class="telemetry-value" data-field="gpu_vram_used_bytes">—</span>
-    <span class="telemetry-unit">/</span>
-    <span class="telemetry-value" data-field="gpu_vram_total_bytes">—</span>
-  </span>
-</div>
+{# partials/telemetry_bar.html — MirrorWall's bar, kept at this path.
+
+   The markup moved to MirrorWall at Phase 12 (the bar was extracted from this very partial at
+   LoadCoach P4). The include keeps the historical template name working — mirrorwall/base.html
+   includes the package template directly, and anything that renders this partial on its own
+   (tests do) gets the same markup by construction rather than a drifting copy. #}
+{% include "mirrorwall/telemetry_bar.html" %}

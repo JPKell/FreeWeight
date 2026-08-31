@@ -19,19 +19,19 @@
 
 {% if proposals %}
 {% for proposal in proposals %}
-<h3 id="{{ proposal.criterion }}-{{ proposal.rule_type }}">
-  {{ proposal.criterion }} &rarr; <code>{{ proposal.rule_type }}</code>
+<h3 id="{{ proposal.criterion_key }}-{{ proposal.rule_type }}">
+  {{ proposal.criterion_key }} &rarr; <code>{{ proposal.rule_type }}</code>
   {% if proposal.accepted %}<span class="status status-completed">accepted</span>{% endif %}
 </h3>
 <p class="muted">{{ proposal.explanation }}</p>
 {% if not proposal.accepted %}
 <form method="post" action="/goals/new/{{ draft.draft_id }}/rules">
   <input type="hidden" name="action" value="accept">
-  <input type="hidden" name="criterion" value="{{ proposal.criterion }}">
+  <input type="hidden" name="criterion" value="{{ proposal.criterion_key }}">
   <input type="hidden" name="rule_type" value="{{ proposal.rule_type }}">
   <div class="field">
-    <label for="p-{{ proposal.criterion }}-{{ proposal.rule_type }}">Parameters (editable JSON)</label>
-    <textarea id="p-{{ proposal.criterion }}-{{ proposal.rule_type }}" name="parameters"
+    <label for="p-{{ proposal.criterion_key }}-{{ proposal.rule_type }}">Parameters (editable JSON)</label>
+    <textarea id="p-{{ proposal.criterion_key }}-{{ proposal.rule_type }}" name="parameters"
               rows="6" cols="70">{{ proposal.parameters | tojson(indent=2) }}</textarea>
   </div>
   <p>

@@ -91,14 +91,45 @@ def contrast_ratio(foreground: str, background: str) -> float:
     return (lighter + 0.05) / (darker + 0.05)
 
 
-def _tokens(html: str, *, block: str) -> dict[str, str]:
-    """Parse the ``--mw-*`` colours out of one CSS block of the rendered page."""
-    start = html.index(block)
-    end = html.index("}", start)
+def _tokens(css: str, *, block: str) -> dict[str, str]:
+    """Parse the ``--mw-*`` colours out of one block of the served tokens stylesheet."""
+    start = css.index(block)
+    end = css.index("}", start)
     return {
         name: value
-        for name, value in re.findall(r"(--mw-[a-z0-9-]+):\s*(#[0-9A-Fa-f]{6})", html[start:end])
+        for name, value in re.findall(r"(--mw-[a-z0-9-]+):\s*(#[0-9A-Fa-f]{6})", css[start:end])
     }
+
+
+def _tokens_css(client: TestClient) -> str:
+    """Fetch the tokens stylesheet the rendered page actually links.
+
+    Since Phase 12 the palette lives in MirrorWall's ``tokens.css`` (served under a
+    content-hashed URL) rather than an inline ``<style>`` block, so the checklist follows the
+    page's own ``<link>`` to it — the same route a browser takes.
+    """
+    html = client.get("/").text
+    match = re.search(r'href="([^"]*mirrorwall/css/tokens\.css[^"]*)"', html)
+    assert match, "the page no longer links MirrorWall's tokens.css"
+    response = client.get(match.group(1))
+    assert response.status_code == 200
+    return str(response.text)
+
+
+def _page_with_styles(client: TestClient, path: str = "/") -> str:
+    """A page's HTML with every stylesheet it links appended.
+
+    Before Phase 12 the shell's CSS was one inline ``<style>`` block, so a property assertion
+    could read the page alone. The rules now live in MirrorWall's stylesheets; what a browser
+    applies is the page plus its links, so that is what these assertions read.
+    """
+    html: str = client.get(path).text
+    sheets: list[str] = []
+    for href in re.findall(r'<link rel="stylesheet" href="([^"]+)"', html):
+        response = client.get(href)
+        assert response.status_code == 200, href
+        sheets.append(str(response.text))
+    return html + "\n".join(sheets)
 
 
 # The pairs the application actually renders. Foreground, background, and the minimum the standard
@@ -136,7 +167,7 @@ class TestContrastInBothThemes:
     def test_light_theme(
         self, client: TestClient, foreground: str, background: str, minimum: float
     ) -> None:
-        tokens = _tokens(client.get("/").text, block=":root {")
+        tokens = _tokens(_tokens_css(client), block=":root {")
         ratio = contrast_ratio(tokens[foreground], tokens[background])
         assert ratio >= minimum, f"{foreground} on {background} is {ratio:.2f}:1 in light"
 
@@ -144,9 +175,9 @@ class TestContrastInBothThemes:
     def test_dark_theme(
         self, client: TestClient, foreground: str, background: str, minimum: float
     ) -> None:
-        html = client.get("/").text
-        light = _tokens(html, block=":root {")
-        dark = light | _tokens(html, block=':root[data-theme="dark"] {')
+        css = _tokens_css(client)
+        light = _tokens(css, block=":root {")
+        dark = light | _tokens(css, block=':root[data-theme="dark"] {')
         ratio = contrast_ratio(dark[foreground], dark[background])
         assert ratio >= minimum, f"{foreground} on {background} is {ratio:.2f}:1 in dark"
 
@@ -154,8 +185,7 @@ class TestContrastInBothThemes:
         self, client: TestClient
     ) -> None:
         """A dark theme is a designed palette, not an inversion (UI standards §9)."""
-        html = client.get("/").text
-        dark = _tokens(html, block=':root[data-theme="dark"] {')
+        dark = _tokens(_tokens_css(client), block=':root[data-theme="dark"] {')
 
         for token in (
             "--mw-bg",
@@ -183,7 +213,7 @@ class TestTheShell:
         """UI standards §3: the telemetry bar is on every page of every application."""
         for path in PAGES:
             response = client.get(path)
-            assert 'id="telemetry-bar"' in response.text, path
+            assert 'id="mw-telemetry-bar"' in response.text, path
 
     def test_the_current_page_is_marked_for_assistive_technology(self, client: TestClient) -> None:
         for path in ("/dashboard", "/results", "/database", "/settings"):
@@ -220,9 +250,9 @@ class TestDataDisplay:
     def test_the_base_palette_defines_every_colour_outside_a_media_query(
         self, client: TestClient
     ) -> None:
-        html = client.get("/").text
-        base = _tokens(html, block=":root {")
-        media = html[html.index("@media (prefers-color-scheme: dark)") :]
+        css = _tokens_css(client)
+        base = _tokens(css, block=":root {")
+        media = css[css.index("@media (prefers-color-scheme: dark)") :]
         inside = set(re.findall(r"(--mw-[a-z0-9-]+):\s*#", media))
 
         assert inside <= set(base), (
@@ -231,10 +261,10 @@ class TestDataDisplay:
 
     def test_metrics_use_tabular_numerals(self, client: TestClient) -> None:
         """UI standards §2: live values must not shift the layout."""
-        assert "font-variant-numeric: tabular-nums" in client.get("/").text
+        assert "font-variant-numeric: tabular-nums" in _page_with_styles(client)
 
     def test_metadata_text_is_never_below_12px(self, client: TestClient) -> None:
-        html = client.get("/").text
+        html = _page_with_styles(client)
         sizes = [int(value) for value in re.findall(r"font-size:\s*(\d+)px", html)]
 
         assert sizes, "no explicit font sizes found to check"
@@ -295,7 +325,11 @@ class TestStatesAndSignals:
         assert source.count('<th scope="col"') >= 16, "the results table lost columns"  # noqa: PLR2004
         assert 'data-table="results"' in source
         assert "table-scroll" in source, "a wide table must scroll rather than truncate meaning"
-        script = (STATIC / "js" / "table.js").read_text(encoding="utf-8")
+        import mirrorwall
+
+        script = (Path(mirrorwall.__file__).parent / "static" / "js" / "table.js").read_text(
+            encoding="utf-8"
+        )
         assert "wireColumnVisibility" in script
         # Sorting is wired only where the server rendered the whole result set, so a page's sort
         # can never claim to have sorted a dataset it does not hold.
@@ -358,7 +392,7 @@ class TestProgressiveEnhancement:
 
 class TestKeyboardOperation:
     def test_focus_is_always_visible(self, client: TestClient) -> None:
-        html = client.get("/").text
+        html = _page_with_styles(client)
 
         assert ":focus-visible" in html
         assert "outline: none" not in html
@@ -380,4 +414,4 @@ class TestKeyboardOperation:
                 )
 
     def test_motion_is_disabled_when_the_reader_asks(self, client: TestClient) -> None:
-        assert "@media (prefers-reduced-motion: reduce)" in client.get("/").text
+        assert "@media (prefers-reduced-motion: reduce)" in _page_with_styles(client)

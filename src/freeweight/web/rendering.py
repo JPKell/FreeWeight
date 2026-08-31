@@ -1,66 +1,73 @@
 """freeweight.web.rendering — the one Jinja environment every page renders through.
 
-One environment for the whole application, built once: templates are compiled and cached on it,
-so a per-request environment would recompile the layout on every page view and quietly discard the
-cache that makes the second view fast.
+Since Phase 12 this is MirrorWall's environment, not a local one: the shell, the component macros,
+the design tokens and the shared filters come from the package, and this module supplies only what
+is FreeWeight's — the product name, the navigation, the theme-storage key the pre-Phase-12 UI
+already used (so a user's stored choice survives the adoption), and the template directory holding
+this application's own pages.
 
-Autoescaping is on for HTML by default (:func:`jinja2.select_autoescape`) — a model name, a
-hostname and a provider error message all reach a template from outside this process, and none of
-them are trusted markup.
+Built once and cached: templates are compiled and cached on the environment, so a per-request
+environment would recompile the layout on every page view and quietly discard the cache that makes
+the second view fast.
 """
 
 from __future__ import annotations
 
-from datetime import datetime
 from functools import lru_cache
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-from baseaicore.timeutil import to_rfc3339
-from jinja2 import Environment, FileSystemLoader, select_autoescape
+from mirrorwall import create_template_environment
 
-__all__ = ["render", "templates"]
+from freeweight.__about__ import __version__
+
+if TYPE_CHECKING:
+    from jinja2 import Environment
+
+__all__ = ["NAV_ITEMS", "TELEMETRY_STREAM_URL", "render", "templates"]
 
 _TEMPLATES_DIR = Path(__file__).parent / "templates"
 
+TELEMETRY_STREAM_URL = "/api/v1/system/telemetry/stream"
 
-def _format_bytes(value: int | None) -> str:
-    """Render a byte count at human scale; ``None`` becomes an em dash, never ``0``.
-
-    An unreported RAM total and a machine with no RAM are different facts, and UI standards §3 is
-    explicit that an unavailable reading shows ``—`` rather than a zero someone might average.
-    """
-    if value is None:
-        return "\u2014"
-    if value < 1024:
-        return f"{value} B"
-    scaled = float(value)
-    for unit in ("KiB", "MiB", "GiB", "TiB"):
-        scaled /= 1024
-        if scaled < 1024 or unit == "TiB":
-            return f"{scaled:.1f} {unit}"
-    raise AssertionError("unreachable: the TiB branch always returns")  # pragma: no cover
-
-
-def _format_timestamp(value: datetime | None) -> str:
-    """Render an instant as RFC 3339 in UTC; ``None`` becomes an em dash."""
-    if value is None:
-        return "\u2014"
-    return to_rfc3339(value)
+NAV_ITEMS: tuple[dict[str, str], ...] = (
+    {"key": "home", "href": "/", "label": "Overview"},
+    {"key": "dashboard", "href": "/dashboard", "label": "Dashboard"},
+    {"key": "machines", "href": "/machines", "label": "Machines"},
+    {"key": "models", "href": "/models", "label": "Models"},
+    {"key": "runs", "href": "/runs", "label": "Runs"},
+    {"key": "results", "href": "/results", "label": "Results"},
+    {"key": "compare", "href": "/compare", "label": "Compare"},
+    {"key": "evidence", "href": "/evidence", "label": "Evidence"},
+    {"key": "goals", "href": "/goals", "label": "Goals"},
+    {"key": "database", "href": "/database", "label": "Database"},
+    {"key": "settings", "href": "/settings", "label": "Settings"},
+)
 
 
 @lru_cache(maxsize=1)
 def templates() -> Environment:
-    """Return the process-wide Jinja environment, building it on first use."""
-    environment = Environment(
-        loader=FileSystemLoader(_TEMPLATES_DIR),
-        autoescape=select_autoescape(),
-        auto_reload=False,
-        trim_blocks=True,
-        lstrip_blocks=True,
+    """Return the process-wide Jinja environment, building it on first use.
+
+    MirrorWall supplies autoescaping, ``StrictUndefined`` and the shared filters; this function
+    adds only the shell's slot values and one alias: ``bytes`` names MirrorWall's ``bytes_human``,
+    because every pre-Phase-12 template already renders byte counts through that filter name and
+    the two implementations agree (em dash for an absent value, never ``0``).
+    """
+    environment = create_template_environment(
+        app_template_dirs=(_TEMPLATES_DIR,),
+        globals_={
+            "product_name": "FreeWeight",
+            "product_version": __version__,
+            "nav_items": NAV_ITEMS,
+            # The key the pre-Phase-12 shell already wrote; keeping it means a user's stored
+            # theme choice survives the MirrorWall adoption instead of silently resetting.
+            "theme_storage_key": "freeweight-theme",
+            "show_telemetry_bar": True,
+            "telemetry_stream_url": TELEMETRY_STREAM_URL,
+        },
     )
-    environment.filters["bytes"] = _format_bytes
-    environment.filters["timestamp"] = _format_timestamp
+    environment.filters["bytes"] = environment.filters["bytes_human"]
     return environment
 
 

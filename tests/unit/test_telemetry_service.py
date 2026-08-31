@@ -9,9 +9,11 @@ platform.
 from __future__ import annotations
 
 import json
+import re
 import threading
 import time
 from datetime import UTC, datetime
+from pathlib import Path
 
 import pytest
 from baseaicore import UNSUPPORTED, UnsupportedPlatformError
@@ -200,9 +202,16 @@ class TestTelemetryBarLayout:
         html = render("partials/telemetry_bar.html")
 
         # telemetry.js only ever replaces a field's textContent (never restructures the DOM), and
-        # every field it targets carries the fixed-width rule below — together, that is what keeps
-        # a value updating every second from moving anything around it (UI Standards §3).
-        assert "min-width" in html
+        # every field it targets carries the fixed-width rule — together, that is what keeps a
+        # value updating every second from moving anything around it (UI Standards §3). Since
+        # Phase 12 the rule lives in MirrorWall's layout.css rather than an inline style block,
+        # so that stylesheet is where the width is asserted.
+        import mirrorwall
+
+        layout_css = (Path(mirrorwall.__file__).parent / "static" / "css" / "layout.css").read_text(
+            encoding="utf-8"
+        )
+        assert re.search(r"\.telemetry-value\s*\{[^}]*min-width", layout_css)
         for field in (
             "cpu_percent",
             "cpu_temperature_c",

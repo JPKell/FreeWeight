@@ -15,6 +15,12 @@ from pathlib import Path
 from fastapi import FastAPI
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
+from mirrorwall import (
+    HostValidationMiddleware,
+    RequestIdMiddleware,
+    loopback_allowlist,
+    mount_static,
+)
 
 from freeweight.__about__ import __version__
 from freeweight.config import LOOPBACK_HOSTS, Settings
@@ -26,12 +32,8 @@ from freeweight.services.scheduler import RunScheduler
 from freeweight.services.settings import apply_stored
 from freeweight.services.telemetry import TelemetryService, build_collector
 from freeweight.web.errors import register_exception_handlers
-from freeweight.web.middleware import (
-    BodySizeLimitMiddleware,
-    HostValidationMiddleware,
-    RequestIdMiddleware,
-)
-from freeweight.web.rendering import render
+from freeweight.web.middleware import BodySizeLimitMiddleware
+from freeweight.web.rendering import render, templates
 from freeweight.web.routes import benchmarks as benchmarks_routes
 from freeweight.web.routes import calibration as calibration_routes
 from freeweight.web.routes import compare as compare_routes
@@ -58,7 +60,7 @@ def _resolve_allowed_hosts(settings: Settings) -> frozenset[str]:
     """The Host-header allowlist for this bind (ADR-0026 §1)."""
     host = settings.server.host.lower()
     if host in LOOPBACK_HOSTS:
-        return frozenset({"localhost", "127.0.0.1", "::1", host})
+        return loopback_allowlist(host)
     return frozenset(name.lower() for name in settings.server.allowed_hosts) | {host}
 
 
@@ -221,6 +223,13 @@ def create_app(settings: Settings, *, goals: Sequence[LoadedGoal] = ()) -> FastA
     app.include_router(evidence_routes.router)
     app.include_router(grading_routes.router)
 
+    # MirrorWall's own assets (tokens, layout and component CSS, theme/table/SSE/telemetry JS),
+    # served from the installed package: no CDN, no network request at page load. Passing the
+    # environment swaps the plain `asset_url` filter for the hashing one, so every template emits
+    # cacheable URLs without a template change. Mounted before the application's own `/static`
+    # because MirrorWall serves under `/static/mirrorwall` and Starlette matches mounts in
+    # registration order — the broader prefix would otherwise swallow the package's.
+    mount_static(app, environment=templates())
     if _STATIC_DIR.is_dir():
         app.mount("/static", StaticFiles(directory=_STATIC_DIR), name="static")
 

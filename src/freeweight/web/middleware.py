@@ -1,11 +1,10 @@
-"""freeweight.web.middleware — request IDs, Host validation and body-size limits.
+"""freeweight.web.middleware — the request body-size limit.
 
-Written as plain ASGI middleware (a callable class wrapping ``app``), not
-``starlette.middleware.base.BaseHTTPMiddleware``: the latter runs the downstream app in a separate
-task internally in some Starlette versions, which can detach the response from the
-``contextvars`` context the request-ID middleware sets. A plain ASGI class runs everything in the
-same coroutine, so :func:`freeweight.observability.logging.bind_context` reliably covers every log
-record produced while handling the request.
+Request-ID assignment and ``Host`` validation moved to MirrorWall at Phase 12 (ADR-0026 §1: one
+implementation of a security control across the suite, not three subtly different ones). The body
+limit stays here because MirrorWall deliberately ships none — the right cap is an application
+decision. Written as plain ASGI middleware (a callable class wrapping ``app``), not
+``BaseHTTPMiddleware``, so everything runs in the same coroutine as the request.
 """
 
 from __future__ import annotations
@@ -16,14 +15,13 @@ from typing import Final
 
 from baseaicore import new_id
 from baseaicore.timeutil import to_rfc3339, utc_now
-from starlette.datastructures import Headers, MutableHeaders
+from starlette.datastructures import Headers
 from starlette.responses import JSONResponse
-from starlette.types import ASGIApp, Message, Receive, Scope, Send
+from starlette.types import ASGIApp, Receive, Scope, Send
 
-from freeweight.observability.logging import bind_context
 from freeweight.web.errors import ErrorDetail, ErrorEnvelope
 
-__all__ = ["BodySizeLimitMiddleware", "HostValidationMiddleware", "RequestIdMiddleware"]
+__all__ = ["BodySizeLimitMiddleware"]
 
 logger = logging.getLogger(__name__)
 
@@ -58,74 +56,6 @@ def _error_body(
         )
     )
     return envelope.model_dump(mode="json")
-
-
-class RequestIdMiddleware:
-    """Assigns or echoes a request ID; binds it into every log record for the request's duration."""
-
-    def __init__(self, app: ASGIApp) -> None:
-        """Wrap ``app``."""
-        self.app = app
-
-    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
-        """Assign or echo the request ID, bind it into the log context, and add response headers."""
-        if scope["type"] != "http":
-            await self.app(scope, receive, send)
-            return
-
-        headers = Headers(scope=scope)
-        supplied = headers.get("x-request-id")
-        request_id = supplied if supplied and _valid_request_id(supplied) else new_id()
-        scope.setdefault("state", {})
-        scope["state"]["request_id"] = request_id
-
-        async def send_wrapper(message: Message) -> None:
-            if message["type"] == "http.response.start":
-                mutable_headers = MutableHeaders(raw=list(message["headers"]))
-                mutable_headers["X-Request-ID"] = request_id
-                mutable_headers["X-Api-Version"] = "v1"
-                if "cache-control" not in mutable_headers:
-                    mutable_headers["Cache-Control"] = "no-store"
-                message["headers"] = mutable_headers.raw
-            await send(message)
-
-        with bind_context(request_id=request_id):
-            await self.app(scope, receive, send_wrapper)
-
-
-class HostValidationMiddleware:
-    """Rejects any request whose ``Host`` header is not on the allowlist (ADR-0026 §1)."""
-
-    def __init__(self, app: ASGIApp, *, allowed_hosts: frozenset[str]) -> None:
-        """Wrap ``app``, accepting only requests whose ``Host`` header is in ``allowed_hosts``."""
-        self.app = app
-        self._allowed_hosts = allowed_hosts
-
-    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
-        """Reject a mismatched ``Host`` header with 421 before the request reaches routing."""
-        if scope["type"] != "http":
-            await self.app(scope, receive, send)
-            return
-
-        headers = Headers(scope=scope)
-        host_header = headers.get("host", "")
-        host = _split_host(host_header)
-        if host not in self._allowed_hosts:
-            logger.warning("request.host_rejected", extra={"host": host_header})
-            request_id = scope.get("state", {}).get("request_id") or new_id()
-            response = JSONResponse(
-                status_code=421,
-                content=_error_body(
-                    code="MISDIRECTED_REQUEST",
-                    message="The Host header does not match an allowed hostname for this server.",
-                    request_id=request_id,
-                    details={"host": host_header},
-                ),
-                headers={"X-Request-ID": request_id},
-            )
-            await response(scope, receive, send)
-            return
-        await self.app(scope, receive, send)
 
 
 class BodySizeLimitMiddleware:

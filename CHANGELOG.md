@@ -16,6 +16,22 @@ packaging and release standards §3.
   migration revisions keep importing by their historical path. FreeWeight's models, declarative
   base and migration history are untouched: an existing 1.0.0rc1 database opens at head with no
   new revision, proven against a database file from a real rc1 install.
+
+- Adopted `mirrorwall` (0.2.x) for the web shell: the base template, design tokens, layout and
+  component CSS, theme/table/SSE/telemetry JS, the Jinja environment (`create_template_environment`,
+  `StrictUndefined`, the shared filters) and the request-ID and Host-validation middleware all come
+  from the package; FreeWeight keeps its own pages, navigation, and an `app.css` carrying only the
+  rules that name this application's vocabulary (run-state colours, the event log, the comparison
+  heatmap, the scatter and telemetry charts). The palette is byte-identical to the pre-adoption
+  inline one; before/after full-page snapshots of every page differ only in live telemetry values,
+  except the evidence page, where MirrorWall's `table.js` — now loaded on every page by the shared
+  base — adds the column-visibility control and sortable headers to a table that previously had no
+  script (an intended enhancement). The telemetry bar's element id changed to `mw-telemetry-bar`
+  and localStorage column-preference keys to `mirrorwall-columns:*`, both extraction renames.
+  `StrictUndefined` surfaced two latent template defects, both fixed: the run form's sticky values
+  rendered blank on the plain page (`form_suite`/`form_model`/`form_label` had no defaults), and
+  the goal wizard's rule step referenced `proposal.criterion` where the object's attribute is
+  `criterion_key`, so its headings, anchors and hidden form value silently rendered empty.
 - **`freeweight.services.prompts` now delegates to `setspec.prompts` (`setspec>=0.4,<0.5`).**
   The prompt record loader, validator, `StrictUndefined` renderer and both hash functions
   (`prompt_record_hash`, `prompt_subset_hash`/`pack_hash`) moved to `setspec.prompts` at SetSpec
