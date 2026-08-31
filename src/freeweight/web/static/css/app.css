@@ -38,3 +38,32 @@
 .event-log li { margin-bottom: var(--mw-space-1); }
 progress { width: 100%; }
 .band { font-weight: 650; }
+
+/* Responsive safety net (UI/UX §13: "Layout is correct at 375 px"). MirrorWall's `.table-scroll`
+   wrapper is the intended way to keep a wide table from widening the page, but a bare table left
+   unwrapped would force a horizontal scroll on the whole body at narrow widths. At phone width a
+   table scrolls within its own box instead, so the page itself never scrolls sideways — the
+   property the accessibility checklist asserts. Above the breakpoint tables are unchanged. */
+@media (max-width: 767px) {
+  main table {
+    display: block;
+    width: 100%;
+    overflow-x: auto;
+  }
+}
+
+/* An input's `size` attribute (e.g. size="60" on the compare form) sets a fixed character width
+   that can exceed a phone viewport. Constrain every form control to its container so the page
+   never scrolls sideways because of one (UI/UX §13). box-sizing keeps padding inside the width. */
+input,
+select,
+textarea {
+  max-width: 100%;
+  box-sizing: border-box;
+}
+/* A fieldset's implicit `min-width: min-content` otherwise keeps it as wide as its widest input's
+   `size`, defeating the constraint above; min-width: 0 lets it shrink to its container. */
+fieldset {
+  max-width: 100%;
+  min-width: 0;
+}

@@ -7,6 +7,13 @@ packaging and release standards §3.
 
 ## [Unreleased]
 
+- **Responsive fixes for phone width (UI/UX §13).** A safety net in `app.css` makes any table
+  scroll within its own box below 768 px, and constrains form controls (an input's `size` attribute
+  and a fieldset's implicit `min-content` width) so no page scrolls sideways at 375 px. Verified in
+  a browser across every page in dark mode and with JavaScript disabled.
+- **Upgrade-from-rc1 test**: the application boots on a copy of a real v1.0.0rc1 database and serves
+  its rows through the API on this version, with no migration applied (P12 forbade a new revision).
+
 - **Five health components added to reconcile with spec §17**: `prompts`, `sandbox`,
   `external_benchmarks`, `goals`, `judges`. `freeweight doctor` and `GET /api/v1/health` now report
   all of them, and `docs/troubleshooting.md` documents each — a CI test holds the guide's headings

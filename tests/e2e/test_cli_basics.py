@@ -96,15 +96,21 @@ def test_health_command_json(monkeypatch: pytest.MonkeyPatch) -> None:
     assert result.exit_code == 0
     payload = json.loads(result.output)
     assert payload["status"] == "degraded"
-    # gpu_telemetry and machine (Phase 4) join database and provider; their own status reflects
-    # this machine's real hardware, but a pending migration alone already makes the required
-    # database component degrade the overall status, regardless of what they report.
+    # database and provider, then the Phase 4 telemetry pair, evidence (Phase 11) and the Phase
+    # 13/14 additions (prompts, sandbox, external_benchmarks, goals, judges). A pending migration
+    # alone already degrades the required database component, and with it the overall status,
+    # regardless of what the optional components report.
     assert [component["name"] for component in payload["components"]] == [
         "database",
         "provider",
         "gpu_telemetry",
         "machine",
         "evidence",
+        "prompts",
+        "sandbox",
+        "external_benchmarks",
+        "goals",
+        "judges",
     ]
     assert payload["components"][0]["status"] == "degraded"
     assert payload["components"][1]["status"] == "ok"
@@ -131,6 +137,11 @@ def test_health_command_reports_ok_after_db_upgrade(monkeypatch: pytest.MonkeyPa
         "gpu_telemetry",
         "machine",
         "evidence",
+        "prompts",
+        "sandbox",
+        "external_benchmarks",
+        "goals",
+        "judges",
     }
     assert components_by_name["evidence"]["status"] == "ok"
     assert components_by_name["evidence"]["detail"] == "no capability evidence yet"
