@@ -15,6 +15,7 @@ import typer
 from freeweight.cli.commands import config as config_commands
 from freeweight.cli.commands import db as db_commands
 from freeweight.cli.commands import evidence as evidence_commands
+from freeweight.cli.commands import external as external_commands
 from freeweight.cli.commands import goals as goals_commands
 from freeweight.cli.commands import judges as judges_commands
 from freeweight.cli.commands import models as models_commands
@@ -78,3 +79,6 @@ app.add_typer(
     evidence_commands.app, name="evidence", help="Inspect and export capability evidence."
 )
 app.add_typer(prompts_commands.app, name="prompts", help="Inspect and rebuild the prompt pack.")
+app.add_typer(
+    external_commands.app, name="external", help="Manage external benchmark adapters (Phase 13)."
+)

@@ -7,6 +7,27 @@ packaging and release standards §3.
 
 ## [Unreleased]
 
+### Added
+
+- **External benchmark adapters (Phase 13).** Nine adapters — lm-evaluation-harness (MMLU-Pro,
+  GSM8K), IFEval, EvalPlus, CRUXEval, BFCL, RULER, JudgeBench, LLMBar, CriticBench — run
+  established external benchmarks as isolated subprocesses and normalize their output onto the
+  same sample/metric shape native suites produce, each result carrying full provenance (source
+  repository, pinned tag and commit, licence, dataset hashes) and the sandbox tier it used.
+- **Tiered code-execution sandbox (ADR-0018): container (podman → docker) → bwrap → refuse.** The
+  tier is decided once per run and recorded on every result; there is no host-execution tier and
+  no fallback below the decided one. A code-execution benchmark on a machine with no tier is
+  skipped with `sandbox_unavailable`, never run on the host — proven by an observer test and
+  mutation-checked. One function (`run_sandboxed`) is the only door to sandboxed execution, held
+  there by a structural test that no other module starts a subprocess.
+- **Pinned datasets, verified before use.** A dataset is hashed before it is moved into place; a
+  mismatch refuses and names both hashes. Archive extraction is hardened (no absolute paths, `..`,
+  links, device files; per-entry, entry-count and decompression-ratio caps).
+- `[sandbox]` and `[external]` configuration sections (previously spec-only), now in the generated
+  configuration reference.
+- `freeweight external list|install|verify` and a benchmark-source page crediting each project,
+  its pinned version and commit, and its licence.
+
 ### Changed
 
 - Adopted `weightsdb` (0.2.x) for all database plumbing: engine construction, session/transaction

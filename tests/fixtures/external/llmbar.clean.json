@@ -1,0 +1,1 @@
+[{"id": "l0", "correct": true, "subset": "Natural"}, {"id": "l1", "correct": false, "subset": "Adversarial_GPTInst"}, {"id": "l2", "correct": true, "subset": "Adversarial_GPTInst"}]

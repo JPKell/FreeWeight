@@ -1,0 +1,57 @@
+{% extends "base.html" %}
+{% block title %}Benchmark sources · FreeWeight{% endblock %}
+{% block content %}
+<h2>Benchmark sources</h2>
+<p class="muted">
+  FreeWeight can drive these established external benchmarks alongside its native suites. Each is
+  other people's work, run under its own licence with its datasets installed by you rather than
+  redistributed here. Every result records the pinned version and commit below.
+</p>
+<div class="table-scroll">
+<table data-table="sources">
+  <caption class="muted">{{ benchmarks | length }} external benchmark adapter(s).</caption>
+  <thead>
+    <tr>
+      <th scope="col">Benchmark</th>
+      <th scope="col">Category</th>
+      <th scope="col">Capabilities</th>
+      <th scope="col">Source</th>
+      <th scope="col">Version</th>
+      <th scope="col">Licence</th>
+      <th scope="col">Sandbox</th>
+      <th scope="col">Installed</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for benchmark in benchmarks %}
+    <tr>
+      <th scope="row">{{ benchmark.name }}<br><span class="muted mono">{{ benchmark.key }}</span></th>
+      <td>{{ benchmark.category }}</td>
+      <td>{{ benchmark.capabilities | join(", ") if benchmark.capabilities else "—" }}</td>
+      <td><a href="{{ benchmark.source_repository }}" rel="noreferrer noopener">{{ benchmark.source_repository }}</a></td>
+      <td class="mono">{{ benchmark.release_tag }}<br><span class="muted">{{ benchmark.commit }}</span></td>
+      <td>{{ benchmark.license }}</td>
+      <td>
+        {% if benchmark.requires_sandbox %}
+          <span class="status status-warming">required</span>
+        {% else %}
+          <span class="muted">—</span>
+        {% endif %}
+      </td>
+      <td>
+        {% if benchmark.installed %}
+          <span class="status status-completed">installed</span>
+        {% else %}
+          <span class="status status-skipped">not installed</span>
+        {% endif %}
+      </td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+</div>
+<p class="muted">
+  Install one with <code>freeweight external install &lt;key&gt;</code>; verify its datasets with
+  <code>freeweight external verify &lt;key&gt;</code>.
+</p>
+{% endblock %}

@@ -1,0 +1,3 @@
+{"id": "c0", "passed": true, "mode": "output"}
+{"id": "c1", "passed": false, "mode": "input"}
+{"id": "c2", "passed": "yes", "mode": "output"}

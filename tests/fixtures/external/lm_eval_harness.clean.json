@@ -1,0 +1,1 @@
+{"results": {"gsm8k": {"exact_match,none": 0.62, "exact_match_stderr,none": 0.01}, "mmlu_pro": {"acc,none": 0.48}}, "samples": [{"doc_id": 0, "exact_match": 1.0, "target": "42", "filtered_resps": "42"}, {"doc_id": 1, "exact_match": 0.0, "target": "7", "filtered_resps": "9"}, {"doc_id": 2, "acc": 1, "target": "B", "filtered_resps": "B"}]}

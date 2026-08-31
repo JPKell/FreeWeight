@@ -520,6 +520,108 @@ class GoalSettings(BaseModel):
         return Path(self.root or (config_dir() / "goals")).expanduser()
 
 
+class SandboxSettings(BaseModel):
+    """The ``[sandbox]`` section: how model-generated code is contained (spec §12, ADR-0018).
+
+    The tiers are container → bwrap → **refuse**, and there is no host tier and no flag to create
+    one. ``tier`` can only hold the selection *at or below* what the machine offers: naming a tier
+    that is unavailable is a refusal at run time, never a silent fall-through to a weaker one —
+    a user who wrote ``container`` asked for a container's guarantees, and handing them bwrap's
+    instead would be a security decision made on their behalf.
+
+    Attributes:
+        tier: ``auto`` (highest available), ``container``, ``bwrap``, or ``none``. ``none``
+            disables code execution entirely: every benchmark that needs a sandbox is skipped
+            with ``sandbox_unavailable``.
+        cpu_limit: CPU cores the sandboxed process may use (container ``--cpus`` /
+            bwrap-tier rlimit).
+        memory_limit_mb: Address-space cap for sandboxed execution.
+        timeout_seconds: Wall-clock budget per sandboxed invocation; the process is killed when
+            it is exceeded.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    tier: Literal["auto", "container", "bwrap", "none"] = Field(
+        default="auto",
+        description=(
+            "Sandbox tier for code-execution benchmarks: auto = highest available; container and "
+            "bwrap select exactly that tier or refuse; none refuses all code execution."
+        ),
+        examples=["auto"],
+    )
+    cpu_limit: int = Field(
+        default=2,
+        ge=1,
+        le=256,
+        description="CPU cores a sandboxed process may use.",
+        examples=[2],
+    )
+    memory_limit_mb: int = Field(
+        default=2048,
+        ge=64,
+        description="Memory cap for sandboxed execution, in MiB.",
+        examples=[2048],
+    )
+    timeout_seconds: int = Field(
+        default=30,
+        ge=1,
+        description="Wall-clock budget per sandboxed invocation, in seconds.",
+        examples=[30],
+    )
+
+
+class ExternalSettings(BaseModel):
+    """The ``[external]`` section: where external benchmark environments live (spec §12, ADR-0018).
+
+    Every external benchmark gets its own environment under ``root`` — a venv, its datasets and
+    its recorded install state — entirely separate from FreeWeight's own environment, which never
+    imports an external benchmark package.
+
+    Attributes:
+        root: The directory external environments are created under. Unset resolves to
+            ``<data>/external``.
+        install_timeout_seconds: Wall-clock budget for one environment-creation or
+            dataset-download step.
+        download_cap_bytes: The most a single dataset download may occupy, enforced while
+            streaming — a cap checked after the fact is a cap the disk already paid.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    root: str | None = Field(
+        default=None,
+        description=(
+            "Where external benchmark environments live. Unset resolves to <data>/external."
+        ),
+        examples=["/home/me/.local/share/freeweight/external"],
+    )
+    install_timeout_seconds: int = Field(
+        default=1800,
+        ge=1,
+        description="Budget for one install or download step, in seconds.",
+        examples=[1800],
+    )
+    download_cap_bytes: int = Field(
+        default=2_147_483_648,
+        gt=0,
+        description="Streaming size cap for a single dataset download, in bytes.",
+        examples=[2147483648],
+    )
+
+    @model_validator(mode="after")
+    def _apply_data_dir_default(self) -> ExternalSettings:
+        """Resolve ``root`` against the XDG data directory when it is not set."""
+        if self.root is None:
+            self.root = str(data_dir() / "external")
+        return self
+
+    @property
+    def root_path(self) -> Path:
+        """``root`` as a path, expanded."""
+        return Path(self.root or (data_dir() / "external")).expanduser()
+
+
 class JudgeSettings(BaseModel):
     """The default jury a goal's judged criteria are scored by (spec §12).
 
@@ -826,6 +928,8 @@ class Settings(BaseModel):
     runtime: RuntimeSettings = Field(default_factory=RuntimeSettings)
     benchmarks: BenchmarkSettings = Field(default_factory=BenchmarkSettings)
     goals: GoalSettings = Field(default_factory=GoalSettings)
+    sandbox: SandboxSettings = Field(default_factory=SandboxSettings)
+    external: ExternalSettings = Field(default_factory=ExternalSettings)
     judge: JudgeSettings = Field(default_factory=JudgeSettings)
     calibration: CalibrationSettings = Field(default_factory=CalibrationSettings)
     evidence: EvidenceSettings = Field(default_factory=EvidenceSettings)

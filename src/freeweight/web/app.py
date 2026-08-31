@@ -47,6 +47,7 @@ from freeweight.web.routes import models as models_routes
 from freeweight.web.routes import results as results_routes
 from freeweight.web.routes import runs as runs_routes
 from freeweight.web.routes import settings as settings_routes
+from freeweight.web.routes import sources as sources_routes
 from freeweight.web.routes import system as system_routes
 from freeweight.web.routes import wizard as wizard_routes
 
@@ -222,6 +223,7 @@ def create_app(settings: Settings, *, goals: Sequence[LoadedGoal] = ()) -> FastA
     app.include_router(wizard_routes.router)
     app.include_router(evidence_routes.router)
     app.include_router(grading_routes.router)
+    app.include_router(sources_routes.router)
 
     # MirrorWall's own assets (tokens, layout and component CSS, theme/table/SSE/telemetry JS),
     # served from the installed package: no CDN, no network request at page load. Passing the

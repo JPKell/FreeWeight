@@ -135,6 +135,7 @@ markers = [
     "live: requires a real provider/GPU, never in default CI",
     "performance: performance budget assertions, excluded by default",
     "contract: public API/schema conformance in both directions",
+    "container: exercises a real container runtime; skipped where none answers",
     # The roadmap's integration milestones (§4): "none is considered complete on the basis of a
     # code review". The verification exists as ordinary tests; this marker is what lets a reviewer
     # point at it — `pytest -m "integration_milestone and I2"` answers "show me I2".

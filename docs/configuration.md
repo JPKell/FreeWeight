@@ -123,6 +123,27 @@ Where user-authored goal packs live, and the bounds on what one may contain (spe
 | `goals.max_pack_bytes` | `FREEWEIGHT_GOALS__MAX_PACK_BYTES` | integer | `5242880` | > 0 | no — file or environment, then restart | — | `5242880` | Import size cap, enforced before a byte is written. |
 | `goals.rule_timeout_ms` | `FREEWEIGHT_GOALS__RULE_TIMEOUT_MS` | integer | `250` | > 0 | no — file or environment, then restart | — | `250` | Per-criterion, per-sample budget for a rule. |
 
+## `[sandbox]`
+
+The ``[sandbox]`` section: how model-generated code is contained (spec §12, ADR-0018).
+
+| Key | Environment variable | Type | Default | Valid range | Runtime-changeable | Security | Example | Meaning |
+|---|---|---|---|---|---|---|---|---|
+| `sandbox.tier` | `FREEWEIGHT_SANDBOX__TIER` | one of `"auto"`, `"container"`, `"bwrap"`, `"none"` | `"auto"` | listed values | no — file or environment, then restart | Config only: refused by the settings API and the UI. | `"auto"` | Sandbox tier for code-execution benchmarks: auto = highest available; container and bwrap select exactly that tier or refuse; none refuses all code execution. |
+| `sandbox.cpu_limit` | `FREEWEIGHT_SANDBOX__CPU_LIMIT` | integer | `2` | ≥ 1, ≤ 256 | no — file or environment, then restart | — | `2` | CPU cores a sandboxed process may use. |
+| `sandbox.memory_limit_mb` | `FREEWEIGHT_SANDBOX__MEMORY_LIMIT_MB` | integer | `2048` | ≥ 64 | no — file or environment, then restart | — | `2048` | Memory cap for sandboxed execution, in MiB. |
+| `sandbox.timeout_seconds` | `FREEWEIGHT_SANDBOX__TIMEOUT_SECONDS` | integer | `30` | ≥ 1 | no — file or environment, then restart | — | `30` | Wall-clock budget per sandboxed invocation, in seconds. |
+
+## `[external]`
+
+The ``[external]`` section: where external benchmark environments live (spec §12, ADR-0018).
+
+| Key | Environment variable | Type | Default | Valid range | Runtime-changeable | Security | Example | Meaning |
+|---|---|---|---|---|---|---|---|---|
+| `external.root` | `FREEWEIGHT_EXTERNAL__ROOT` | string, optional | unset | — | no — file or environment, then restart | Config only: refused by the settings API and the UI. | `"/home/me/.local/share/freeweight/external"` | Where external benchmark environments live. Unset resolves to <data>/external. |
+| `external.install_timeout_seconds` | `FREEWEIGHT_EXTERNAL__INSTALL_TIMEOUT_SECONDS` | integer | `1800` | ≥ 1 | no — file or environment, then restart | — | `1800` | Budget for one install or download step, in seconds. |
+| `external.download_cap_bytes` | `FREEWEIGHT_EXTERNAL__DOWNLOAD_CAP_BYTES` | integer | `2147483648` | > 0 | no — file or environment, then restart | — | `2147483648` | Streaming size cap for a single dataset download, in bytes. |
+
 ## `[judge]`
 
 The default jury a goal's judged criteria are scored by (spec §12).
