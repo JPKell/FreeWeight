@@ -70,6 +70,7 @@ async def health(request: Request) -> JSONResponse:
         database=request.app.state.database,
         provider=request.app.state.provider,
         telemetry=telemetry.collector if telemetry is not None else None,
+        settings=request.app.state.settings,
     )
     status_code = 200 if report.status in ("ok", "degraded") else 503
     return JSONResponse(status_code=status_code, content=report.model_dump(mode="json"))

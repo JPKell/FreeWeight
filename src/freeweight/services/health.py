@@ -18,6 +18,7 @@ if TYPE_CHECKING:
     from modelrack.provider import Provider
     from sweatmeter import TelemetryCollector
 
+    from freeweight.config import Settings
     from freeweight.services.database import Database
 
 __all__ = ["HealthComponent", "HealthReport", "get_health_report"]
@@ -266,11 +267,117 @@ def _machine_component(collector: TelemetryCollector | None) -> HealthComponent:
     )
 
 
+def _prompts_component() -> HealthComponent:
+    """Build the ``prompts`` component: the shipped prompt pack parses and hashes (spec §17)."""
+    try:
+        from freeweight.services.prompts import load_pack
+
+        library = load_pack()
+        return HealthComponent(
+            name="prompts",
+            status="ok",
+            detail=f"{len(library.ids())} prompt(s), pack {library.pack_hash()[:19]}…",
+        )
+    except Exception as exc:  # noqa: BLE001 — a health check never raises (Graceful Degradation)
+        return HealthComponent(
+            name="prompts", status="degraded", detail=f"prompt pack unreadable: {exc}"
+        )
+
+
+def _sandbox_component(settings: Settings | None) -> HealthComponent:
+    """Build the ``sandbox`` component: which code-execution tier this machine offers (ADR-0018).
+
+    A refusal is ``degraded`` rather than ``unavailable``: a machine with no sandbox tier is a real
+    configuration on which every non-code benchmark still runs, and only code-execution benchmarks
+    skip. The detail names the tier so ``freeweight doctor`` shows what a code benchmark would use.
+    """
+    from freeweight.config import SandboxSettings
+    from freeweight.external.sandbox import SandboxTier, select_tier
+
+    sandbox_settings = settings.sandbox if settings is not None else SandboxSettings()
+    try:
+        decision = select_tier(sandbox_settings)
+    except Exception as exc:  # noqa: BLE001 — a health check never raises
+        return HealthComponent(name="sandbox", status="degraded", detail=f"probe failed: {exc}")
+    if decision.tier is SandboxTier.REFUSED:
+        return HealthComponent(name="sandbox", status="degraded", detail=decision.reason)
+    return HealthComponent(
+        name="sandbox", status="ok", detail=f"tier {decision.tier.value} ({decision.runtime})"
+    )
+
+
+def _external_benchmarks_component(settings: Settings | None) -> HealthComponent:
+    """Build the ``external_benchmarks`` component: adapters available, how many installed."""
+    try:
+        from freeweight.services.external import list_benchmarks
+
+        if settings is None:
+            from freeweight.external.adapters import ADAPTERS
+
+            return HealthComponent(
+                name="external_benchmarks",
+                status="ok",
+                detail=f"{len(ADAPTERS)} adapter(s) available",
+            )
+        infos = list_benchmarks(settings)
+        installed = sum(1 for info in infos if info.installed)
+        return HealthComponent(
+            name="external_benchmarks",
+            status="ok",
+            detail=f"{len(infos)} adapter(s), {installed} installed",
+        )
+    except Exception as exc:  # noqa: BLE001 — a health check never raises
+        return HealthComponent(
+            name="external_benchmarks", status="degraded", detail=f"adapter registry failed: {exc}"
+        )
+
+
+def _goals_component(settings: Settings | None) -> HealthComponent:
+    """Build the ``goals`` component: the user's goal packs parse and validate (spec §17)."""
+    if settings is None:
+        return HealthComponent(name="goals", status="ok", detail="no goals root configured")
+    try:
+        from freeweight.domain.goals.lint import has_errors
+        from freeweight.services.goals import load_goals
+
+        loaded = load_goals(settings.goals.root_path)
+        broken = [goal for goal in loaded if has_errors(goal.findings)]
+        if broken:
+            names = ", ".join(goal.pack.slug for goal in broken)
+            return HealthComponent(
+                name="goals", status="degraded", detail=f"{len(broken)} goal(s) fail lint: {names}"
+            )
+        return HealthComponent(
+            name="goals", status="ok", detail=f"{len(loaded)} goal pack(s) parse and validate"
+        )
+    except Exception as exc:  # noqa: BLE001 — a health check never raises
+        return HealthComponent(name="goals", status="degraded", detail=f"goals unreadable: {exc}")
+
+
+def _judges_component(settings: Settings | None) -> HealthComponent:
+    """Build the ``judges`` component: the configured jury size (spec §17).
+
+    Whether a jury can actually be *assembled* depends on installed models and a live provider,
+    which ``freeweight judges validate`` reports in full; the health component reports the
+    configuration, so a machine with the jury disabled (``jury_size = 1``) shows why judged
+    criteria would skip.
+    """
+    if settings is None:
+        return HealthComponent(name="judges", status="ok", detail="default jury configuration")
+    size = settings.judge.jury_size
+    if size <= 1:
+        return HealthComponent(
+            name="judges", status="degraded", detail="jury disabled (jury_size ≤ 1)"
+        )
+    return HealthComponent(name="judges", status="ok", detail=f"jury_size {size}")
+
+
 def get_health_report(
     *,
     database: Database | None = None,
     provider: Provider | None = None,
     telemetry: TelemetryCollector | None = None,
+    settings: Settings | None = None,
     clock: Clock = utc_now,
 ) -> HealthReport:
     """Build the current health report.
@@ -301,6 +408,11 @@ def get_health_report(
         _gpu_telemetry_component(telemetry),
         _machine_component(telemetry),
         _evidence_component(database),
+        _prompts_component(),
+        _sandbox_component(settings),
+        _external_benchmarks_component(settings),
+        _goals_component(settings),
+        _judges_component(settings),
     )
     worst = max(
         (

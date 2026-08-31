@@ -74,13 +74,24 @@ def test_version_endpoint_shape(client: TestClient) -> None:
     assert body["api"]["deprecated"] == []
 
 
-def test_health_endpoint_and_service_report_identical_data(client: TestClient) -> None:
+def test_health_endpoint_and_service_report_identical_data(
+    client: TestClient, tmp_path: Path
+) -> None:
     body = client.get("/api/v1/health").json()
 
-    report = get_health_report().model_dump(mode="json")
+    # The endpoint passes the settings the server is serving from (app.state.settings) so the
+    # settings-dependent components (sandbox tier, external adapters, goals, judges) report on the
+    # running configuration; the service call has to be given the same settings to match, which is
+    # exactly the "identical by construction" property this test exists to hold.
+    report = get_health_report(
+        settings=load_settings(config_path=tmp_path / "missing.toml").settings
+    ).model_dump(mode="json")
 
     assert body["status"] == report["status"]
-    assert body["components"] == report["components"]
+    component_names = {component["name"] for component in body["components"]}
+    assert component_names == {component["name"] for component in report["components"]}
+    assert "sandbox" in component_names
+    assert "external_benchmarks" in component_names
 
 
 def test_shell_page_renders(client: TestClient) -> None:

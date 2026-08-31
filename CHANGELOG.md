@@ -7,6 +7,14 @@ packaging and release standards §3.
 
 ## [Unreleased]
 
+- **Five health components added to reconcile with spec §17**: `prompts`, `sandbox`,
+  `external_benchmarks`, `goals`, `judges`. `freeweight doctor` and `GET /api/v1/health` now report
+  all of them, and `docs/troubleshooting.md` documents each — a CI test holds the guide's headings
+  and the doctor's components in lockstep (P14 AC3).
+- **Operator documentation**: quickstart, troubleshooting, backup/restore, upgrading, benchmark
+  guide and a security overview under `docs/`, beside the generated configuration reference and the
+  OpenAPI snapshot.
+
 - **CSRF double-submit on every HTML form route (ADR-0026 §2, Phase 14).** MirrorWall's
   `CsrfMiddleware` validates a `__Host-mw-csrf` cookie against a hidden `csrf_token` field;
   `web.csrf.CsrfCookieMiddleware` issues the token once per request and `render` injects it into

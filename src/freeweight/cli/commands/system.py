@@ -9,9 +9,30 @@ where it is only reached once that command actually runs.
 from __future__ import annotations
 
 import json
-from typing import Annotated
+from typing import TYPE_CHECKING, Annotated
 
 import typer
+
+if TYPE_CHECKING:
+    from freeweight.config import Settings
+
+
+def _safe_settings() -> Settings | None:
+    """Resolve settings for a health check, or ``None`` when the config itself is broken.
+
+    ``freeweight doctor`` must diagnose a machine whose ``config.toml`` is invalid, so a settings
+    error becomes ``None`` here rather than a crash — the health report then reports what it can
+    (the ``database`` component surfaces the configuration error in its own detail).
+    """
+    from baseaicore import SuiteError
+
+    from freeweight.config import load_settings
+
+    try:
+        return load_settings().settings
+    except SuiteError:
+        return None
+
 
 __all__ = ["doctor", "health", "print_version", "serve", "version"]
 
@@ -68,7 +89,7 @@ def health(
     """Report component health. Mode: local. Exit 0 (ok/degraded) or 4 (unavailable)."""
     from freeweight.services.health import get_health_report
 
-    report = get_health_report()
+    report = get_health_report(settings=_safe_settings())
     if json_output:
         typer.echo(json.dumps(report.model_dump(mode="json")))
     else:
@@ -115,12 +136,8 @@ def doctor() -> None:
     """Diagnose a broken installation. Mode: local."""
     from freeweight.services.health import get_health_report
 
-    report = get_health_report()
+    report = get_health_report(settings=_safe_settings())
     typer.echo(f"freeweight doctor — status: {report.status}")
-    if not report.components:
-        typer.echo(
-            "  ✓ no dependent components yet (telemetry and sandbox checks arrive in later phases)"
-        )
     for component in report.components:
         symbol = "✓" if component.status == "ok" else "!" if component.status == "degraded" else "✗"
         typer.echo(f"  {symbol} {component.name}: {component.detail}")
