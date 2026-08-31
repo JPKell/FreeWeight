@@ -149,8 +149,18 @@ markers = [
 testpaths = ["tests"]
 
 [tool.coverage.run]
-source = ["src/freeweight"]
+# The **importable package**, not the source path. CI installs the built distribution
+# (`pip install . --no-deps`) rather than an editable checkout, and a path-based source measures
+# nothing against a non-editable install: every test passes, and the gate fails with 0 % — a
+# number that looks like a catastrophe instead of a configuration error. (This is exactly what
+# happened when Phase 14 converted CI from `pip install -e ".[dev]"` to the lock install.)
+source = ["freeweight"]
 branch = true
+
+[tool.coverage.paths]
+# Maps the installed package back onto the checkout, so a report produced against site-packages
+# names files a reader can open.
+source = ["src/freeweight", "*/site-packages/freeweight"]
 
 [tool.coverage.report]
 fail_under = 85
