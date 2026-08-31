@@ -159,6 +159,33 @@ def test_doctor_command_runs(monkeypatch: pytest.MonkeyPatch) -> None:
     assert "database" in result.output
 
 
+def test_benchmarks_list_names_the_shipped_suites() -> None:
+    result = runner.invoke(app, ["benchmarks", "list"])
+
+    assert result.exit_code == 0, result.output
+    assert "native.echo" in result.output
+    assert "native.performance" in result.output
+
+
+def test_benchmarks_show_reports_one_suite_with_its_manifest_hash() -> None:
+    import json
+
+    result = runner.invoke(app, ["benchmarks", "show", "native.echo", "--json"])
+
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.output)
+    assert payload["key"] == "native.echo"
+    assert payload["manifest_hash"].startswith("sha256:")
+    assert payload["tests"]
+
+
+def test_benchmarks_show_exits_nonzero_for_an_unknown_suite() -> None:
+    result = runner.invoke(app, ["benchmarks", "show", "native.nope"])
+
+    assert result.exit_code == 1
+    assert "is installed" in result.output
+
+
 def test_config_show_reports_source_of_every_value() -> None:
     result = runner.invoke(app, ["config", "show"])
 

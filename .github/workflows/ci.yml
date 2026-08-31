@@ -30,7 +30,8 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with: { python-version: "3.12" }
-      - run: pip install -e ".[dev]"
+      - run: pip install --require-hashes -r requirements/ci.lock
+      - run: pip install . --no-deps
       - run: mypy src tests
 
   boundaries:
@@ -39,7 +40,8 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with: { python-version: "3.12" }
-      - run: pip install -e ".[dev]"
+      - run: pip install --require-hashes -r requirements/ci.lock
+      - run: pip install . --no-deps
       - run: lint-imports
 
   tests:
@@ -51,7 +53,8 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with: { python-version: "${{ matrix.python-version }}" }
-      - run: pip install -e ".[dev]"
+      - run: pip install --require-hashes -r requirements/ci.lock
+      - run: pip install . --no-deps
       - run: pytest -m "not live and not performance" --cov --cov-report=xml
 
   postgresql-tests:
@@ -85,7 +88,8 @@ jobs:
       # pg_dump is what `freeweight db backup` shells out to on this dialect; without the client
       # tools that branch skips itself and the job reports green having never run it.
       - run: sudo apt-get update && sudo apt-get install -y postgresql-client
-      - run: pip install -e ".[dev]"
+      - run: pip install --require-hashes -r requirements/ci.lock
+      - run: pip install . --no-deps
       - run: pytest -m "not live and not performance" tests/integration
 
   tests-314-early-warning:
@@ -105,7 +109,8 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with: { python-version: "3.12" }
-      - run: pip install -e ".[dev]"
+      - run: pip install --require-hashes -r requirements/ci.lock
+      - run: pip install . --no-deps
       - run: pytest -m "not live and not performance" --cov --cov-report=term-missing --cov-fail-under=85
 
   diff-coverage:
@@ -122,7 +127,8 @@ jobs:
         with: { fetch-depth: 0 }
       - uses: actions/setup-python@v5
         with: { python-version: "3.12" }
-      - run: pip install -e ".[dev]"
+      - run: pip install --require-hashes -r requirements/ci.lock
+      - run: pip install . --no-deps
       - run: pytest -m "not live and not performance" --cov --cov-report=xml
       - run: diff-cover coverage.xml --compare-branch=origin/${{ github.base_ref }} --fail-under=90
 
@@ -132,7 +138,8 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with: { python-version: "3.12" }
-      - run: pip install -e ".[dev]"
+      - run: pip install --require-hashes -r requirements/ci.lock
+      - run: pip install . --no-deps
       - run: pytest -m contract
 
   docs:
@@ -145,15 +152,16 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with: { python-version: "3.12" }
-      - run: pip install -e ".[dev]"
+      - run: pip install --require-hashes -r requirements/ci.lock
+      - run: pip install . --no-deps
       - run: python scripts/generate_config_reference.py --check
       - run: python scripts/generate_openapi_snapshot.py --check
 
   security:
     # `pip-audit` audits the locked set, not the job's own environment: a bare `pip-audit` here
     # inspects an environment containing only pip-audit itself and reports nothing (Security
-    # Standards §11). It audits `requirements/ci.lock` too once that file exists — it is blocked
-    # on `setspec 0.3.0` reaching PyPI, for the reason requirements/README.md gives.
+    # Standards §11). It audits both `requirements/ci.lock` (the whole toolchain) and
+    # `requirements/release.lock` (the build/publish chain).
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -166,6 +174,7 @@ jobs:
       - uses: actions/setup-python@v5
         with: { python-version: "3.12" }
       - run: pip install pip-audit
+      - run: pip-audit --require-hashes -r requirements/ci.lock
       - run: pip-audit --require-hashes -r requirements/release.lock
       - uses: gitleaks/gitleaks-action@v2
         env:

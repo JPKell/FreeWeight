@@ -6,7 +6,7 @@ Packaging and Release Standards §4 and Security Standards §11.
 | File | Contents | Used by |
 |---|---|---|
 | `release.in` / `release.lock` | The build and publish chain (`build`, `hatchling`, `twine`) | `release.yml`, both jobs, and CI's `build` job |
-| `ci.lock` | Runtime dependencies plus the `dev` extra: the whole test, lint, type and boundary toolchain | Every blocking CI job — **not yet committed; see below** |
+| `ci.lock` | Runtime dependencies plus the `dev` and `postgresql` extras: the whole test, lint, type and boundary toolchain | Every blocking CI job (installed `--require-hashes`, then `pip install . --no-deps`) |
 
 ## What these are not
 
@@ -17,18 +17,17 @@ without them every CI run re-resolves, and a new `ruff` or `mypy` release can ch
 with no commit to explain it — and `pip-audit` would be auditing today's resolution rather than
 what the build actually used.
 
-## `ci.lock` is owed, and is blocked on `setspec 0.3.0`
+## `ci.lock` is cut on Python 3.13
 
-`pyproject.toml` pins `setspec>=0.3,<0.4` (the M3 contract freeze). That version is not on PyPI
-yet, so `pip-compile` resolves it from the workspace checkout and writes **hashes for a locally
-built artifact** — hashes that cannot match the wheel CI publishes from the tag, which would make
-every `--require-hashes` install fail with a mismatch. A lock like that is worse than no lock: it
-looks authoritative and is wrong.
-
-So `ci.lock` lands in the commit *after* `setspec 0.3.0` is published, and until then CI's
-non-build jobs install from the ranges (`pip install -e ".[dev]"`), exactly as they did before.
-`release.lock` has no such dependency — `build`, `hatchling` and `twine` are all on PyPI — so it
-is committed now and `release.yml` uses it.
+`ci.lock` is generated on `python3.13` (the middle of the 3.12/3.13 CI matrix) and resolves the
+suite siblings from PyPI — `setspec 0.4.0`, `weightsdb 0.2.0`, `mirrorwall 0.2.0` — with their
+published hashes. Every blocking CI job installs it with `--require-hashes` and then
+`pip install . --no-deps`, so what CI tests is exactly what the lock resolved, measured against the
+installed distribution rather than an editable tree. The **3.14 early-warning job is the one
+deliberate exception**: pinning a version with no 3.14 wheels would defeat the early warning, so it
+installs `-e ".[dev]"` from the ranges. `release.lock` covers the build/publish chain
+(`build`, `hatchling`, `twine`); both locks are audited by `pip-audit --require-hashes` in the
+`security` job.
 
 ## Regenerating
 
@@ -37,8 +36,8 @@ Run after any change to `pyproject.toml`'s dependencies or `dev` extra, and comm
 ```bash
 pip install pip-tools
 
-# Once setspec 0.3.0 is on PyPI:
-pip-compile --strip-extras --extra dev --generate-hashes \
+# On python3.13 (the middle of the CI matrix):
+pip-compile --strip-extras --extra dev --extra postgresql --generate-hashes \
     --unsafe-package freeweight \
     --output-file requirements/ci.lock pyproject.toml
 

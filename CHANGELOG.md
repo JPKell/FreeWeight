@@ -7,6 +7,8 @@ packaging and release standards §3.
 
 ## [Unreleased]
 
+## [1.0.0] - 2026-08-30
+
 - **Responsive fixes for phone width (UI/UX §13).** A safety net in `app.css` makes any table
   scroll within its own box below 768 px, and constrains form controls (an input's `size` attribute
   and a fieldset's implicit `min-content` width) so no page scrolls sideways at 375 px. Verified in
