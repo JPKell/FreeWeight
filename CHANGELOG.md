@@ -7,6 +7,20 @@ packaging and release standards §3.
 
 ## [Unreleased]
 
+### Changed
+- **`setspec` widened to `>=0.4,<0.7`** (E5's pin sweep), and `requirements/ci.lock` recompiled.
+  `mirrorwall 0.2.1` required `setspec<0.5`, and because MirrorWall is a dependency of every
+  application that cap held all of them at setspec 0.4 regardless of their own ranges;
+  `mirrorwall 0.2.2` lifted it. The floor stays 0.4 — `setspec.prompts` is FreeWeight's whole
+  surface and it has not moved — so this widens a range and adopts no payload.
+  - Exactly three pins move in the lock: `setspec` 0.4.0 → 0.6.0, `baseaicore` 0.4.0 → 0.4.1
+    (0.6.0 requires it; without pinning it too, the resolver silently falls back to setspec 0.4.0
+    rather than failing) and `mirrorwall` 0.2.0 → 0.2.2.
+  - Proved from the lock rather than from this repository's venv, which carries **editable**
+    installs of the `setspec` and `baseaicore` workspace checkouts and so cannot show what a
+    consumer resolves: a clean venv installed with `--require-hashes -r requirements/ci.lock`
+    runs the full suite green, `tests/contract/test_evidence_schema.py` included.
+
 ## [1.0.0] - 2026-08-30
 
 - **`GET /goals/new` no longer 500s.** The goal wizard's first page rendered `{{ intent or '' }}`

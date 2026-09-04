@@ -30,8 +30,10 @@ dependencies = [
     # module now delegates to (freeweight.services.prompts is a thin default-path wrapper around
     # it as of this release) — extracted from this application's own in-app implementation at
     # LoadCoach Phase 4 / SetSpec Phase 5 (ADR-0011, ADR-0028), with FreeWeight's existing pack
-    # proven to hash identically before and after the move.
-    "setspec>=0.4,<0.5",
+    # proven to hash identically before and after the move. The ceiling widened from `<0.5` at
+    # E5's sweep, once mirrorwall 0.2.2 lifted the cap that held every application at setspec 0.4;
+    # the floor stays 0.4 because `setspec.prompts` is the whole surface and it has not moved.
+    "setspec>=0.4,<0.7",
     "modelrack>=0.5,<0.6",
     "sweatmeter>=0.4,<0.5",
     "fastapi>=0.115,<1",
