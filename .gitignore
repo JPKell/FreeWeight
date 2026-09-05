@@ -102,3 +102,13 @@ docs/api/openapi-v1.json.tmp
 # Test fixtures are committed assets, not a data root (they must exist on a fresh CI checkout).
 !tests/fixtures/databases/
 !tests/fixtures/databases/*.sqlite3
+
+# ---- Agent / editor tooling (local state, never a build input) ----
+.agents/
+.obsidian/
+.codex/
+.claude/settings.local.json
+
+# ---- import-linter cache ----
+# `lint-imports` writes this on every gate run; it is a cache, never an input.
+.import_linter_cache/
