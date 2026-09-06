@@ -51,9 +51,12 @@ The default model provider FreeWeight talks to.
 
 | Key | Environment variable | Type | Default | Valid range | Runtime-changeable | Security | Example | Meaning |
 |---|---|---|---|---|---|---|---|---|
-| `provider.kind` | `FREEWEIGHT_PROVIDER__KIND` | string | `"ollama"` | — | no — file or environment, then restart | — | `"ollama"` | Which provider serves the models: ollama, or fake for tests. |
-| `provider.base_url` | `FREEWEIGHT_PROVIDER__BASE_URL` | string | `"http://127.0.0.1:11434"` | — | no — file or environment, then restart | Config only. Where prompts are sent. | `"http://127.0.0.1:11434"` | The provider's API endpoint. |
+| `provider.kind` | `FREEWEIGHT_PROVIDER__KIND` | string | `"ollama"` | — | no — file or environment, then restart | — | `"ollama"` | Which provider serves the models: ollama, llamacpp, or fake for tests. |
+| `provider.base_url` | `FREEWEIGHT_PROVIDER__BASE_URL` | string | `"http://127.0.0.1:11434"` | — | no — file or environment, then restart | Config only. Where prompts are sent. | `"http://127.0.0.1:11434"` | The provider's API endpoint. Ignored by kind='llamacpp'. |
 | `provider.timeout_seconds` | `FREEWEIGHT_PROVIDER__TIMEOUT_SECONDS` | number | `300.0` | > 0 | no — file or environment, then restart | — | `300.0` | Per-call provider timeout. |
+| `provider.model_directory` | `FREEWEIGHT_PROVIDER__MODEL_DIRECTORY` | string | `""` | — | no — file or environment, then restart | — | `"~/ai/models/llm"` | Directory of GGUF weights kind='llamacpp' serves. Required for that kind; there is no default worth guessing, because a wrong directory is a server serving weights nobody asked for. |
+| `provider.state_dir` | `FREEWEIGHT_PROVIDER__STATE_DIR` | string | `""` | — | no — file or environment, then restart | — | `""` | Where the llama.cpp supervisor keeps its pid files and digest cache. Empty means <data_dir>/llamacpp. |
+| `provider.server_path` | `FREEWEIGHT_PROVIDER__SERVER_PATH` | string | `"llama-server"` | — | no — file or environment, then restart | — | `"llama-server"` | The llama-server executable, resolved on PATH unless absolute. |
 
 ## `[providers]`
 
@@ -62,6 +65,14 @@ Cross-provider policy, distinct from the single default provider's own settings.
 | Key | Environment variable | Type | Default | Valid range | Runtime-changeable | Security | Example | Meaning |
 |---|---|---|---|---|---|---|---|---|
 | `providers.allow_remote` | `FREEWEIGHT_PROVIDERS__ALLOW_REMOTE` | boolean | `false` | — | no — file or environment, then restart | Config only. Lets content leave this machine; one half of the remote opt-in. | `false` | Permit a remote provider at all. One half of the remote-judging opt-in; judge.allow_remote is the other (ADR-0031 §4). |
+
+## `[adapters]`
+
+The operator's LoRA adapter directory (ADR-0061).
+
+| Key | Environment variable | Type | Default | Valid range | Runtime-changeable | Security | Example | Meaning |
+|---|---|---|---|---|---|---|---|---|
+| `adapters.directory` | `FREEWEIGHT_ADAPTERS__DIRECTORY` | string | `""` | — | no — file or environment, then restart | — | `""` | Directory holding LoRA artifacts and their reviewed manifests. Empty disables adapters entirely. |
 
 ## `[telemetry]`
 
