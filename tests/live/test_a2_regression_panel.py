@@ -9,6 +9,12 @@ only ever been composed, never run against real adapter weights. This test runs 
     FWTEST_LLAMACPP_ADAPTERS=<dir of adapters + reviewed manifests>
     FWTEST_LLAMACPP_BASE=Qwen2.5-1.5B-Instruct.Q8_0
     FWTEST_A2_ADAPTER=terse
+    FWTEST_A2_MAX_OUTPUT_TOKENS=512   # optional; unset means the provider default
+
+The output cap is optional and exists for one reason: a **damaged** adapter may never emit a stop
+token, and generating to the served context on every case turns a two-minute panel into a
+forty-minute one. Unset it to measure what the panel costs without a cap, which is a fact worth
+knowing about any adapter that provokes it.
 
 **A negative result is a result.** This test asserts that the panel *produces comparable numbers
 for both subjects*, not that the adapter passes: whether a particular LoRA has forgotten
@@ -31,6 +37,7 @@ _MODELS_ENV = "FWTEST_LLAMACPP_MODELS"
 _ADAPTERS_ENV = "FWTEST_LLAMACPP_ADAPTERS"
 _BASE_ENV = "FWTEST_LLAMACPP_BASE"
 _ADAPTER_ENV = "FWTEST_A2_ADAPTER"
+_MAX_OUTPUT_ENV = "FWTEST_A2_MAX_OUTPUT_TOKENS"
 
 _WEIGHTS = """
 version = "a2"
@@ -136,6 +143,7 @@ def _measure(journey: Any, *, suite: str, adapter: str | None) -> str:
     from freeweight.services.scheduler import RunScheduler
 
     settings = journey["settings"]
+    cap = os.environ.get(_MAX_OUTPUT_ENV, "").strip()
     summary = create_run(
         journey["database"],
         journey["provider"],
@@ -143,7 +151,11 @@ def _measure(journey: Any, *, suite: str, adapter: str | None) -> str:
         journey["registry"],
         model_ref=journey["model_ref"],
         suite_key=suite,
-        execution=ExecutionConfig.resolve(settings.execution, measured_repetitions=1),
+        execution=ExecutionConfig.resolve(
+            settings.execution,
+            measured_repetitions=1,
+            max_output_tokens=int(cap) if cap else None,
+        ),
         runtime_profile=settings.runtime.to_profile(
             adapters_registered=serving_mode(journey["provider"], journey["entries"])
         ),

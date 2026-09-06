@@ -132,6 +132,7 @@ from freeweight.domain.scorers.tools import (
     annotate_calls,
 )
 from freeweight.domain.scoring import ScoreResult
+from freeweight.domain.subjects import IncompatibleAdapter
 from freeweight.infrastructure.db.repositories.calibration import JudgeVerdictRepository
 from freeweight.infrastructure.db.repositories.goals import CriterionScoreRepository
 from freeweight.infrastructure.db.repositories.model_descriptors import ModelDescriptorRepository
@@ -962,10 +963,11 @@ def create_run(
             — a run records the descriptor snapshot it measured against, and there is none for a
             model this installation has never seen.
         IncompatibleAdapter: ``adapter_name`` names no registered adapter, names an unavailable
-            one, or names one that cannot be applied to this base. Refused **by name**, with the
-            registered set in the message, and never by falling back to the bare base: a caller
-            that asked for an adapter and silently got the base would attribute the base's
-            behaviour to the adapter.
+            one, names one that cannot be applied to this base, or names one on a provider that
+            does not declare ``adapter_hot_swap``. Refused **by name**, with the registered set in
+            the message, and never by falling back to the bare base: a caller that asked for an
+            adapter and silently got the base would attribute the base's behaviour to the
+            adapter.
         ValidationError: ``model_ref`` is an ambiguous prefix, or the model has no stored
             descriptor.
         DatabaseUnavailable: The database could not be read or written.
@@ -1010,6 +1012,17 @@ def create_run(
         # Resolved before anything is written, like every other validation here: a run naming an
         # adapter it cannot measure under creates nothing (api.md §4). `resolve_subject` refuses by
         # name and never falls back to the bare base.
+        if adapter_name is not None and not capabilities.adapter_hot_swap:
+            # ADR-0058 §5's second half, refused where the run is created rather than on every
+            # sample: a provider with no adapter mechanism cannot measure an adapter subject, and
+            # a run that started anyway would produce a wall of identical CapabilityUnsupported
+            # errors under a subject string naming weights nobody served.
+            raise IncompatibleAdapter(
+                f"Provider {model.provider_kind!r} does not support LoRA adapters, so it cannot "
+                f"measure {adapter_name!r} on {model.canonical_id!r}. Measure the bare base here, "
+                "or configure a provider that declares adapter_hot_swap.",
+                details={"adapter": adapter_name, "provider_kind": model.provider_kind},
+            )
         subject = resolve_subject(model, tuple(adapter_entries), adapter_name)
         adapter_row = adapter_row_for(session, subject, now=now)
         # `None` is the caller saying "provider defaults", which ADR-0023 §1 makes a real,
@@ -1648,6 +1661,16 @@ class _RunContext:
     served_context: int | None
     gpu_index: int
     multi_gpu_visible: bool
+    adapter_name: str | None = None
+    """The registered adapter this run measures under, or ``None`` for the bare base.
+
+    Read back from the run's own ``adapter_id``, and carried here for the same reason the runtime
+    profile is: it has to reach the provider. A run that stores an ``adapter_id``, hashes an
+    adapter-bearing subject into its fingerprint and then never asks the provider to apply the
+    adapter measures the **bare base** and files the numbers under the adapter — which is risk T12
+    from the direction nobody guarded (`docs/apps/freeweight/risks.md`). Every generation this run
+    makes — warm-up, measured call and interaction turn alike — sends it."""
+
     runtime_profile: RuntimeProfile = field(default_factory=RuntimeProfile)
     """The profile this run was created under, read back from its stored row.
 
@@ -1716,6 +1739,7 @@ def _read_context(database: Database, run_id: str) -> _RunContext:
             served_context=run.served_context,
             gpu_index=run.gpu_index if run.gpu_index is not None else 0,
             multi_gpu_visible=bool(run.multi_gpu_visible),
+            adapter_name=_stored_adapter_name(session, run.adapter_id),
             runtime_profile=_stored_runtime_profile(session, run.runtime_profile_id),
             criterion_ids=criterion_ids,
         )
@@ -1993,7 +2017,14 @@ def _execute_run_inner(  # noqa: PLR0913 — mirrors execute_run's collaborators
         # --- warm ----------------------------------------------------------------------------
         _check_cancelled(database, run_id)
         _transition(database, run_id, RunStatus.WARMING)
-        _warm(provider, context.identity, benchmark, config, context.runtime_profile)
+        _warm(
+            provider,
+            context.identity,
+            benchmark,
+            config,
+            context.runtime_profile,
+            context.adapter_name,
+        )
 
         # --- execute -------------------------------------------------------------------------
         _check_cancelled(database, run_id)
@@ -2536,15 +2567,16 @@ def _warm(
     benchmark: Benchmark,
     config: ExecutionConfig,
     runtime_profile: RuntimeProfile,
+    adapter_name: str | None = None,
 ) -> None:
     """Run the configured warm-up generations, discarding their results.
 
     Warm-up exists so that first-call model loading is not counted as inference time, and it warms
-    under the **same runtime profile** the measured calls use — warming at one context and
-    measuring at another would force the provider to reload between them, which is precisely the
-    cost warm-up exists to move outside the measurement. Its output is deliberately thrown away —
-    a warm-up sample stored beside measured ones would be exactly the cold/warm mixing benchmark
-    catalog §3.1 forbids.
+    under the **same runtime profile and the same adapter** the measured calls use — warming at one
+    context, or on the bare base, would force the provider to reload or re-apply between them,
+    which is precisely the cost warm-up exists to move outside the measurement. Its output is
+    deliberately thrown away — a warm-up sample stored beside measured ones would be exactly the
+    cold/warm mixing benchmark catalog §3.1 forbids.
 
     A warm-up failure is *not* a run failure: the provider is about to be asked the same thing
     again for real, and the real attempt records a real error. Swallowing it here keeps a
@@ -2557,7 +2589,9 @@ def _warm(
         return
     for _ in range(config.warmup_repetitions):
         try:
-            provider.generate(_build_request(identity, first_case, config, runtime_profile))
+            provider.generate(
+                _build_request(identity, first_case, config, runtime_profile, adapter_name)
+            )
         except ProviderError as exc:
             logger.warning("run.warmup_failed", extra={"code": exc.code})
             return
@@ -2568,6 +2602,7 @@ def _build_request(
     case: Any,  # noqa: ANN401 — a BenchmarkCase
     config: ExecutionConfig,
     runtime_profile: RuntimeProfile | None = None,
+    adapter_name: str | None = None,
 ) -> GenerationRequest:
     """Build one provider request from a case, the run's execution config and its runtime profile.
 
@@ -2579,6 +2614,24 @@ def _build_request(
     provider as ``num_ctx`` (ADR-0023 §4). Omitting it — which this function did until the profile
     became settable — meant every run was served at whatever the provider chose while its record
     claimed a profile it had never been asked for.
+
+    **So is the adapter, for exactly the same reason.** ``adapter_name`` is the registration the
+    provider applies to this call (ADR-0058: the subject is ``(identity, adapter, profile)``, and
+    the provider is only ever told about all three of them together). Omitting it — which this
+    function did until this release — meant every adapter subject's evidence was measured on the
+    **bare base** and filed under the adapter, indistinguishably: the run's fingerprint, its
+    subject string and its exported record all named an adapter the provider had never been asked
+    to apply.
+
+    Args:
+        identity: The weights to run.
+        case: The benchmark case supplying the prompt and, where it has one, the system turn.
+        config: The run's frozen execution parameters.
+        runtime_profile: The profile this run was created under; ``None`` means provider defaults.
+        adapter_name: The registered adapter this run measures under, or ``None`` for a bare base.
+
+    Returns:
+        The request, naming the whole subject the run claims to be measuring.
     """
     messages = []
     if getattr(case, "system_prompt", None):
@@ -2594,6 +2647,7 @@ def _build_request(
             seed=config.seed,
             max_output_tokens=config.max_output_tokens,
         ),
+        adapter=adapter_name,
         timeout_seconds=config.test_timeout_seconds,
     )
 
@@ -3033,7 +3087,9 @@ def _run_one_case(  # noqa: PLR0913 — one sample needs its whole context
             clock=clock,
             interaction=interaction,
         )
-    request = _build_request(context.identity, case, config, context.runtime_profile)
+    request = _build_request(
+        context.identity, case, config, context.runtime_profile, context.adapter_name
+    )
     # Both clocks, deliberately: the monotonic one measures the request, the wall-clock one places
     # it on the same timeline as the telemetry samples so a window can be intersected rather than
     # reconstructed.
@@ -3182,6 +3238,10 @@ def _run_interactive_case(  # noqa: PLR0913 — one sample needs its whole conte
                     seed=config.seed,
                     max_output_tokens=config.max_output_tokens,
                 ),
+                # Every turn of an interaction runs under the run's subject, adapter included:
+                # a tool-calling conversation half on the adapter and half on the bare base is
+                # not a measurement of either.
+                adapter=context.adapter_name,
                 tools=tuple(tools),
                 response_format=response_format,
                 timeout_seconds=config.test_timeout_seconds,
@@ -4100,6 +4160,32 @@ def repeat_run(  # noqa: PLR0913 — a repeat takes everything a fresh run does,
         allow_prompt_override=allow_prompt_override,
         clock=clock,
     )
+
+
+def _stored_adapter_name(session: Session, adapter_id: str | None) -> str | None:
+    """Return the name a run's stored ``adapter_id`` registers under, or ``None`` for a bare base.
+
+    The provider selects an adapter by **name** — it is the key of the registration set ModelRack
+    was handed — while a run records the adapter by row id, because identity is the artifact digest
+    and a rename must not orphan a measurement (ADR-0061 rule 5). This is the one place the two
+    spellings meet, and it reads the row rather than the directory so that a run resumed after an
+    operator renamed a manifest still asks for the registration it was created against.
+
+    Args:
+        session: An open read session.
+        adapter_id: The run's ``adapter_id``, or ``None`` when it measures the bare base.
+
+    Returns:
+        The adapter's name, or ``None`` for a bare base **and** for a row that has gone missing —
+        in which case the run is about to fail at the provider with ``AdapterNotFound``, which is
+        the honest outcome and better than silently measuring the base.
+    """
+    if adapter_id is None:
+        return None
+    from freeweight.infrastructure.db.models import Adapter as AdapterRow
+
+    row = session.get(AdapterRow, adapter_id)
+    return None if row is None else str(row.name)
 
 
 def _stored_runtime_profile(session: Session, profile_id: str) -> RuntimeProfile:

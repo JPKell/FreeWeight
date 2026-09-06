@@ -91,6 +91,30 @@ class TestTheProfileReachesTheProvider:
 
         assert request.runtime_profile.context_size == 8192  # noqa: PLR2004 — the value under test
 
+    def test_the_request_carries_the_adapter(self) -> None:
+        """The same link, for the subject's second axis: a run that stores an adapter, hashes it
+        into its fingerprint and never asks the provider to apply it measures the bare base and
+        files the numbers under the adapter (risk T12)."""
+        case = BenchmarkCase(case_id="c", ordinal=0, prompt="hello")
+
+        request = _build_request(
+            _IDENTITY,
+            case,
+            ExecutionConfig.resolve(ExecutionSettings()),
+            RuntimeProfile(),
+            "terse",
+        )
+
+        assert request.adapter == "terse"
+
+    def test_no_adapter_leaves_the_request_byte_identical_to_a_bare_base_call(self) -> None:
+        """``None`` is the bare base, and is what every pre-1.1 run meant (ADR-0058)."""
+        case = BenchmarkCase(case_id="c", ordinal=0, prompt="hello")
+
+        request = _build_request(_IDENTITY, case, ExecutionConfig.resolve(ExecutionSettings()))
+
+        assert request.adapter is None
+
     def test_no_profile_still_produces_the_defaults_profile(self) -> None:
         """Never ``None``: ModelRack's request type has no "no profile" state either."""
         case = BenchmarkCase(case_id="c", ordinal=0, prompt="hello")

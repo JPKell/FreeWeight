@@ -117,6 +117,20 @@ shared database.
   ADR-0060's revisit trigger cannot be acted on without one.
 
 ### Fixed
+- **A run under `--adapter` actually serves the adapter.** `_build_request` never set
+  `GenerationRequest.adapter`, so every generation a run made — warm-up, measured call and
+  interaction turn alike — ran on the **bare base**, while the run stored an `adapter_id`, hashed
+  an adapter-bearing subject into its fingerprint, and exported its numbers as that adapter's
+  evidence. Nothing could catch it from outside: the record was internally consistent and named a
+  real adapter, so this is `docs/apps/freeweight/risks.md` **T12 arriving from the direction its
+  mitigation does not cover** — not evidence leaking from an adapter up to its base, but the
+  base's own measurement written down as the adapter's. Found by measuring a deliberately damaged
+  LoRA, which scored **identically to the bare base**: 8 of its 11 instruction-following responses
+  were byte-for-byte the base's, from an adapter that answers every question with fluent
+  nonsense. The run's adapter now reaches the provider on every call, read back from the run's own
+  row so a resumed run asks for the registration it was created against. **Every adapter-bearing
+  evidence record produced before this fix measures the bare base and should be discarded and
+  re-measured.**
 - **A run on an adapter-serving provider records that it was one.** `freeweight run start` passed
   `RuntimeProfile.adapters_registered = None` unconditionally — "not stated", which
   [ADR-0074](docs/adr/0074-adapter-enabled-serving-is-a-runtime-profile-field.md) reserves for a

@@ -49,33 +49,89 @@ own revisit trigger, and specifically:
 Making the panel **configurable** is not on that list, and would need its own ADR: it overturns the
 comparability the whole design assumes ([catalogue §8.2](benchmark-catalog.md)).
 
-### First run against real adapters, 2026-09-06 (row H5)
+### First run against real adapters, 2026-09-06 (rows H5 and H6)
 
 The panel had only ever been *composed*; the LA3 journey measured adapter subjects with
-`native.echo` for speed, so rows 1 and 2 had never met a LoRA. They have now
-(`FreeWeight/tests/live/test_a2_regression_panel.py`), on the reference machine against
-`Qwen2.5-1.5B-Instruct.Q8_0` and its three trained adapters:
+`native.echo` for speed, so rows 1 and 2 had never met a LoRA. Row H5 ran it against
+`Qwen2.5-1.5B-Instruct.Q8_0` and its three trained adapters and got `+0.091` on
+`instruction_following` from **all three** and `0.000` on `structured_output` from all three, and
+recorded that as the second revisit trigger arriving in its quietest form: a suite that never
+moves.
 
-| Subject | `instruction_following` | `structured_output` |
-|---|---|---|
-| bare base | 0.727 (n=11) | 1.000 (n=3) |
-| `+terse` | 0.818 (n=11) | 1.000 (n=3) |
-| `+pirate` | 0.818 (n=11) | 1.000 (n=3) |
-| `+verbose` | 0.818 (n=11) | 1.000 (n=3) |
+**That reading was wrong, and row H6 found out why.** The numbers were identical because the
+adapter was never applied — `GenerationRequest.adapter` was never set, so every one of those runs
+measured the bare base (see *T12 realised* below). The panel had still not met a LoRA.
 
-**No forgetting was detected, and that is the weaker half of the finding.** All three adapters
-moved `instruction_following` by exactly `+0.091` — one case in eleven — and none moved
-`structured_output` at all. Three adapters trained for three different voices scoring identically
-on both rows is not evidence that all three are undamaged; it is evidence that **at n=11 and n=3 the
-panel resolves nothing finer than gross forgetting**. The adapters are certainly live: the same
-provider, prompted identically, answers as the base, as a pirate, tersely and verbosely.
+### The panel against real adapters, and against a damaged one, 2026-09-06 (row H6)
 
-This is the **second** revisit trigger above — "a regression suite that never moves" — arriving in
-its quietest form, and it is recorded rather than acted on: one base, one machine, three adapters
-none of which is damaged. What would settle it is a deliberately damaged adapter. Until then the
-honest statement is that the panel *ran*, produced each subject's own numbers, and inherited
-nothing — and that its sample sizes are too small to be read as a clean bill of health for any
-particular LoRA.
+With the run's adapter actually reaching the provider, and a **deliberately damaged** LoRA trained
+for the purpose (`~/ai/tools/lora-train/train_damaged.py`: the base's own answers reattached to the
+wrong questions, 600 steps at 10× the learning rate — fluent, confident, and no longer taking
+direction), on the reference machine:
+
+| Subject | `instruction_following` | Δ | `structured_output` | Δ |
+|---|---|---|---|---|
+| bare base | 0.727 (n=11) | — | 1.000 (n=3) | — |
+| `+terse` | 0.636 | −0.091 | 1.000 | 0.000 |
+| `+pirate` | 0.727 | 0.000 | 1.000 | 0.000 |
+| `+verbose` | 0.909 | +0.182 | 1.000 | 0.000 |
+| **`+damaged`** | **0.182** | **−0.545** | **0.000** | **−1.000** |
+
+**The panel separates a damaged adapter from an undamaged one, on both rows, unambiguously.** The
+damaged subject loses two thirds of the base's instruction-following and *all* of its structured
+output, while the three real style adapters sit within ±0.18 of the base and, unlike H5's
+identical figures, now differ from each other — which is what three different LoRAs should look
+like.
+
+**The second revisit trigger is closed.** "A regression suite that never moves" was an artefact of
+the measurement path, not a property of the suites: `structured_output`, the row H5 named as
+suspect for never moving, is the one that moves furthest here. Both fixed rows earn their GPU
+time, and neither is a candidate for replacement.
+
+Two smaller findings, recorded rather than acted on:
+
+* **The panel's sample sizes still resolve only gross damage.** `n=11` and `n=3` separate 0.182
+  from 0.727 with no difficulty and would not separate two adapters a few percent apart. That is
+  what the panel is *for* — it is a regression check, not a leaderboard — but it means a −0.091
+  like `terse`'s is one case in eleven and should not be read as a finding on its own.
+* **A damaged adapter is expensive to measure.** The damaged LoRA never emits a stop token, so
+  uncapped it generates to the served context on every case: the panel took **72 s** with
+  `max_output_tokens = 512` and would have taken roughly forty minutes without it. That is the
+  fourth revisit trigger ("cost, honestly measured") pointing the opposite way from the one it
+  anticipated — the panel is cheap on a healthy adapter and expensive on exactly the adapter it
+  exists to catch. `FWTEST_A2_MAX_OUTPUT_TOKENS` bounds it for the live test; whether the *product*
+  should cap a regression panel's output is not decided here.
+
+### T12 realised, 2026-09-06 (row H6): the producer measured the base and filed it as the adapter
+
+T12's mitigation is stated as two independent ends — "no inheritance in any form, asserted rather
+than documented" here, and "the consumer refuses the mis-binding independently, so both ends have
+to fail before it happens". **Neither end can see this failure, because it happens before either
+of them.** `_build_request` never set `GenerationRequest.adapter`, so a run started with
+`--adapter` sent every generation — warm-up, measured call and interaction turn — to the **bare
+base**, while storing an `adapter_id`, hashing an adapter-bearing subject into its fingerprint and
+exporting the numbers as that adapter's evidence. The record is internally consistent, names a
+real adapter, binds correctly at the consumer, and is a measurement of something else.
+
+Found by measuring a deliberately damaged LoRA (above): the damaged subject scored **identically
+to the bare base** — `0.818` against the base's `0.727` on `instruction_following`, *better* than
+the weights it was supposedly degrading — and 8 of its 11 responses were byte-for-byte the base's,
+from an adapter that answers every question with fluent nonsense. The three differing responses
+were llama-server's own run-to-run variation, not the adapter. With the adapter applied, the same
+subject scores `0.182` and shares **no** response with the base.
+
+**Every adapter-bearing evidence record produced before this fix measures the bare base**,
+including the bundle integration verification I18 carried at row H5. The plumbing I18 proved is
+sound; the numbers it carried are not adapter measurements.
+
+The mitigation gains a third leg, and it is the one that would have caught this: a unit test
+asserting the run's adapter reaches the request
+(`tests/unit/test_runtime_profile.py::TestTheProfileReachesTheProvider`), beside the one that
+already asserts the same thing for the runtime profile — which exists because the *profile* was
+stored-but-never-sent in exactly this way at an earlier phase. Two axes of one subject, the same
+defect twice, so the general form is worth stating: **a subject field that is stored, hashed and
+never sent describes a run that did not happen**, and each field needs its own assertion that it
+crossed the wire.
 
 ## 2. Integration risks
 

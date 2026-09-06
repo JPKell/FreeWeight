@@ -613,6 +613,15 @@ thing. Making it configurable would overturn the comparability
 its own ADR. Changing the panel's *content* is a change to this catalogue, versioned with it and
 visible in review — which is the point of putting it here rather than in configuration.
 
+**Measured against a damaged adapter, 2026-09-06 (row H6).** Rows 1 and 2 were run on this
+machine against three real style LoRAs and one deliberately damaged one. The damaged subject
+scored `0.182` where the base scored `0.727` on row 1, and `0.000` where the base scored `1.000` on
+row 2, while the three healthy adapters stayed within `±0.18` of the base on row 1 and moved row 2
+not at all. **Both fixed rows separate a damaged adapter from an undamaged one**, and the numbers
+are in [risks](risks.md) T11. One cost is worth knowing in advance: a damaged adapter may never
+emit a stop token, so the panel is markedly more expensive against exactly the adapter it exists to
+catch.
+
 **A base with no evidence resolves row 3 to nothing**, and the panel is rows 1 and 2 plus declared
 and performance. That is an honest two-suite regression panel, not a failure: the rule cannot invent
 a strongest capability for a base nobody has measured, and

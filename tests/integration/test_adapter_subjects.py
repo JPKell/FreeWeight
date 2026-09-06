@@ -30,6 +30,23 @@ _ADAPTER_DIGEST = "sha256:" + "c3" * 32
 _SIBLING_DIGEST = "sha256:" + "d4" * 32
 
 
+def _adapter_capable() -> Any:
+    """A `FakeScript` declaring `adapter_hot_swap`, for the tests that measure a subject.
+
+    ``FULL_CAPABILITIES`` leaves the flag ``False`` on purpose: the fake is where a consumer meets
+    the *refusal* path (ADR-0062 decision 5), and that refusal is asserted here too
+    (:class:`TestAnAdapterNeedsAProviderThatCanServeOne`). But a run under ``--adapter`` now sends
+    the adapter to the provider, so a test that wants an adapter subject *measured* has to give
+    the fake the flag — otherwise it is asserting a property of a run that never happened, which
+    is exactly the defect row H6 found.
+    """
+    from dataclasses import replace
+
+    from modelrack.testing import FULL_CAPABILITIES, FakeScript
+
+    return FakeScript(capabilities=replace(FULL_CAPABILITIES, adapter_hot_swap=True))
+
+
 def _entry(env: RunEnvironment, name: str, *, artifact_digest: str) -> AdapterEntry:
     """An entry declaring the fake provider's own model as its base, proved by digest."""
     identity = env.provider.list_models()[0].identity
@@ -73,7 +90,7 @@ class TestARunRecordsItsSubject:
         self, run_environment: Callable[..., RunEnvironment]
     ) -> None:
         """Every run before Phase 15 was this, and it still means what it always meant."""
-        env = run_environment()
+        env = run_environment(script=_adapter_capable())
 
         summary = _start(env, adapter=None, entries=())
 
@@ -82,7 +99,7 @@ class TestARunRecordsItsSubject:
     def test_a_run_under_an_adapter_records_it_and_creates_the_row(
         self, run_environment: Callable[..., RunEnvironment]
     ) -> None:
-        env = run_environment()
+        env = run_environment(script=_adapter_capable())
         entries = (_entry(env, "terse", artifact_digest=_ADAPTER_DIGEST),)
 
         summary = _start(env, adapter="terse", entries=entries)
@@ -101,7 +118,7 @@ class TestARunRecordsItsSubject:
         self, run_environment: Callable[..., RunEnvironment]
     ) -> None:
         """Keyed on the artifact digest, so a second run does not make a second subject."""
-        env = run_environment()
+        env = run_environment(script=_adapter_capable())
         entries = (_entry(env, "terse", artifact_digest=_ADAPTER_DIGEST),)
 
         first = _start(env, adapter="terse", entries=entries)
@@ -116,7 +133,7 @@ class TestARunRecordsItsSubject:
         self, run_environment: Callable[..., RunEnvironment]
     ) -> None:
         """Validation happens before anything is written (api.md §4)."""
-        env = run_environment()
+        env = run_environment(script=_adapter_capable())
         from freeweight.infrastructure.db.models_runs import Run
 
         with pytest.raises(IncompatibleAdapter):
@@ -128,7 +145,7 @@ class TestARunRecordsItsSubject:
     def test_an_adapter_for_another_base_is_refused(
         self, run_environment: Callable[..., RunEnvironment]
     ) -> None:
-        env = run_environment()
+        env = run_environment(script=_adapter_capable())
         wrong = _entry(env, "wrong", artifact_digest=_SIBLING_DIGEST)
         wrong = AdapterEntry(
             **{
@@ -140,6 +157,28 @@ class TestARunRecordsItsSubject:
         with pytest.raises(IncompatibleAdapter):
             _start(env, adapter="wrong", entries=(wrong,))
 
+    def test_a_provider_that_cannot_hot_swap_refuses_the_run_rather_than_measuring_the_base(
+        self, run_environment: Callable[..., RunEnvironment]
+    ) -> None:
+        """ADR-0058 §5's second half, and the defect row H6 found, asserted from the outside.
+
+        The default fake declares no ``adapter_hot_swap``. A run under ``--adapter`` against it
+        used to be created, execute, and record the **bare base's** numbers under an
+        adapter-bearing subject — because the adapter never reached the provider at all. It is now
+        refused where it is created, and nothing is written.
+        """
+        from freeweight.infrastructure.db.models_runs import Run
+
+        env = run_environment()
+        entries = (_entry(env, "terse", artifact_digest=_ADAPTER_DIGEST),)
+
+        with pytest.raises(IncompatibleAdapter) as caught:
+            _start(env, adapter="terse", entries=entries)
+
+        assert "does not support LoRA adapters" in str(caught.value)
+        with env.database.read() as session:
+            assert session.query(Run).count() == 0
+
 
 class TestEvidenceIsNeverInherited:
     """The subject is the aggregation key, so no join exists that could cross subjects."""
@@ -147,7 +186,7 @@ class TestEvidenceIsNeverInherited:
     def test_a_base_and_an_adapter_subject_are_different_subjects(
         self, run_environment: Callable[..., RunEnvironment]
     ) -> None:
-        env = run_environment()
+        env = run_environment(script=_adapter_capable())
         entries = (_entry(env, "terse", artifact_digest=_ADAPTER_DIGEST),)
 
         base_run = _start(env, adapter=None, entries=entries)
@@ -164,7 +203,7 @@ class TestEvidenceIsNeverInherited:
         self, run_environment: Callable[..., RunEnvironment]
     ) -> None:
         """A sibling adapter's evidence is no more the subject's than the base's is."""
-        env = run_environment()
+        env = run_environment(script=_adapter_capable())
         entries = (
             _entry(env, "terse", artifact_digest=_ADAPTER_DIGEST),
             _entry(env, "pirate", artifact_digest=_SIBLING_DIGEST),
@@ -179,7 +218,7 @@ class TestEvidenceIsNeverInherited:
         self, run_environment: Callable[..., RunEnvironment]
     ) -> None:
         """`adapter_id IS NULL`, never "any adapter" — the loose filter is the whole bug."""
-        env = run_environment()
+        env = run_environment(script=_adapter_capable())
         entries = (_entry(env, "terse", artifact_digest=_ADAPTER_DIGEST),)
         _start(env, adapter=None, entries=entries)
         adapter_run = _start(env, adapter="terse", entries=entries)
@@ -210,7 +249,7 @@ class TestThePanelIsMeasuredNeverInherited:
         """The failure this phase exists to prevent, and it looks exactly like a working join."""
         from freeweight.services.adapters import measured_scores, resolve_subject
 
-        env = run_environment()
+        env = run_environment(script=_adapter_capable())
         entries = (_entry(env, "terse", artifact_digest=_ADAPTER_DIGEST),)
         _run_to_completion(env, adapter=None, entries=entries, settings=evidence_settings)
 
@@ -228,7 +267,7 @@ class TestThePanelIsMeasuredNeverInherited:
         """Recomputing one subject must not rewrite another's rows (replace_for_subject)."""
         from freeweight.services.adapters import measured_scores, resolve_subject
 
-        env = run_environment()
+        env = run_environment(script=_adapter_capable())
         entries = (_entry(env, "terse", artifact_digest=_ADAPTER_DIGEST),)
         _run_to_completion(env, adapter=None, entries=entries, settings=evidence_settings)
         base = resolve_subject(_model_row(env), entries, None)
@@ -246,7 +285,7 @@ class TestThePanelIsMeasuredNeverInherited:
         from freeweight.services.adapters import panel_for, resolve_subject
         from freeweight.services.evidence import load_capability_mapping
 
-        env = run_environment()
+        env = run_environment(script=_adapter_capable())
         entries = (_entry(env, "terse", artifact_digest=_ADAPTER_DIGEST),)
         subject = resolve_subject(_model_row(env), entries, "terse")
 
@@ -272,7 +311,7 @@ class TestThePanelIsMeasuredNeverInherited:
         from freeweight.services.adapters import panel_for, resolve_subject
         from freeweight.services.evidence import load_capability_mapping
 
-        env = run_environment()
+        env = run_environment(script=_adapter_capable())
         entries = (_entry(env, "terse", artifact_digest=_ADAPTER_DIGEST),)
         _run_to_completion(env, adapter=None, entries=entries, settings=evidence_settings)
         subject = resolve_subject(_model_row(env), entries, "terse")
@@ -372,7 +411,7 @@ class TestServingModeIsSeparableFromSelection:
         from freeweight.config import RuntimeSettings
         from freeweight.services.runs import get_run
 
-        env = run_environment()
+        env = run_environment(script=_adapter_capable())
         runs = [
             create_run(
                 env.database,
@@ -409,7 +448,7 @@ class TestTheComparisonGrouping:
     ) -> None:
         from freeweight.services.evidence import EvidenceQuery, group_by_base, query_evidence
 
-        env = run_environment()
+        env = run_environment(script=_adapter_capable())
         entries = (_entry(env, "terse", artifact_digest=_ADAPTER_DIGEST),)
         _run_to_completion(env, adapter=None, entries=entries, settings=evidence_settings)
         _run_to_completion(env, adapter="terse", entries=entries, settings=evidence_settings)
@@ -435,7 +474,7 @@ class TestTheComparisonGrouping:
         """
         from freeweight.services.evidence import EvidenceQuery, group_by_base, query_evidence
 
-        env = run_environment()
+        env = run_environment(script=_adapter_capable())
         entries = (_entry(env, "terse", artifact_digest=_ADAPTER_DIGEST),)
         _run_to_completion(env, adapter=None, entries=entries, settings=evidence_settings)
         _run_to_completion(env, adapter="terse", entries=entries, settings=evidence_settings)
@@ -456,7 +495,7 @@ class TestTheComparisonGrouping:
         """The grouping counts each subject's own records and sums nothing across them."""
         from freeweight.services.evidence import EvidenceQuery, group_by_base, query_evidence
 
-        env = run_environment()
+        env = run_environment(script=_adapter_capable())
         entries = (_entry(env, "terse", artifact_digest=_ADAPTER_DIGEST),)
         _run_to_completion(env, adapter=None, entries=entries, settings=evidence_settings)
 
