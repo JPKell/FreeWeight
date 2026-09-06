@@ -101,6 +101,7 @@ __all__ = [
     "MAX_BUNDLE_SCHEMA_VERSION",
     "MAX_EVIDENCE_LIMIT",
     "MAX_EVIDENCE_SCHEMA_VERSION",
+    "MAX_SUBJECTS_PER_BASE",
     "AggregationReport",
     "ContributingMetric",
     "EvidenceNotFound",
@@ -170,6 +171,14 @@ MAX_BUNDLE_SCHEMA_VERSION = BUNDLE_SCHEMA_VERSION_ADAPTER
 
 DEFAULT_EVIDENCE_LIMIT = 50
 MAX_EVIDENCE_LIMIT = 500
+
+MAX_SUBJECTS_PER_BASE = 12
+"""The most subjects the comparison view shows under one base before saying "and N more".
+
+A dozen is what a person compares; a hundred is a wall of rows with a hundred-tall ``rowspan``
+beside it. The cap bounds the *rendering*, not the query — nothing is dropped from the store and
+the count of what is not shown is stated rather than implied.
+"""
 
 _GENERATOR = GeneratorInfo(name="freeweight", version=__version__)
 _SHIPPED_WEIGHTS = Path(__file__).resolve().parent.parent / "config" / "capability_weights.toml"
@@ -2180,16 +2189,21 @@ class SubjectGroup:
 
     Attributes:
         base_canonical_id: The base every subject here shares.
-        subjects: One entry per subject, the bare base first, then adapters by name.
+        subjects: One entry per subject shown, the bare base first, then adapters by name. Capped
+            at :data:`MAX_SUBJECTS_PER_BASE`.
+        hidden_subject_count: How many subjects this base has beyond the cap. ``0`` is the normal
+            state; anything else is rendered as "and N more" rather than dropped silently.
     """
 
     base_canonical_id: str
     subjects: tuple[SubjectSummary, ...]
+    hidden_subject_count: int = 0
 
     @property
     def adapter_count(self) -> int:
-        """How many adapter subjects sit under this base."""
-        return sum(1 for subject in self.subjects if subject.adapter_name is not None)
+        """How many adapter subjects sit under this base, shown **and** hidden."""
+        shown = sum(1 for subject in self.subjects if subject.adapter_name is not None)
+        return shown + self.hidden_subject_count
 
 
 @dataclass(frozen=True, slots=True)
@@ -2215,11 +2229,22 @@ class SubjectSummary:
     source_run_count: int
 
 
-def group_by_base(records: Sequence[EvidenceRecord]) -> tuple[SubjectGroup, ...]:
+def group_by_base(
+    records: Sequence[EvidenceRecord], *, max_subjects: int = MAX_SUBJECTS_PER_BASE
+) -> tuple[SubjectGroup, ...]:
     """Group evidence records into subjects, and subjects under their base.
+
+    **Bounded, and honest about it.** A base with a dozen subjects reads; one with a hundred is a
+    wall of rows nobody compares anything in. Each group therefore shows at most ``max_subjects``
+    and reports the rest as :attr:`SubjectGroup.hidden_subject_count`, which the page renders as
+    "and N more" — the bare base is always among those shown, because it is what every adapter
+    here was applied to. Paging is deliberately not built: the cap is a rendering bound, not a
+    query one, and a reader who wants one subject filters for it.
 
     Args:
         records: The records to group, in any order.
+        max_subjects: The most subjects one base shows. Injected so a test can force the cap
+            without inventing a hundred adapters.
 
     Returns:
         One group per base, bases in canonical-ID order; within a group the bare base first, then
@@ -2246,17 +2271,18 @@ def group_by_base(records: Sequence[EvidenceRecord]) -> tuple[SubjectGroup, ...]
                 source_run_count=len(runs),
             )
         )
-    return tuple(
-        SubjectGroup(
-            base_canonical_id=base,
-            # The bare base first — it is what the adapters are applied to, and what the regression
-            # panel's third row is chosen from — then adapters by name so two readings agree.
-            subjects=tuple(
-                sorted(
-                    summaries,
-                    key=lambda item: (item.adapter_name is not None, item.adapter_name or ""),
-                )
-            ),
+    built: list[SubjectGroup] = []
+    for base, summaries in sorted(groups.items()):
+        # The bare base first — it is what the adapters are applied to, and what the regression
+        # panel's third row is chosen from — then adapters by name so two readings agree.
+        ordered = sorted(
+            summaries, key=lambda item: (item.adapter_name is not None, item.adapter_name or "")
         )
-        for base, summaries in sorted(groups.items())
-    )
+        built.append(
+            SubjectGroup(
+                base_canonical_id=base,
+                subjects=tuple(ordered[:max_subjects]),
+                hidden_subject_count=max(0, len(ordered) - max_subjects),
+            )
+        )
+    return tuple(built)

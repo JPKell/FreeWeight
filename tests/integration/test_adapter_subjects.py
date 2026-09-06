@@ -423,6 +423,31 @@ class TestTheComparisonGrouping:
         assert all(subject.record_count > 0 for subject in group.subjects)
         assert len({subject.canonical_id for subject in group.subjects}) == 2
 
+    def test_a_base_with_more_subjects_than_the_cap_says_how_many_are_not_shown(
+        self,
+        run_environment: Callable[..., RunEnvironment],
+        evidence_settings: EvidenceSettings,
+    ) -> None:
+        """The grouping is bounded, and states what it withheld rather than dropping it.
+
+        A dozen subjects render; a hundred do not, and a silently truncated table is worse than a
+        long one because a reader cannot tell it is looking at part of the answer.
+        """
+        from freeweight.services.evidence import EvidenceQuery, group_by_base, query_evidence
+
+        env = run_environment()
+        entries = (_entry(env, "terse", artifact_digest=_ADAPTER_DIGEST),)
+        _run_to_completion(env, adapter=None, entries=entries, settings=evidence_settings)
+        _run_to_completion(env, adapter="terse", entries=entries, settings=evidence_settings)
+
+        records = query_evidence(env.database, EvidenceQuery()).records
+        group = group_by_base(records, max_subjects=1)[0]
+
+        assert len(group.subjects) == 1
+        assert group.subjects[0].adapter_name is None, "the bare base is never the one hidden"
+        assert group.hidden_subject_count == 1
+        assert group.adapter_count == 1, "the count reports every adapter, shown or not"
+
     def test_an_unmeasured_subject_contributes_no_row_rather_than_the_bases(
         self,
         run_environment: Callable[..., RunEnvironment],

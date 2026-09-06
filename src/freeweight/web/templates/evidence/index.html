@@ -72,7 +72,7 @@
       {% for subject in group.subjects %}
       <tr>
         {% if loop.first %}
-        <td class="mono" rowspan="{{ group.subjects | length }}">
+        <td class="mono" rowspan="{{ group.subjects | length + (1 if group.hidden_subject_count else 0) }}">
           {{ group.base_canonical_id }}
           {% if group.adapter_count %}
           <span class="unit">{{ group.adapter_count }} adapter subject{{ '' if group.adapter_count == 1 else 's' }}</span>
@@ -106,6 +106,14 @@
         </td>
       </tr>
       {% endfor %}
+      {% if group.hidden_subject_count %}
+      <tr>
+        <td class="muted" colspan="4">
+          and {{ group.hidden_subject_count }} more subject{{ '' if group.hidden_subject_count == 1 else 's' }}
+          on this base, not shown — filter for one by name to see it
+        </td>
+      </tr>
+      {% endif %}
       {% endfor %}
     </tbody>
   </table>
