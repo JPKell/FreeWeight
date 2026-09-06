@@ -35,6 +35,7 @@ from freeweight.services.evidence import (
     EvidenceRecord,
     Staleness,
     evidence_bundle,
+    group_by_base,
     policy_for,
     query_evidence,
     staleness_of,
@@ -233,6 +234,7 @@ def evidence_page(
                 app_version=__version__,
                 page="evidence",
                 rows=(),
+                groups=(),
                 filters=filters,
                 stale_count=0,
                 capability_count=0,
@@ -245,6 +247,10 @@ def evidence_page(
         for record in page.records
     ]
     stale_count = sum(1 for row in rows if row.staleness.stale)
+    # Grouped from the unfiltered page: the "stale only" filter narrows the table, and hiding a
+    # subject from the grouping because its records happen to be fresh would make the group look
+    # like it has fewer subjects than it does.
+    groups = group_by_base([row.record for row in rows])
     if stale == "only":
         rows = [row for row in rows if row.staleness.stale]
     return HTMLResponse(
@@ -253,6 +259,7 @@ def evidence_page(
             app_version=__version__,
             page="evidence",
             rows=rows,
+            groups=groups,
             filters=filters,
             stale_count=stale_count,
             capability_count=len({row.record.capability_id for row in rows}),

@@ -364,3 +364,54 @@ def panel_for(
         available_suites=available_suites,
     )
     return SubjectPanel(subject=subject, panel=panel, measured=measured_scores(database, subject))
+
+
+@dataclass(frozen=True, slots=True)
+class ServingModeArm:
+    """One arm of a serving-mode A/B.
+
+    Attributes:
+        registered: Whether the server this arm ran against had adapters registered.
+        run_id: The run.
+        profile_hash: That run's ``runtime_profile_hash``. **The two arms differ here**, which is
+            what makes them two separable measurements rather than a comparison this application
+            has to remember how to make.
+    """
+
+    registered: bool
+    run_id: str
+    profile_hash: str
+
+
+@dataclass(frozen=True, slots=True)
+class ServingModeResult:
+    """Both arms of one serving-mode A/B.
+
+    Attributes:
+        clean: The arm served with no adapters registered.
+        registered: The arm served with the operator's adapters registered.
+    """
+
+    clean: ServingModeArm
+    registered: ServingModeArm
+
+    @property
+    def separable(self) -> bool:
+        """Whether the two arms are permanently distinguishable, which they must be."""
+        return self.clean.profile_hash != self.registered.profile_hash
+
+    def as_json(self) -> dict[str, Any]:
+        """Render for ``--json``."""
+        return {
+            "clean": {
+                "run_id": self.clean.run_id,
+                "runtime_profile_hash": self.clean.profile_hash,
+                "adapters_registered": False,
+            },
+            "registered": {
+                "run_id": self.registered.run_id,
+                "runtime_profile_hash": self.registered.profile_hash,
+                "adapters_registered": True,
+            },
+            "separable": self.separable,
+        }

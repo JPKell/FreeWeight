@@ -343,3 +343,99 @@ def _run_to_completion(
     ).run_once()
     recompute_for_run(env.database, summary.id, settings=settings)
     return str(summary.id)
+
+
+class TestServingModeIsSeparableFromSelection:
+    """ADR-0060: which adapter ran is the subject; whether any were registered is the profile."""
+
+    def test_the_two_arms_hash_differently(self) -> None:
+        """No new comparison mechanism is needed, because the arms already separate (ADR-0074)."""
+        from freeweight.config import RuntimeSettings
+
+        runtime = RuntimeSettings()
+        clean = runtime.to_profile(adapters_registered=False)
+        registered = runtime.to_profile(adapters_registered=True)
+
+        assert clean.profile_hash != registered.profile_hash
+
+    def test_an_unstated_serving_mode_keeps_the_hash_it_always_had(self) -> None:
+        """An ordinary run's profile hash must not move at 1.1 (ADR-0074, additive)."""
+        from baseaicore import RuntimeProfile
+
+        from freeweight.config import RuntimeSettings
+
+        assert RuntimeSettings().to_profile().profile_hash == RuntimeProfile().profile_hash
+
+    def test_two_runs_in_the_two_arms_are_two_subjects_of_one_base(
+        self, run_environment: Callable[..., RunEnvironment]
+    ) -> None:
+        from freeweight.config import RuntimeSettings
+        from freeweight.services.runs import get_run
+
+        env = run_environment()
+        runs = [
+            create_run(
+                env.database,
+                env.provider,
+                env.collector,
+                env.registry,
+                model_ref=env.model_ref,
+                suite_key="native.echo",
+                execution=ExecutionConfig.resolve(
+                    ExecutionSettings(warmup_repetitions=0, cooldown_seconds=0),
+                    measured_repetitions=1,
+                ),
+                runtime_profile=RuntimeSettings().to_profile(adapters_registered=registered),
+            )
+            for registered in (False, True)
+        ]
+
+        subjects = [subject_of_run(env.database, run.id) for run in runs]
+        assert subjects[0].model_id == subjects[1].model_id
+        assert subjects[0].runtime_profile_id != subjects[1].runtime_profile_id
+        assert all(subject.adapter_id is None for subject in subjects), (
+            "the A/B measures the base; neither arm is an adapter subject"
+        )
+        assert all(get_run(env.database, run.id).run is not None for run in runs)
+
+
+class TestTheComparisonGrouping:
+    """Subjects sit under their base, side by side, and are never merged."""
+
+    def test_subjects_group_under_one_base_with_the_bare_base_first(
+        self,
+        run_environment: Callable[..., RunEnvironment],
+        evidence_settings: EvidenceSettings,
+    ) -> None:
+        from freeweight.services.evidence import EvidenceQuery, group_by_base, query_evidence
+
+        env = run_environment()
+        entries = (_entry(env, "terse", artifact_digest=_ADAPTER_DIGEST),)
+        _run_to_completion(env, adapter=None, entries=entries, settings=evidence_settings)
+        _run_to_completion(env, adapter="terse", entries=entries, settings=evidence_settings)
+
+        groups = group_by_base(query_evidence(env.database, EvidenceQuery()).records)
+
+        assert len(groups) == 1
+        group = groups[0]
+        assert group.adapter_count == 1
+        assert [subject.adapter_name for subject in group.subjects] == [None, "terse"]
+        assert all(subject.record_count > 0 for subject in group.subjects)
+        assert len({subject.canonical_id for subject in group.subjects}) == 2
+
+    def test_an_unmeasured_subject_contributes_no_row_rather_than_the_bases(
+        self,
+        run_environment: Callable[..., RunEnvironment],
+        evidence_settings: EvidenceSettings,
+    ) -> None:
+        """The grouping counts each subject's own records and sums nothing across them."""
+        from freeweight.services.evidence import EvidenceQuery, group_by_base, query_evidence
+
+        env = run_environment()
+        entries = (_entry(env, "terse", artifact_digest=_ADAPTER_DIGEST),)
+        _run_to_completion(env, adapter=None, entries=entries, settings=evidence_settings)
+
+        groups = group_by_base(query_evidence(env.database, EvidenceQuery()).records)
+
+        assert [subject.adapter_name for subject in groups[0].subjects] == [None]
+        assert groups[0].adapter_count == 0

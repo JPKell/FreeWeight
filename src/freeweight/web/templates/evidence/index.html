@@ -45,6 +45,73 @@
   </div>
 </dl>
 
+{% if groups %}
+<h3>Subjects, grouped by base</h3>
+<p class="muted">
+  A subject is a base, or a base with one LoRA adapter applied. Subjects are shown side by side and
+  never merged: evidence measured under an adapter describes that subject and nothing else — not
+  the bare base, not a sibling adapter. A subject nobody has measured shows <code>—</code>, never
+  the base's numbers.
+</p>
+<div class="table-scroll">
+  <table data-table="subjects" data-complete="true">
+    <caption>
+      Every base with the subjects measured on it, and where each subject's evidence came from.
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">Base</th>
+        <th scope="col">Subject</th>
+        <th scope="col" class="numeric">Records</th>
+        <th scope="col">Capabilities</th>
+        <th scope="col">Evidence source</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for group in groups %}
+      {% for subject in group.subjects %}
+      <tr>
+        {% if loop.first %}
+        <td class="mono" rowspan="{{ group.subjects | length }}">
+          {{ group.base_canonical_id }}
+          {% if group.adapter_count %}
+          <span class="unit">{{ group.adapter_count }} adapter subject{{ '' if group.adapter_count == 1 else 's' }}</span>
+          {% endif %}
+        </td>
+        {% endif %}
+        <td class="mono">
+          {% if subject.adapter_name %}
+          <strong>{{ subject.adapter_name }}</strong>
+          {% else %}
+          <span class="unit">bare base</span>
+          {% endif %}
+          {% if subject.name_only %}
+          <span class="status status-interrupted" title="The base was named, not proven by digest">name only</span>
+          {% endif %}
+        </td>
+        <td class="numeric">{{ subject.record_count or '—' }}</td>
+        <td>
+          {% if subject.capabilities %}
+          {% for capability in subject.capabilities %}<code>{{ capability }}</code>{% if not loop.last %} {% endif %}{% endfor %}
+          {% else %}
+          —
+          {% endif %}
+        </td>
+        <td>
+          {% if subject.source_run_count %}
+          measured here, {{ subject.source_run_count }} run{{ '' if subject.source_run_count == 1 else 's' }}
+          {% else %}
+          <span class="muted">not measured — an adapter subject inherits nothing from its base</span>
+          {% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endif %}
+
 {% if rows %}
 <div class="table-scroll">
   <table data-table="evidence" data-sortable="true" data-complete="true">
@@ -56,7 +123,7 @@
     <thead>
       <tr>
         <th scope="col">Capability</th>
-        <th scope="col">Model</th>
+        <th scope="col">Subject</th>
         <th scope="col" class="numeric">Score</th>
         <th scope="col" class="numeric">Confidence</th>
         <th scope="col" class="numeric">Samples</th>
@@ -76,7 +143,10 @@
           <span class="status status-preparing" title="A user-authored goal produced or contributed to this record">goal</span>
           {% endif %}
         </td>
-        <td class="mono">{{ record.model_canonical_id }}
+        <td class="mono">{{ record.subject_canonical_id }}
+          {% if record.adapter_name %}
+          <span class="status status-preparing" title="Measured with this LoRA adapter applied; it describes this subject and nothing else">{{ record.adapter_name }}</span>
+          {% endif %}
           {% if record.identity_confidence == 'name_only' %}
           <span class="status status-interrupted" title="No digest: the weights may have changed under this name">name only</span>
           {% endif %}

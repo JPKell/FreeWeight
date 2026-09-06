@@ -280,14 +280,30 @@ class RuntimeSettings(BaseModel):
         examples=["5m"],
     )
 
-    def to_profile(self) -> RuntimeProfile:
-        """Build the :class:`~baseaicore.RuntimeProfile` these settings describe."""
+    def to_profile(self, *, adapters_registered: bool | None = None) -> RuntimeProfile:
+        """Build the :class:`~baseaicore.RuntimeProfile` these settings describe.
+
+        Args:
+            adapters_registered: Whether the server serving this run was launched with adapters
+                registered at all — a **serving mode**, not a selection
+                (ADR-0060, ADR-0074). It is
+                deliberately not a ``[runtime]`` key: an operator does not choose it, the
+                composition root knows it, and it is passed here by whoever built the provider.
+                ``None`` means unstated, which is what every profile meant before adapters existed
+                and is why an existing installation's ``runtime_profile_hash`` values do not move.
+
+        Returns:
+            The profile. Two profiles differing only in ``adapters_registered`` hash differently,
+            which is what makes the serving-mode A/B two ordinary, permanently separable
+            measurements of one base rather than a comparison mechanism of its own.
+        """
         return RuntimeProfile(
             context_size=self.context_size,
             gpu_layers=self.gpu_layers,
             threads=self.threads,
             batch_size=self.batch_size,
             keep_alive=self.keep_alive,
+            adapters_registered=adapters_registered,
         )
 
 

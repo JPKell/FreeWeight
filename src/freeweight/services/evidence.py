@@ -109,8 +109,11 @@ __all__ = [
     "EvidenceRecord",
     "Staleness",
     "Subject",
+    "SubjectGroup",
+    "SubjectSummary",
     "WithheldEvidence",
     "evidence_bundle",
+    "group_by_base",
     "iter_evidence_export",
     "load_capability_mapping",
     "newest_evidence_ages",
@@ -355,6 +358,23 @@ class EvidenceRecord:  # noqa: PLR0904 — a record is read in several shapes, a
         return self.adapter_name is not None
 
     @property
+    def adapter_identity(self) -> Any:  # noqa: ANN401 — a baseaicore.AdapterIdentity
+        """Return this record's :class:`~baseaicore.AdapterIdentity`, or ``None`` for a bare base.
+
+        Built from ``baseaicore`` rather than assembled here, so the name and digest rules are
+        validated once, in the place that owns them.
+        """
+        if self.adapter_name is None or self.adapter_artifact_digest is None:
+            return None
+        from baseaicore import AdapterIdentity
+
+        return AdapterIdentity(
+            name=self.adapter_name,
+            artifact_digest=self.adapter_artifact_digest,
+            source_digest=self.adapter_source_digest,
+        )
+
+    @property
     def subject_canonical_id(self) -> str:
         """Return ``baseaicore``'s canonical subject string for this record.
 
@@ -363,16 +383,11 @@ class EvidenceRecord:  # noqa: PLR0904 — a record is read in several shapes, a
         library. With no adapter the answer is byte-for-byte the model's canonical ID, which is why
         every row written before adapters existed means what it always meant (ADR-0058).
         """
-        if self.adapter_name is None or self.adapter_artifact_digest is None:
+        identity = self.adapter_identity
+        if identity is None:
             return self.model_canonical_id
-        from baseaicore import AdapterIdentity
-
-        identity = AdapterIdentity(
-            name=self.adapter_name,
-            artifact_digest=self.adapter_artifact_digest,
-            source_digest=self.adapter_source_digest,
-        )
-        return f"{self.model_canonical_id}{identity.canonical_suffix}"
+        suffix: str = identity.canonical_suffix
+        return f"{self.model_canonical_id}{suffix}"
 
     @property
     def is_goal_sourced(self) -> bool:
@@ -466,12 +481,18 @@ class EvidenceRecord:  # noqa: PLR0904 — a record is read in several shapes, a
                 }
             )
         writer: Any = CapabilityEvidenceOut
-        if self.is_adapter_bearing:
+        identity = self.adapter_identity
+        if identity is not None:
             writer = CapabilityEvidenceV1_1Out
             payload["adapter"] = {
-                "name": self.adapter_name,
-                "artifact_digest": self.adapter_artifact_digest,
-                "source_digest": self.adapter_source_digest,
+                "name": identity.name,
+                "artifact_digest": identity.artifact_digest,
+                "source_digest": identity.source_digest,
+                # Materialized on the wire, exactly as `ModelIdentityFields.canonical_id` is, and
+                # taken from the library rather than formatted here — SetSpec recomputes it and
+                # refuses a disagreement, which is the check that keeps two applications spelling
+                # one subject the same way (ADR-0058 §3).
+                "canonical_suffix": identity.canonical_suffix,
             }
         try:
             return writer.model_validate(payload)
@@ -2142,3 +2163,100 @@ def newest_evidence_ages(
         capability: max(0.0, (instant - measured).total_seconds() / 86_400.0)
         for capability, measured in sorted(newest.items())
     }
+
+
+@dataclass(frozen=True, slots=True)
+class SubjectGroup:
+    """Every subject measured on one base, with what is known about each.
+
+    The comparison view's grouping (spec §7.5): subjects sit **under** their base, because they are
+    the same weights with something applied, and a reader comparing two adapters wants them beside
+    each other rather than scattered through a flat list of models.
+
+    They are shown side by side and **never merged**. Evidence measured on ``(base, adapterA)``
+    describes that subject and nothing else
+    ([ADR-0059](../../../docs/adr/0059-adapter-evidence-is-measured-never-inherited.md)), so a
+    subject with no records shows none — not the base's, not a sibling's, not a discounted copy.
+
+    Attributes:
+        base_canonical_id: The base every subject here shares.
+        subjects: One entry per subject, the bare base first, then adapters by name.
+    """
+
+    base_canonical_id: str
+    subjects: tuple[SubjectSummary, ...]
+
+    @property
+    def adapter_count(self) -> int:
+        """How many adapter subjects sit under this base."""
+        return sum(1 for subject in self.subjects if subject.adapter_name is not None)
+
+
+@dataclass(frozen=True, slots=True)
+class SubjectSummary:
+    """One subject in a group, and where its evidence came from.
+
+    Attributes:
+        canonical_id: The subject string — the base's canonical ID, plus the adapter's suffix when
+            there is one.
+        adapter_name: The adapter, or ``None`` for the bare base.
+        name_only: Whether any of this subject's records rests on a name rather than a digest.
+        record_count: How many capability records this subject has **of its own**.
+        capabilities: Those capabilities, sorted. Empty is the honest state of an unmeasured
+            subject and renders as ``—``.
+        source_run_count: Distinct runs behind those records — "where its evidence came from".
+    """
+
+    canonical_id: str
+    adapter_name: str | None
+    name_only: bool
+    record_count: int
+    capabilities: tuple[str, ...]
+    source_run_count: int
+
+
+def group_by_base(records: Sequence[EvidenceRecord]) -> tuple[SubjectGroup, ...]:
+    """Group evidence records into subjects, and subjects under their base.
+
+    Args:
+        records: The records to group, in any order.
+
+    Returns:
+        One group per base, bases in canonical-ID order; within a group the bare base first, then
+        adapter subjects by name. Nothing is summed across subjects and nothing is inherited
+        between them: each summary counts only its own records.
+    """
+    by_subject: dict[tuple[str, str], list[EvidenceRecord]] = {}
+    for record in records:
+        by_subject.setdefault((record.model_canonical_id, record.subject_canonical_id), []).append(
+            record
+        )
+
+    groups: dict[str, list[SubjectSummary]] = {}
+    for (base, subject_id), items in by_subject.items():
+        adapter = next((item.adapter_name for item in items if item.adapter_name), None)
+        runs = {run_id for item in items for run_id in item.source_run_ids}
+        groups.setdefault(base, []).append(
+            SubjectSummary(
+                canonical_id=subject_id,
+                adapter_name=adapter,
+                name_only=any(item.identity_confidence == "name_only" for item in items),
+                record_count=len(items),
+                capabilities=tuple(sorted({item.capability_id for item in items})),
+                source_run_count=len(runs),
+            )
+        )
+    return tuple(
+        SubjectGroup(
+            base_canonical_id=base,
+            # The bare base first — it is what the adapters are applied to, and what the regression
+            # panel's third row is chosen from — then adapters by name so two readings agree.
+            subjects=tuple(
+                sorted(
+                    summaries,
+                    key=lambda item: (item.adapter_name is not None, item.adapter_name or ""),
+                )
+            ),
+        )
+        for base, summaries in sorted(groups.items())
+    )

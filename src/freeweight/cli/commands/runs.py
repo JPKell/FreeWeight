@@ -138,6 +138,17 @@ def start(  # noqa: PLR0913 — every parameter is a documented run option, not 
             ),
         ),
     ] = None,
+    serving_mode_ab: Annotated[
+        bool,
+        typer.Option(
+            "--serving-mode-ab",
+            help=(
+                "Run this suite twice on the base: once served clean, once served with the "
+                "operator's adapters registered. Two ordinary runs, separable for ever by "
+                "runtime_profile_hash."
+            ),
+        ),
+    ] = False,
     adapter: Annotated[
         str | None,
         typer.Option(
@@ -202,9 +213,22 @@ def start(  # noqa: PLR0913 — every parameter is a documented run option, not 
     Example:
         freeweight run start --model ollama/qwen3.5:9b --suite native.memory_kv --context-size 8192
 
+    ``--serving-mode-ab`` measures what *registering* adapters costs, which is a property of the
+    base and its runtime profile rather than of any adapter (ADR-0060), so it is measured once per
+    base and profile and never per adapter (ADR-0059 §3). It runs the same suite twice — arm A
+    against a provider built with no adapters, arm B against the configured one — and records two
+    ordinary runs. They differ in ``RuntimeProfile.adapters_registered`` and therefore in
+    ``runtime_profile_hash`` (ADR-0074), so they are permanently separable and are compared through
+    the existing comparison surface. **No new comparison mechanism exists here, and none is
+    needed.** It cannot be combined with ``--adapter``: the A/B measures the base.
+
     Example:
         freeweight run start --model llamacpp/qwen2.5-1.5b-instruct.q8_0 \
             --suite native.instruction_following --adapter terse
+
+    Example:
+        freeweight run start --model llamacpp/qwen2.5-1.5b-instruct.q8_0 \
+            --suite native.performance --serving-mode-ab
     """
     from baseaicore import SuiteError
 
@@ -212,11 +236,36 @@ def start(  # noqa: PLR0913 — every parameter is a documented run option, not 
     from freeweight.services.runs import ExecutionConfig, build_registry_for, create_run
     from freeweight.services.scheduler import RunScheduler
 
+    if serving_mode_ab and adapter is not None:
+        typer.echo(
+            "Error: --serving-mode-ab measures the base, so it cannot be combined with "
+            "--adapter (VALIDATION_ERROR)",
+            err=True,
+        )
+        raise typer.Exit(2)
+
     with _open_backend(config) as (settings, database, provider):
         registry = build_registry_for(settings)
         # One collector for the whole command: the run is created against the machine it profiles
         # and executed with telemetry sampled from the same instrument.
         collector = _collector()
+        entries = read_entries(settings.adapters)
+        if serving_mode_ab:
+            _serving_mode_ab(
+                settings,
+                database,
+                collector,
+                registry,
+                model=model,
+                suite=suite,
+                repetitions=repetitions,
+                context_size=context_size,
+                label=label,
+                allow_prompt_override=allow_prompt_override,
+                entries=entries,
+                json_output=json_output,
+            )
+            return
         try:
             summary = create_run(
                 database,
@@ -228,15 +277,13 @@ def start(  # noqa: PLR0913 — every parameter is a documented run option, not 
                 execution=ExecutionConfig.resolve(
                     settings.execution, measured_repetitions=repetitions
                 ),
-                runtime_profile=(
-                    settings.runtime.model_copy(update={"context_size": context_size}).to_profile()
-                    if context_size is not None
-                    else settings.runtime.to_profile()
+                runtime_profile=_profile_for(
+                    settings, context_size=context_size, adapters_registered=None
                 ),
                 label=label,
                 allow_prompt_override=allow_prompt_override,
                 adapter_name=adapter,
-                adapter_entries=read_entries(settings.adapters),
+                adapter_entries=entries,
             )
         except SuiteError as exc:
             typer.echo(f"Error: {exc.message} ({exc.code})", err=True)
@@ -282,6 +329,117 @@ def start(  # noqa: PLR0913 — every parameter is a documented run option, not 
         final = _reload(database, summary.id)
         _print_final(final, json_output=json_output)
         raise typer.Exit(_exit_code_for(final.status))
+
+
+def _profile_for(
+    settings: Settings, *, context_size: int | None, adapters_registered: bool | None
+) -> Any:  # noqa: ANN401 — a RuntimeProfile
+    """Build this run's runtime profile from ``[runtime]``, the ``--context-size`` override and
+    the serving mode.
+
+    ``adapters_registered=None`` is unstated, which is what every profile meant before adapters
+    existed — so an ordinary run's ``runtime_profile_hash`` is exactly what it was at 1.0.0
+    (ADR-0074).
+    """
+    runtime = (
+        settings.runtime.model_copy(update={"context_size": context_size})
+        if context_size is not None
+        else settings.runtime
+    )
+    return runtime.to_profile(adapters_registered=adapters_registered)
+
+
+def _serving_mode_ab(  # noqa: PLR0913 — every argument is one of `run start`'s own options
+    settings: Settings,
+    database: Database,
+    collector: Any,  # noqa: ANN401 — a TelemetryCollector
+    registry: Any,  # noqa: ANN401 — a BenchmarkRegistry
+    *,
+    model: str,
+    suite: str,
+    repetitions: int | None,
+    context_size: int | None,
+    label: str | None,
+    allow_prompt_override: bool,
+    entries: Any,  # noqa: ANN401 — a tuple of AdapterEntry
+    json_output: bool,
+) -> None:
+    """Run one suite twice on one base — served clean, then served with adapters registered.
+
+    Two ordinary runs, and deliberately nothing more (ADR-0059 §3, ADR-0074). The arms differ in
+    ``RuntimeProfile.adapters_registered`` and therefore in ``runtime_profile_hash``, so they are
+    separable for ever and are compared through the existing comparison surface.
+
+    Arm A is served by a provider built **without** adapters, not merely labelled as such: a single
+    server that had registered them and a run that claimed otherwise would be a measurement that
+    lies about its own conditions, which is what the whole profile-hash discipline exists to
+    prevent.
+    """
+    from baseaicore import SuiteError
+
+    from freeweight.infrastructure.providers.factory import build_provider
+    from freeweight.services.adapters import ServingModeArm, ServingModeResult
+    from freeweight.services.runs import ExecutionConfig, create_run
+    from freeweight.services.scheduler import RunScheduler
+
+    arms: list[ServingModeArm] = []
+    for registered in (False, True):
+        arm_provider = build_provider(
+            settings.provider, adapters=settings.adapters if registered else None
+        )
+        profile = _profile_for(settings, context_size=context_size, adapters_registered=registered)
+        try:
+            summary = create_run(
+                database,
+                arm_provider,
+                collector,
+                registry,
+                model_ref=model,
+                suite_key=suite,
+                execution=ExecutionConfig.resolve(
+                    settings.execution, measured_repetitions=repetitions
+                ),
+                runtime_profile=profile,
+                label=label,
+                allow_prompt_override=allow_prompt_override,
+                adapter_entries=entries if registered else (),
+            )
+        except SuiteError as exc:
+            typer.echo(f"Error: {exc.message} ({exc.code})", err=True)
+            raise typer.Exit(_start_failure_code(exc.code)) from exc
+        scheduler = RunScheduler(
+            database,
+            arm_provider,
+            registry=registry,
+            collector=collector,
+            telemetry=settings.telemetry,
+            settings=settings,
+        )
+        while _reload(database, summary.id).status not in _TERMINAL_STATUSES:
+            if scheduler.run_once() is None:
+                typer.echo(f"Another run holds this machine; {summary.id} stays queued.", err=True)
+                raise typer.Exit(7)
+        arms.append(
+            ServingModeArm(
+                registered=registered, run_id=summary.id, profile_hash=profile.profile_hash
+            )
+        )
+
+    result = ServingModeResult(clean=arms[0], registered=arms[1])
+    if json_output:
+        typer.echo(json.dumps(result.as_json()))
+        return
+    typer.echo("Serving-mode A/B, two runs of one base:")
+    typer.echo(f"  clean      run {result.clean.run_id}  profile {result.clean.profile_hash}")
+    typer.echo(
+        f"  registered run {result.registered.run_id}  profile {result.registered.profile_hash}"
+    )
+    typer.echo(
+        "Compare them with `freeweight results compare` — they are two ordinary measurements of "
+        "one base, separable by runtime_profile_hash."
+    )
+    final = _reload(database, result.registered.run_id)
+    raise typer.Exit(_exit_code_for(final.status))
 
 
 def _start_failure_code(code: str) -> int:

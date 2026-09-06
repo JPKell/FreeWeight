@@ -49,6 +49,24 @@ packaging and release standards §3.
 - **`freeweight adapters list|show`.** What the directory holds, each adapter's base and
   availability, and which ones this installation has measured under. An unusable adapter is listed
   **with its reason**, never omitted.
+- **`freeweight run start --serving-mode-ab`.** Runs one suite twice on a base — arm A against a
+  provider built with **no** adapters, arm B against the configured one — and records two ordinary
+  runs. What registering adapters costs is a property of the base and its runtime profile, not of
+  any adapter ([ADR-0060](docs/adr/0060-selection-lives-in-the-subject-serving-mode-in-the-profile.md)),
+  so it is measured once per base and profile and never per adapter (ADR-0059 §3).
+  - The arms differ in `RuntimeProfile.adapters_registered` and therefore in
+    `runtime_profile_hash` ([ADR-0074](docs/adr/0074-adapter-enabled-serving-is-a-runtime-profile-field.md)),
+    so they are permanently separable and are compared through the existing comparison surface.
+    **No new comparison mechanism was built, and none was needed.**
+  - Arm A is served by a provider that genuinely has no adapters, not one merely labelled that way:
+    a single server that had registered them and a run claiming otherwise would be a measurement
+    that lies about its own conditions.
+  - `adapters_registered` is not a `[runtime]` key. An operator does not choose it; the composition
+    root knows it. Unstated remains the default, so every existing `runtime_profile_hash` is
+    unchanged.
+- **The evidence page groups subjects under their base.** Each subject shows its own record count,
+  its own capabilities and where its evidence came from; an unmeasured subject reads `—` and says
+  so. Server-rendered, no SPA ([ADR-0020](docs/adr/0020-ui-rendering-strategy.md)).
 - **The A-2 panel.** An adapter subject's panel is **declared capabilities + a fixed regression
   panel + performance**, and no more
   ([ADR-0059](docs/adr/0059-adapter-evidence-is-measured-never-inherited.md),
