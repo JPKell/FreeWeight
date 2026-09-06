@@ -20,21 +20,33 @@ classifiers = [
     "Typing :: Typed",
 ]
 dependencies = [
-    "baseaicore>=0.4,<0.5",
+    # 0.4.2 adds `RuntimeProfile.adapters_registered` (ADR-0074), which is what makes a clean
+    # serving arm and an adapter-registered one two different `runtime_profile_hash` values and
+    # therefore two separable measurements — the whole mechanism Phase 15's serving-mode A/B rests
+    # on. It also adds `AdapterIdentity` and `MeasurementSubject.adapter`, whose canonical string
+    # this application uses rather than re-implementing (ADR-0058, ADR-0080).
+    "baseaicore>=0.4.2,<0.5",
     # Adopted at Phase 12: both were extracted from this application's own in-app plumbing at
     # LoadCoach P1/P4 (ADR-0011), and the in-app copies are deleted in the same phase. The
     # acceptance criterion for the swap was the pre-existing test suite passing unchanged.
     "weightsdb>=0.2,<0.3",
     "mirrorwall>=0.2,<0.3",
-    # 0.4 adds setspec.prompts (SetSpec Phase 5): the prompt loader, renderer and hasher this
-    # module now delegates to (freeweight.services.prompts is a thin default-path wrapper around
-    # it as of this release) — extracted from this application's own in-app implementation at
-    # LoadCoach Phase 4 / SetSpec Phase 5 (ADR-0011, ADR-0028), with FreeWeight's existing pack
-    # proven to hash identically before and after the move. The ceiling widened from `<0.5` at
-    # E5's sweep, once mirrorwall 0.2.2 lifted the cap that held every application at setspec 0.4;
-    # the floor stays 0.4 because `setspec.prompts` is the whole surface and it has not moved.
-    "setspec>=0.4,<0.7",
-    "modelrack>=0.5,<0.6",
+    # `setspec.prompts` (SetSpec Phase 5, 0.4.0) is the oldest surface used here: the prompt
+    # loader, renderer and hasher this application delegates to (ADR-0011, ADR-0028). The ceiling
+    # widened from `<0.5` at E5's sweep, once mirrorwall 0.2.2 lifted the cap that held every
+    # application at setspec 0.4.
+    #
+    # The **floor** moved from 0.4 to 0.6 at Phase 15, and it had to: `model.adapter_manifest` 1.0
+    # is 0.5.0 (SetSpec Phase 6) and `EvidenceBundleV1_1Fields` — the bundle minor that carries
+    # adapter-bearing evidence — is 0.6.0 (Phase 7). This application now imports both, so a
+    # resolver that picked 0.4 would install a build with neither and fail at import rather than
+    # at configuration. The row's own kickoff said this pin needed nothing; that was true of the
+    # ceiling and wrong about the floor.
+    "setspec>=0.6,<0.7",
+    # 0.7 adds `LlamaCppProvider` and adapter registration (ADR-0062, ModelRack P6-P8). Before it
+    # this application could only talk to Ollama, which cannot serve a LoRA at all, so every
+    # measurement in Phase 15 was unreachable rather than merely unbuilt.
+    "modelrack>=0.7,<0.8",
     "sweatmeter>=0.4,<0.5",
     "fastapi>=0.115,<1",
     "uvicorn[standard]>=0.30,<1",

@@ -73,7 +73,7 @@ def _open_backend(config: str | None) -> Iterator[tuple[Database, Provider]]:
         typer.echo("Error: no database_url configured (CONFIGURATION_ERROR)", err=True)
         raise typer.Exit(3)
     try:
-        provider = build_provider(loaded.settings.provider)
+        provider = build_provider(loaded.settings.provider, adapters=loaded.settings.adapters)
     except ConfigurationError as exc:
         typer.echo(f"Error: {exc.message} ({exc.code})", err=True)
         raise typer.Exit(3) from exc

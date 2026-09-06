@@ -36,6 +36,7 @@ __all__ = [
     "EXAMPLE_CONFIG_TOML",
     "ENV_PREFIX",
     "LOOPBACK_HOSTS",
+    "AdapterSettings",
     "AuthSettings",
     "BenchmarkSettings",
     "CalibrationSettings",
@@ -291,23 +292,94 @@ class RuntimeSettings(BaseModel):
 
 
 class ProviderSettings(BaseModel):
-    """The default model provider FreeWeight talks to."""
+    """The default model provider FreeWeight talks to.
+
+    One provider, not a registry. FreeWeight measures one machine's models one run at a time: it
+    has no candidate pool and no scoring, so it has nothing to disambiguate between registrations
+    and no use for LoadCoach's `[providers.<name>]` table
+    (ADR-0077). That divergence is deliberate; a
+    second provider here would be its own phase with its own evidence.
+
+    Three keys serve ``kind = "llamacpp"`` and nothing else, because Ollama needs none of them:
+    llama.cpp is a server FreeWeight launches and supervises over a directory of GGUF weights
+    (ADR-0062), where Ollama is a
+    daemon that already knows where its models are.
+    """
 
     model_config = ConfigDict(extra="forbid")
 
     kind: str = Field(
         default="ollama",
-        description="Which provider serves the models: ollama, or fake for tests.",
+        description="Which provider serves the models: ollama, llamacpp, or fake for tests.",
         examples=["ollama"],
     )
     base_url: str = Field(
         default="http://127.0.0.1:11434",
-        description="The provider's API endpoint.",
+        description="The provider's API endpoint. Ignored by kind='llamacpp'.",
         examples=["http://127.0.0.1:11434"],
     )
     timeout_seconds: float = Field(
         default=300.0, gt=0, description="Per-call provider timeout.", examples=[300.0]
     )
+    model_directory: str = Field(
+        default="",
+        description=(
+            "Directory of GGUF weights kind='llamacpp' serves. Required for that kind; there is "
+            "no default worth guessing, because a wrong directory is a server serving weights "
+            "nobody asked for."
+        ),
+        examples=["~/ai/models/llm"],
+    )
+    state_dir: str = Field(
+        default="",
+        description=(
+            "Where the llama.cpp supervisor keeps its pid files and digest cache. "
+            "Empty means <data_dir>/llamacpp."
+        ),
+        examples=[""],
+    )
+    server_path: str = Field(
+        default="llama-server",
+        description="The llama-server executable, resolved on PATH unless absolute.",
+        examples=["llama-server"],
+    )
+
+
+class AdapterSettings(BaseModel):
+    """The operator's LoRA adapter directory (ADR-0061).
+
+    **Empty means off**, deliberately (rule 2): adapters are opt-in, and a default configuration
+    behaves exactly as it did before adapters existed. The directory holds the served artifacts and
+    one reviewed ``model.adapter_manifest`` per adapter; FreeWeight reads it and never writes it.
+
+    The word "adapter" here is the **LoRA** sense, not the benchmark-harness sense ``[external]``
+    configures (spec §7.5).
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    directory: str = Field(
+        default="",
+        description=(
+            "Directory holding LoRA artifacts and their reviewed manifests. Empty disables "
+            "adapters entirely."
+        ),
+        examples=[""],
+    )
+
+    @property
+    def enabled(self) -> bool:
+        """Whether adapters are configured at all."""
+        return bool(self.directory.strip())
+
+    def resolved_directory(self) -> Path | None:
+        """Return the configured directory as a path, or ``None`` when adapters are off.
+
+        Returns:
+            The expanded path, or ``None`` if :attr:`directory` is empty or only whitespace.
+        """
+        raw = self.directory.strip()
+        return Path(raw).expanduser() if raw else None
 
 
 class ProvidersSettings(BaseModel):
@@ -923,6 +995,7 @@ class Settings(BaseModel):
     storage: StorageSettings = Field(default_factory=StorageSettings)
     provider: ProviderSettings = Field(default_factory=ProviderSettings)
     providers: ProvidersSettings = Field(default_factory=ProvidersSettings)
+    adapters: AdapterSettings = Field(default_factory=AdapterSettings)
     telemetry: TelemetrySettings = Field(default_factory=TelemetrySettings)
     execution: ExecutionSettings = Field(default_factory=ExecutionSettings)
     runtime: RuntimeSettings = Field(default_factory=RuntimeSettings)
@@ -1207,9 +1280,18 @@ long_context_max_tokens = 32000
 kind = "ollama"
 base_url = "http://127.0.0.1:11434"
 timeout_seconds = 300.0
+# For kind = "llamacpp", instead of base_url:
+# model_directory = "~/ai/models/llm"   # required; no default is guessed
+# state_dir = ""                        # empty = <data_dir>/llamacpp
+# server_path = "llama-server"
 
 [providers]
 allow_remote = false
+
+[adapters]
+# LoRA adapters (not the [external] benchmark-harness sense). Empty means off.
+# The directory holds each adapter's artifact and its reviewed manifest.
+directory = ""
 
 [runtime]
 # How a model is loaded and served, as opposed to how a run is executed (ADR-0023). Every setting

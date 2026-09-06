@@ -94,9 +94,9 @@ attrs==26.1.0 \
     # via
     #   jsonschema
     #   referencing
-baseaicore==0.4.1 \
-    --hash=sha256:08739699d4770c07e89975980a99978213d499dd8e5b9784b5de3fceb472172a \
-    --hash=sha256:94fd95a67e758398a7951e83e2ef45c92ee6650fe2c163362758b77bf674b91f
+baseaicore==0.4.2 \
+    --hash=sha256:be055b82d8858189b032bc2e3de85a68b2ab35d6792481eebbc8817fe3e486d0 \
+    --hash=sha256:c4f82cdd698d85ca7e23dd175b1f6c61f9a38f5c9b194d0a308a5d38ff7c6110
     # via
     #   freeweight
     #   freeweight (pyproject.toml)
@@ -842,9 +842,9 @@ mirrorwall==0.2.2 \
     # via
     #   freeweight
     #   freeweight (pyproject.toml)
-modelrack==0.5.0 \
-    --hash=sha256:70b5684f20582be0e63a921f6f6b8000cbab960a8b4f42f236fa4f824f57012d \
-    --hash=sha256:ae0333fcc26e4fb17fc54b38bc161a40f71f0134c7fd74fd2fb7327813c4027e
+modelrack==0.7.1 \
+    --hash=sha256:46a1692ad4b490f996bb9c507481edd610e831bef8e3f65303fc08107284325b \
+    --hash=sha256:78d51e1cd65a059ea0c9709b11189516a95497751637df704726e3f02d5fbeee
     # via
     #   freeweight
     #   freeweight (pyproject.toml)

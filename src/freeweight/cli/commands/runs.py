@@ -58,7 +58,7 @@ def _open_backend(config: str | None) -> Iterator[tuple[Settings, Database, Prov
 
     try:
         loaded = load_settings(config_path=config)
-        provider = build_provider(loaded.settings.provider)
+        provider = build_provider(loaded.settings.provider, adapters=loaded.settings.adapters)
     except ConfigurationError as exc:
         typer.echo(f"Error: {exc.message} ({exc.code})", err=True)
         raise typer.Exit(3) from exc

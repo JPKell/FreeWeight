@@ -117,7 +117,7 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
     # Built once for the same reason the database handle is: OllamaProvider owns a pooled
     # httpx.Client, and rebuilding one per request would throw the pool away every time. Nothing
     # here opens a connection — construction only validates the configured URL.
-    app.state.provider = build_provider(settings.provider)
+    app.state.provider = build_provider(settings.provider, adapters=settings.adapters)
     telemetry = TelemetryService(
         build_collector(), interval_seconds=settings.telemetry.interval_ms / 1000
     )

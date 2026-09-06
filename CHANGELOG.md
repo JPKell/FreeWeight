@@ -7,12 +7,56 @@ packaging and release standards §3.
 
 ## [Unreleased]
 
+### Added
+- **`provider.kind = "llamacpp"`.** FreeWeight can serve GGUF weights from a directory through a
+  llama.cpp server it launches and supervises itself
+  ([ADR-0062](docs/adr/0062-llamacpp-serves-adapters-through-a-supervised-process.md)). Three keys
+  join the singular `[provider]` block and serve this kind only: `model_directory` (**required** —
+  a wrong directory is a server serving weights nobody asked for, and there is no default worth
+  guessing), `state_dir` (empty means `<data_dir>/llamacpp`) and `server_path`. Before this,
+  naming `llamacpp` was a configuration error and Ollama was the only production kind — and Ollama
+  cannot serve a LoRA adapter at all, so everything below was unreachable rather than unbuilt.
+- **`[adapters] directory`.** The operator's LoRA adapter directory: artifacts plus one reviewed
+  `model.adapter_manifest` `1.0` each
+  ([ADR-0061](docs/adr/0061-the-adapter-registry-is-a-directory-and-a-manifest.md)). **Empty means
+  off**, and that is the default, so an existing installation behaves exactly as it did. FreeWeight
+  reads the directory and never writes it, validates every manifest through SetSpec, verifies each
+  artifact against the digest its manifest records, and converts the survivors to ModelRack's
+  `AdapterRegistration` in the application — ModelRack reads no directory, no environment variable
+  and no configuration file (rule 3).
+  - Identity is the artifact's **content hash**. A rename is transparent; a re-conversion is a
+    different adapter. A manifest whose recorded digest no longer matches its artifact makes that
+    adapter *unavailable* **and named**, never silently re-used, because re-attributing old
+    measurements to new weights is the failure this rule exists to prevent (rule 5).
+  - An adapter that cannot be verified is never offered to a provider: a provider has no way to
+    know it should refuse one.
+  - `[adapters] directory` pointing at something that is not a directory is a **configuration
+    error naming the path**, not an empty reading. FreeWeight is run one command at a time, so an
+    operator who gets silence cannot tell a typo from an empty directory. LoadCoach makes the
+    opposite call for a long-running service with a `doctor` command; the divergence is deliberate.
+
 ### Changed
+- **`modelrack` moved to `>=0.7,<0.8`** and **`baseaicore` to `>=0.4.2,<0.5`**. 0.7 is where
+  `LlamaCppProvider` and adapter registration arrive; 0.4.2 is where
+  `RuntimeProfile.adapters_registered` does
+  ([ADR-0074](docs/adr/0074-adapter-enabled-serving-is-a-runtime-profile-field.md)), along with
+  `AdapterIdentity` and `MeasurementSubject.adapter`, whose canonical subject string this
+  application uses rather than re-implementing.
+- **`setspec`'s floor moved to `>=0.6,<0.7`.** The ceiling was already `<0.7` after E5's sweep, but
+  the floor at 0.4 had become wrong: `model.adapter_manifest` `1.0` is 0.5.0 and
+  `EvidenceBundleV1_1Fields` is 0.6.0, and this application now imports both. A resolver picking
+  0.4 would have installed a build with neither and failed at import rather than at configuration.
+  This row's own plan said the pin needed nothing, which was true of the ceiling and wrong about
+  the floor.
+- `requirements/ci.lock` recompiled with `-P baseaicore -P modelrack -P setspec`. Exactly two pins
+  move: `baseaicore` 0.4.1 → 0.4.2 and `modelrack` 0.5.0 → 0.7.1. Proved from the lock in a clean
+  Python 3.13.15 venv installed `--require-hashes`, not from this repository's venv, which carries
+  editable installs of the workspace checkouts and cannot show what a consumer resolves.
 - **`setspec` widened to `>=0.4,<0.7`** (E5's pin sweep), and `requirements/ci.lock` recompiled.
   `mirrorwall 0.2.1` required `setspec<0.5`, and because MirrorWall is a dependency of every
   application that cap held all of them at setspec 0.4 regardless of their own ranges;
-  `mirrorwall 0.2.2` lifted it. The floor stays 0.4 — `setspec.prompts` is FreeWeight's whole
-  surface and it has not moved — so this widens a range and adopts no payload.
+  `mirrorwall 0.2.2` lifted it. That row widened a range and adopted no payload; the floor it left
+  at 0.4 is the one this release moves to 0.6, above.
   - Exactly three pins move in the lock: `setspec` 0.4.0 → 0.6.0, `baseaicore` 0.4.0 → 0.4.1
     (0.6.0 requires it; without pinning it too, the resolver silently falls back to setspec 0.4.0
     rather than failing) and `mirrorwall` 0.2.0 → 0.2.2.
