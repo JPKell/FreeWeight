@@ -5,7 +5,19 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
 [Semantic Versioning](https://semver.org/), pre-1.0 per
 packaging and release standards §3.
 
-## [Unreleased]
+## [1.1.0] — 2026-09-06
+
+FreeWeight 1.1: **LA3** — GGUF weights served through a llama.cpp server FreeWeight supervises, an
+operator's LoRA directory, subjects enumerated as base × compatible adapter by digest, each subject
+measured in its own right under the A-2 panel, and a `benchmark.evidence_bundle` `1.1` a consumer
+validates with `setspec` alone.
+
+**The exit was demonstrated across two applications.** A `1.1` bundle carrying three subjects'
+records — the bare base and two measured adapters, with a third adapter deliberately left
+unmeasured — was exported here and carried as a file to LoadCoach, which imported all three,
+bound each to its own subject, and selected a measured adapter subject because of that evidence
+while refusing the unmeasured sibling by name (I18). Nothing else crossed: no shared code, no
+shared database.
 
 ### Added
 - **`provider.kind = "llamacpp"`.** FreeWeight can serve GGUF weights from a directory through a
