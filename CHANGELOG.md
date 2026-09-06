@@ -171,6 +171,21 @@ shared database.
   unconstrained.
 
 ### Changed
+- **The two fixed regression rows bound their own output**, at 512 tokens per turn
+  ([ADR-0089](docs/adr/0089-the-fixed-regression-rows-bound-their-own-output.md)). A damaged
+  adapter usually loses the instruction *to stop* along with every other instruction, so uncapped
+  it generates to the served context on every case — the panel is most expensive on exactly the
+  subject it exists to catch, which is how a regression check stops being run. Measured here: the
+  fixed rows took 72 s against a deliberately damaged LoRA with the cap and roughly forty minutes
+  without, while no healthy subject came within six times it (worst: 79 output tokens per sample,
+  from the adapter trained to answer at length). Part of the panel's definition and versioned with
+  the catalogue rather than configurable, for the same reason the suite list is: a subject measured
+  at 512 and one measured at 4096 have not been measured the same way. A sample that ends at the cap
+  records `finish_reason = "length"` and scores as the non-compliant answer it is. Nothing else in
+  the panel is capped — the declared part, the performance part and row 3 run real capability suites
+  whose output needs are their own, and a number chosen for a three-word-answer suite would truncate
+  a long-context benchmark and record it as a capability loss. An explicit `max_output_tokens` still
+  wins.
 - **`capability.evidence` and `benchmark.evidence_bundle` are chosen per document, by content**
   ([ADR-0084](docs/adr/0084-a-producer-chooses-a-payload-version-by-content.md)). A record measured
   on a bare base is `1.0`; one measured on an adapter subject is `1.1`. A bundle is `1.1` if any

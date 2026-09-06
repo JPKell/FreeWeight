@@ -9,12 +9,12 @@ only ever been composed, never run against real adapter weights. This test runs 
     FWTEST_LLAMACPP_ADAPTERS=<dir of adapters + reviewed manifests>
     FWTEST_LLAMACPP_BASE=Qwen2.5-1.5B-Instruct.Q8_0
     FWTEST_A2_ADAPTER=terse
-    FWTEST_A2_MAX_OUTPUT_TOKENS=512   # optional; unset means the provider default
+    FWTEST_A2_MAX_OUTPUT_TOKENS=2048  # optional; overrides the panel's own cap
 
-The output cap is optional and exists for one reason: a **damaged** adapter may never emit a stop
-token, and generating to the served context on every case turns a two-minute panel into a
-forty-minute one. Unset it to measure what the panel costs without a cap, which is a fact worth
-knowing about any adapter that provokes it.
+Since [ADR-0089](../../docs/adr/0089-the-fixed-regression-rows-bound-their-own-output.md) the two
+fixed rows carry their own per-turn cap, so this variable is only needed to *widen* it — to measure
+what the panel costs against an adapter that never stops, which is a fact worth knowing about any
+adapter that provokes it.
 
 **A negative result is a result.** This test asserts that the panel *produces comparable numbers
 for both subjects*, not that the adapter passes: whether a particular LoRA has forgotten
@@ -38,6 +38,17 @@ _ADAPTERS_ENV = "FWTEST_LLAMACPP_ADAPTERS"
 _BASE_ENV = "FWTEST_LLAMACPP_BASE"
 _ADAPTER_ENV = "FWTEST_A2_ADAPTER"
 _MAX_OUTPUT_ENV = "FWTEST_A2_MAX_OUTPUT_TOKENS"
+_DAMAGED_ENV = "FWTEST_A2_DAMAGED_ADAPTER"
+
+_DAMAGED_SEPARATION_FLOOR = 0.30
+"""How far a **known damaged** adapter must fall below its base for the panel to be doing its job.
+
+Not a threshold on adapters in general — :func:`test_the_regression_panel_meets_a_real_adapter`
+deliberately refuses to pin one, because whether a particular LoRA has forgotten something is a
+fact about that LoRA. This is a threshold on the **panel**, asserted against one artefact that is
+damaged on purpose and whose measured drop on this machine is `0.545`. A run that no longer
+separates it has stopped measuring the adapter at all, which is exactly the defect row H6 found and
+which no unit test can catch: sending the adapter and *serving* it are different claims."""
 
 _WEIGHTS = """
 version = "a2"
@@ -234,4 +245,70 @@ def test_the_regression_panel_meets_a_real_adapter(journey: Any) -> None:
     assert subject, "the adapter subject produced no regression-panel score of its own"
     assert set(base) == set(subject), (
         "the two subjects were scored on different capabilities, so nothing is comparable"
+    )
+
+
+def test_the_panel_still_separates_a_known_damaged_adapter(journey: Any) -> None:
+    """The end-to-end guard the unit tests cannot give: is the adapter actually being *served*?
+
+    `test_runtime_profile.py` asserts that the run's adapter reaches the request. That is one
+    claim; whether the provider then applies it is another, and the gap between them is where row
+    H6's defect lived for two rows — `_build_request` dropped the adapter, every adapter subject
+    measured the bare base, and the numbers looked plausible because they *were* numbers, just the
+    base's. No fake can catch that, because the fake is the thing being bypassed.
+
+    This can: one adapter that is damaged on purpose, whose fluent nonsense is unmistakable to a
+    scorer. If the panel stops separating it from the base, something between the run and the GPU
+    has stopped applying adapters — whatever that something turns out to be.
+
+    Skipped unless `FWTEST_A2_DAMAGED_ADAPTER` names a deliberately damaged adapter in the
+    configured directory: the artefact is produced outside the suite (ADR-0061 rule 6), so this
+    test states its dependency rather than assuming the machine has one.
+    """
+    from freeweight.domain.panels import FIXED_REGRESSION_SUITES
+    from freeweight.infrastructure.db.repositories.models import ModelRepository
+    from freeweight.services.adapters import measured_scores, resolve_subject
+
+    damaged = os.environ.get(_DAMAGED_ENV, "").strip()
+    if not damaged:
+        pytest.skip(f"{_DAMAGED_ENV} is not set; it must name a deliberately damaged adapter")
+    entries = journey["entries"]
+    if not any(entry.name == damaged for entry in entries):
+        pytest.skip(f"no adapter named {damaged!r} in the configured directory")
+
+    with journey["database"].read() as session:
+        row = ModelRepository().get_by_provider_model_name(session, journey["model_ref"])
+        assert row is not None, f"{journey['model_ref']!r} was not discovered"
+        model = type(
+            "Row",
+            (),
+            {
+                "provider_kind": row.provider_kind,
+                "provider_model_name": row.provider_model_name,
+                "artifact_digest": row.artifact_digest,
+            },
+        )()
+
+    for suite in FIXED_REGRESSION_SUITES:
+        _measure(journey, suite=suite, adapter=None)
+        _measure(journey, suite=suite, adapter=damaged)
+
+    base = measured_scores(journey["database"], resolve_subject(model, entries, None))
+    broken = measured_scores(journey["database"], resolve_subject(model, entries, damaged))
+
+    print(f"\ndamaged-adapter canary, {journey['model_ref']} vs +{damaged}:")  # noqa: T201
+    for capability in sorted(set(base) | set(broken)):
+        before, after = base.get(capability), broken.get(capability)
+        print(  # noqa: T201
+            f"  {capability:<24} base {'—' if before is None else f'{before:.3f}'}"
+            f"   {damaged} {'—' if after is None else f'{after:.3f}'}"
+            f"   delta {'—' if before is None or after is None else f'{after - before:+.3f}'}"
+        )
+
+    assert base and broken, "both subjects must score for the comparison to mean anything"
+    worst = min(broken[c] - base[c] for c in sorted(set(base) & set(broken)))
+    assert worst <= -_DAMAGED_SEPARATION_FLOOR, (
+        f"the panel no longer separates a deliberately damaged adapter: its worst drop against "
+        f"the base is {worst:+.3f}, and anything above {-_DAMAGED_SEPARATION_FLOOR:+.3f} means "
+        "the adapter is probably not reaching the weights at all (row H6)"
     )

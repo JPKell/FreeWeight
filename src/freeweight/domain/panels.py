@@ -28,6 +28,7 @@ if TYPE_CHECKING:
     from freeweight.domain.capability_mapping import CapabilityMapping
 
 __all__ = [
+    "FIXED_REGRESSION_MAX_OUTPUT_TOKENS",
     "FIXED_REGRESSION_SUITES",
     "GOAL_ROOT",
     "GOAL_SUITE_PREFIX",
@@ -53,6 +54,30 @@ breaks a tool-calling pipeline outright, and is cheap and deterministic.
 regression panel: two adapters' regression numbers stop being comparable and "the regression panel"
 stops meaning one thing. Changing this tuple is a change to the catalogue, versioned with it and
 visible in review — which is the point of it being here rather than in `[adapters]`."""
+
+FIXED_REGRESSION_MAX_OUTPUT_TOKENS: Final = 512
+"""The output cap the two fixed regression rows run under
+([ADR-0089](../../../docs/adr/0089-the-fixed-regression-rows-bound-their-own-output.md)).
+
+Part of the panel's definition and versioned with the catalogue, for the same reason the suite
+tuple above is: a subject measured at 512 and a subject measured at 4096 have not been measured the
+same way, so a per-deployment cap would reintroduce the incomparability the fixed panel exists to
+prevent.
+
+**512 is chosen to be unreachable by a model that is behaving.** On the reference machine the
+longest answer any healthy subject produced on either row was 61 tokens — from the adapter
+explicitly trained to answer at length — against a median of 17. A *damaged* adapter has usually
+lost the instruction to stop along with every other instruction, and generates until the served
+context runs out; capping it turns a forty-minute panel into a one-minute one.
+
+A sample that ends at the cap records ``finish_reason = "length"`` and is scored as what it is: an
+answer that did not comply. On a suite whose subject is whether the model does what it was told,
+failing to stop *is* a failure to follow instructions (ADR-0089 rule 2).
+
+Applies to :data:`FIXED_REGRESSION_SUITES` and to nothing else. The declared part, the performance
+part and row 3 run ordinary capability suites whose output needs are set by their own definitions,
+and a cap chosen for a three-word-answer suite would truncate a long-context benchmark and record
+the truncation as a capability loss."""
 
 GOAL_ROOT: Final = "user"
 """The reserved capability root a goal suite emits under (ADR-0032 §1).

@@ -613,6 +613,16 @@ thing. Making it configurable would overturn the comparability
 its own ADR. Changing the panel's *content* is a change to this catalogue, versioned with it and
 visible in review — which is the point of putting it here rather than in configuration.
 
+**The fixed rows carry a per-turn output cap of 512 tokens**
+([ADR-0089](../../adr/0089-the-fixed-regression-rows-bound-their-own-output.md)), part of the panel
+definition and versioned here like the suite tuple itself. A damaged adapter usually loses the
+instruction *to stop* along with every other instruction, so uncapped it generates to the served
+context on every case — the panel is most expensive on exactly the subject it exists to catch. No
+healthy subject measured on this machine came within six times the cap (worst: 79 tokens per
+sample), and a sample that ends at it records `finish_reason = "length"` and scores as the
+non-compliant answer it is. Nothing else in the panel is capped: the declared part, the performance
+part and row 3 run real capability suites whose output needs are their own.
+
 **Measured against a damaged adapter, 2026-09-06 (row H6).** Rows 1 and 2 were run on this
 machine against three real style LoRAs and one deliberately damaged one. The damaged subject
 scored `0.182` where the base scored `0.727` on row 1, and `0.000` where the base scored `1.000` on

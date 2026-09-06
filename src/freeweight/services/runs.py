@@ -108,6 +108,7 @@ from freeweight.domain.aggregation import AggregatedMetric, SampleGroup, aggrega
 from freeweight.domain.benchmark import Benchmark, BenchmarkRegistry, BenchmarkTest
 from freeweight.domain.goals.criteria import DEFAULT_RULE_TIMEOUT_MS
 from freeweight.domain.metrics import MeasurementClass, SampleFacts
+from freeweight.domain.panels import FIXED_REGRESSION_MAX_OUTPUT_TOKENS, FIXED_REGRESSION_SUITES
 from freeweight.domain.provenance import (
     Degradation,
     ServedContext,
@@ -925,7 +926,10 @@ def create_run(
         registry: The benchmarks this build can run.
         model_ref: A stored ULID or prefix, a canonical ID, or the exact provider model name.
         suite_key: The suite to run, e.g. ``"native.echo"``.
-        execution: The resolved execution parameters.
+        execution: The resolved execution parameters. A run of one of the two **fixed
+            regression suites** with no stated ``max_output_tokens`` is given the panel's
+            own per-turn cap (ADR-0089) before anything is written, so the record shows the
+            budget the run actually had; an explicit value still wins.
         runtime_profile: How the model should be loaded and served (ADR-0023). ``None`` means
             provider defaults — a legal, hashable profile, and the one every run used before this
             was settable. Passing a profile with a ``context_size`` is what lets two runs of one
@@ -975,6 +979,16 @@ def create_run(
     from modelrack.errors import ModelNotFound
 
     benchmark = registry.get(suite_key)
+    if suite_key in FIXED_REGRESSION_SUITES and execution.max_output_tokens is None:
+        # ADR-0089: the two fixed regression rows run under a fixed per-turn output cap, because a
+        # damaged adapter usually loses the instruction to stop along with every other instruction
+        # and would otherwise generate to the served context on every case. Applied where the run
+        # is created so it lands in the run's frozen `effective_config_json` and is visible in the
+        # record, and only when the caller stated nothing — an explicit override still wins, which
+        # is the execution-parameter chain unchanged.
+        execution = dataclasses.replace(
+            execution, max_output_tokens=FIXED_REGRESSION_MAX_OUTPUT_TOKENS
+        )
     overrides = _declared_overrides(benchmark)
     if overrides and not allow_prompt_override:
         raise PromptOverrideRefused(

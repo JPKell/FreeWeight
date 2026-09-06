@@ -438,6 +438,86 @@ class TestServingModeIsSeparableFromSelection:
         assert all(get_run(env.database, run.id).run is not None for run in runs)
 
 
+class TestTheFixedRegressionRowsAreBounded:
+    """ADR-0089: the panel's fixed rows cap their own output, because a damaged adapter is the
+    case the panel exists to catch *and* the case where it runs away."""
+
+    def test_a_fixed_regression_run_takes_the_panels_cap(
+        self, run_environment: Callable[..., RunEnvironment]
+    ) -> None:
+        from freeweight.domain.panels import (
+            FIXED_REGRESSION_MAX_OUTPUT_TOKENS,
+            FIXED_REGRESSION_SUITES,
+        )
+        from freeweight.infrastructure.db.models_runs import Run
+
+        env = run_environment(script=_adapter_capable())
+        summary = create_run(
+            env.database,
+            env.provider,
+            env.collector,
+            env.registry,
+            model_ref=env.model_ref,
+            suite_key=FIXED_REGRESSION_SUITES[0],
+            execution=ExecutionConfig.resolve(ExecutionSettings(), measured_repetitions=1),
+        )
+
+        with env.database.read() as session:
+            run = session.get(Run, summary.id)
+            assert run is not None
+            assert (
+                run.effective_config_json["sampling"]["max_output_tokens"]
+                == FIXED_REGRESSION_MAX_OUTPUT_TOKENS
+            ), "the cap belongs in the run's frozen record, not only in the request"
+
+    def test_an_explicit_cap_still_wins(
+        self, run_environment: Callable[..., RunEnvironment]
+    ) -> None:
+        """The execution-parameter chain is unchanged: the panel supplies a default, not a law."""
+        from freeweight.domain.panels import FIXED_REGRESSION_SUITES
+        from freeweight.infrastructure.db.models_runs import Run
+
+        env = run_environment(script=_adapter_capable())
+        summary = create_run(
+            env.database,
+            env.provider,
+            env.collector,
+            env.registry,
+            model_ref=env.model_ref,
+            suite_key=FIXED_REGRESSION_SUITES[0],
+            execution=ExecutionConfig.resolve(
+                ExecutionSettings(), measured_repetitions=1, max_output_tokens=4096
+            ),
+        )
+
+        with env.database.read() as session:
+            run = session.get(Run, summary.id)
+            assert run is not None
+            assert run.effective_config_json["sampling"]["max_output_tokens"] == 4096  # noqa: PLR2004
+
+    def test_a_suite_outside_the_fixed_rows_is_not_capped(
+        self, run_environment: Callable[..., RunEnvironment]
+    ) -> None:
+        """A cap chosen for three-word answers would truncate a real capability suite."""
+        from freeweight.infrastructure.db.models_runs import Run
+
+        env = run_environment(script=_adapter_capable())
+        summary = create_run(
+            env.database,
+            env.provider,
+            env.collector,
+            env.registry,
+            model_ref=env.model_ref,
+            suite_key="native.echo",
+            execution=ExecutionConfig.resolve(ExecutionSettings(), measured_repetitions=1),
+        )
+
+        with env.database.read() as session:
+            run = session.get(Run, summary.id)
+            assert run is not None
+            assert run.effective_config_json["sampling"]["max_output_tokens"] is None
+
+
 class TestTheComparisonGrouping:
     """Subjects sit under their base, side by side, and are never merged."""
 
