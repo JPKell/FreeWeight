@@ -567,3 +567,71 @@ A goal suite's manifest follows §5 with three additions and one changed field:
 `goal_hash` covers criteria, weights, rungs, rule parameters, scale descriptors, task prompt hashes,
 the judge prompt hash and the jury configuration — and excludes display names, `intent` and the
 grades. Renaming a criterion must not separate a year of results; changing what it checks must.
+
+---
+
+## 8. The adapter-subject panel (1.1 scope)
+
+An **adapter subject** is a base with one LoRA adapter applied
+([spec §7.5](spec.md), [ADR-0058](../../adr/0058-the-execution-subject-gains-an-adapter-axis.md)).
+It inherits no evidence from its base — not at full weight, not discounted, not as a prior
+([ADR-0059](../../adr/0059-adapter-evidence-is-measured-never-inherited.md),
+[ADR-0081](../../adr/0081-an-adapter-subject-inherits-no-evidence-from-its-base.md)) — so what a
+subject's panel *contains* is the whole question of what is known about it.
+
+### 8.1 The panel is three parts, and no more
+
+| Part | Content | Why it is in |
+|---|---|---|
+| **Declared** | Every suite mapping to a capability the adapter's manifest lists in `declared_capabilities`, through §6's table | The claim under test. A manifest that says "fact-checking" is asserting something measurable, and this is the measurement |
+| **Regression** | The fixed panel in §8.2, identical for every subject | What the adapter *broke*. Invisible to a panel built from the manifest, and the failure a user actually meets |
+| **Performance** | `native.performance` | Decode throughput and TTFT with this adapter active are this subject's own numbers. A LoRA is extra matrix multiplies per token; the base's figure is not the subject's |
+
+Nothing else is in the panel by default. A full base panel per adapter is hours of GPU time for
+information that is mostly a re-measurement of the base, and the cost is what makes people stop
+measuring adapters at all.
+
+### 8.2 The regression panel is fixed, and versioned with this catalogue
+
+**Three suites, the same three for every adapter subject in every installation:**
+
+| # | Suite | What it catches |
+|---|---|---|
+| 1 | `native.instruction_following` | The adapter has learned a voice and stopped taking direction — the single most common LoRA regression, and the one a house-voice adapter is most likely to have |
+| 2 | `native.structured_output` | The adapter emits prose where JSON was asked for, or no longer closes what it opens. Cheap, deterministic, and the failure that breaks a tool-calling pipeline outright |
+| 3 | **The base's strongest measured capability**, through §6's mapping | Whatever this base was *for*. Selecting it from the base's own evidence is what makes the panel targeted rather than generic, and it is the capability whose loss would matter most on this machine |
+
+Rows 1 and 2 are named suites; row 3 is a **rule** that resolves to a named suite per base, from the
+base's highest-scoring measured capability at the time the panel is composed. The resolved suite is
+recorded on the run, so a panel composed six months apart against a base with more evidence is
+visibly a different panel rather than silently one.
+
+**Not configurable, deliberately.** A per-deployment regression panel is not a regression panel: two
+adapters' regression numbers stop being comparable, and "the regression panel" stops meaning one
+thing. Making it configurable would overturn the comparability
+[ADR-0059](../../adr/0059-adapter-evidence-is-measured-never-inherited.md) assumes, so it would need
+its own ADR. Changing the panel's *content* is a change to this catalogue, versioned with it and
+visible in review — which is the point of putting it here rather than in configuration.
+
+**A base with no evidence resolves row 3 to nothing**, and the panel is rows 1 and 2 plus declared
+and performance. That is an honest two-suite regression panel, not a failure: the rule cannot invent
+a strongest capability for a base nobody has measured, and
+[ADR-0016](../../adr/0016-unavailable-is-not-zero.md) is the reason it does not try. Measuring the
+base first is the fix, and the panel says so.
+
+### 8.3 The serving-mode A/B is not part of the panel
+
+Whether a llama.cpp server launched with adapters registered is slower than a clean one is a
+property of **the base and its runtime profile**, not of any adapter
+([ADR-0060](../../adr/0060-selection-lives-in-the-subject-serving-mode-in-the-profile.md)), so it is
+measured once per base + profile and never per adapter. The two arms are ordinary runs of one base
+that differ in `RuntimeProfile.adapters_registered` and therefore in `runtime_profile_hash`
+([ADR-0074](../../adr/0074-adapter-enabled-serving-is-a-runtime-profile-field.md)); they are
+separable for ever and compared through the existing comparison surface.
+
+### 8.4 Goal suites need no special case
+
+A `user.<slug>` goal suite scores an adapter subject exactly as it scores a base. A house-voice LoRA
+measured by a calibrated house-voice goal is the intended pairing and the reason §7 exists — the
+subject changes, the instrument does not. Where a manifest declares `user.<slug>` among its
+`declared_capabilities`, that goal suite is in the declared part of the panel like any other.

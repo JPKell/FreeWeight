@@ -29,6 +29,8 @@ erDiagram
     RUNS            ||--o{ RUN_EVENTS : emits
     RUNS            ||--o{ ARTIFACTS : produces
     MODELS          ||--o{ CAPABILITY_EVIDENCE : "evidenced by"
+    ADAPTERS        ||--o{ RUNS : "measured under"
+    ADAPTERS        ||--o{ CAPABILITY_EVIDENCE : "evidenced under"
     GOALS           ||--o{ GOAL_CRITERIA : defines
     GOALS           ||--o{ GOAL_TASKS : contains
     GOALS           ||--o{ CALIBRATION_SAMPLES : "calibrated by"
@@ -65,6 +67,34 @@ UNIQUE (provider_kind, provider_model_name, artifact_digest)
 Indexes: `canonical_id`, `(provider_kind, provider_model_name)`.
 Repository rule: at most one `name_only` row per `(provider_kind, provider_model_name)`; a later
 digest **upgrades** that row rather than creating a duplicate.
+
+### `adapters` (1.1)
+The LoRA adapters this installation has *measured*, not the ones the directory currently holds
+([ADR-0061](../../adr/0061-the-adapter-registry-is-a-directory-and-a-manifest.md),
+[ADR-0080](../../adr/0080-a-persisted-decision-names-the-subject-by-reference-and-by-string.md)).
+The directory is the operator's and FreeWeight only reads it; this table is FreeWeight's own and
+outlives it, because evidence is keyed on the subject and deleting an artifact must not orphan the
+measurements taken under it.
+
+```text
+id ULID PK · name TEXT NOT NULL
+artifact_sha256 TEXT NOT NULL           -- the identity. Content, not path and not name.
+artifact_path TEXT NOT NULL             -- a locator, and it may be stale. Never an identity.
+source_sha256 TEXT NULL                 -- the training checkpoint, for lineage only
+base_model_name TEXT NOT NULL · base_artifact_digest TEXT NULL
+base_confidence TEXT NOT NULL           -- digest | name_only (IdentityConfidence, not a new flag)
+declared_capabilities_json              -- the manifest's claims, already vocabulary-validated
+data_classification TEXT NOT NULL       -- ADR-0065; an adapter is local-only and classified
+notes TEXT NULL
+first_seen_at · last_seen_at            -- last_seen_at is the last rescan that found it
+UNIQUE (artifact_sha256)
+```
+Index: `name`, `(base_model_name)`.
+
+**A rescan never deletes a row.** `last_seen_at` going stale is how a removed artifact is reported;
+the row stays so its measurements keep a subject to belong to. Re-conversion that changes the GGUF's
+bytes produces a *different* `artifact_sha256` and therefore a different adapter — which is the
+correct answer, and the reason the digest is the identity rather than the name.
 
 ### `model_descriptors`
 Point-in-time descriptive metadata. A run references the snapshot it was produced with, so history
@@ -116,13 +146,25 @@ reproducibility_fingerprint TEXT NOT NULL · fingerprint_document_json
 provider_kind · provider_version · application_version · git_commit
 prompt_pack_id · prompt_pack_version · prompt_pack_hash   -- provenance only, NOT fingerprint inputs
 served_context INT NULL · served_context_source TEXT NULL  -- configured | reported | assumed
+adapter_id FK→adapters NULL                        -- 1.1: the LoRA this run measured under.
+                                                   -- NULL is the bare base and is what every run
+                                                   -- before 1.1 was (migration 0008).
 gpu_index INT NULL · multi_gpu_visible BOOLEAN NOT NULL DEFAULT FALSE
 sandbox_tier TEXT NULL · telemetry_overhead_percent NUMERIC NULL
 degradations_json · error_code · error_text
 label TEXT NULL · notes TEXT NULL
 ```
 Indexes: `(status, created_at DESC)`, `(model_id, created_at DESC)`,
-`(machine_id, created_at DESC)`, `reproducibility_fingerprint`, `(suite_id, created_at DESC)`.
+`(machine_id, created_at DESC)`, `reproducibility_fingerprint`, `(suite_id, created_at DESC)`,
+`(adapter_id, created_at DESC)`.
+
+Whether adapters were *registered* on the server is not a column here: it is
+`RuntimeProfile.adapters_registered` and therefore part of `runtime_profile_hash`
+([ADR-0074](../../adr/0074-adapter-enabled-serving-is-a-runtime-profile-field.md)). Which adapter a
+run measured **under** is `adapter_id`, its own named axis, because it changes the weights'
+behaviour and has to be nameable. Confusing the two corrupts evidence
+([ADR-0060](../../adr/0060-selection-lives-in-the-subject-serving-mode-in-the-profile.md)), which is
+why they live in two different places.
 
 ### `run_tests`
 ```text
@@ -314,6 +356,12 @@ dispersion NUMERIC NULL · dispersion_unavailable_reason TEXT NULL   -- the meas
 source_run_ids_json · contributing_metrics_json
 benchmark_versions_json · dataset_hashes_json · prompt_subset_hashes_json
 identity_confidence TEXT NOT NULL
+adapter_id FK→adapters NULL          -- 1.1: the subject's adapter. NULL is the bare base.
+subject_canonical_id TEXT NOT NULL   -- baseaicore's MeasurementSubject.canonical_subject_id.
+                                     -- Byte-for-byte the model's canonical_id when adapter_id is
+                                     -- NULL, so every pre-1.1 row's value is what it always meant.
+                                     -- Stored beside the reference, not instead of it (ADR-0080):
+                                     -- the FK survives a rename, the string survives the row.
 environment_snapshot_json                                     -- provider/driver/OS at measurement
 measured_at TIMESTAMP NOT NULL   -- the latest completed_at among the contributing runs.
                                  -- This is what freshness decays from. Re-aggregating old runs must
@@ -331,7 +379,10 @@ score_method_mix_json NULL           -- {"rule": 0.6, "reference": 0.0, "human":
 judge_set_json NULL                  -- jurors, prompt id/version, remote flag
 calibration_json NULL                -- kappa_w, rho, mae, bias, n_anchor, n_holdout,
                                      -- graded_by, measured_at
-UNIQUE (model_id, runtime_profile_id, machine_id, capability_id, policy_version)
+UNIQUE (model_id, adapter_id, runtime_profile_id, machine_id, capability_id, policy_version)
+                                     -- adapter_id joined the key at 1.1. Without it a subject's
+                                     -- evidence would collide with its base's, which is exactly
+                                     -- the mis-attribution ADR-0058 §4 refuses.
 ```
 Goal-sourced rows exist only above the calibration gate: a goal below
 `calibration.min_agreement` writes **no row here at all**, rather than a low-confidence one
@@ -339,7 +390,16 @@ Goal-sourced rows exist only above the calibration gate: a goal below
 the absence, because "we emitted it quietly at the floor" is exactly the failure this rule exists
 to prevent.
 Index: `(capability_id, score DESC)`, `(model_id, capability_id)`, `(computed_at)` for the
-incremental export's `since` filter, and every foreign key.
+incremental export's `since` filter, `(subject_canonical_id, capability_id)` for the per-subject
+lookup the comparison view and the export both make, and every foreign key.
+
+**Nothing joins a subject's evidence to its base's.** An adapter subject inherits no evidence — not
+at full weight, not discounted, not as a prior
+([ADR-0059](../../adr/0059-adapter-evidence-is-measured-never-inherited.md),
+[ADR-0081](../../adr/0081-an-adapter-subject-inherits-no-evidence-from-its-base.md)) — so a query
+that reads a subject's evidence filters on `adapter_id` exactly, `IS NULL` included, and never falls
+back to the base's rows when the subject's are absent. Absent is `—`, never a number. A test asserts
+it, because the failure looks like a working join.
 
 `policy_json` and `confidence_factors_json` are internal columns the wire contract does not carry:
 `capability.evidence` v1 is exactly ADR-0022 §1's field set and a writer emits nothing else, so the

@@ -78,6 +78,7 @@ particular — can consume without touching FreeWeight's internals.
 | Execution | One GPU workload at a time; state machine; repetitions; cancellation; resumption after interruption |
 | Scoring | Deterministic first; every formula unit-tested; raw samples always preserved |
 | Aggregation | Metrics with dispersion and sample counts; category scores; user-defined weighted profiles |
+| Adapters | Read the operator's adapter directory; enumerate measurement subjects as base × compatible adapter; measure each subject's own panel |
 | Evidence | Capability evidence with confidence and freshness, exported via file or read-only API |
 | Provenance | Reproducibility fingerprint and its full input document on every run |
 | Presentation | Dense web UI, scriptable CLI, exports (JSON/JSONL/CSV) |
@@ -85,13 +86,20 @@ particular — can consume without touching FreeWeight's internals.
 
 ## 5. Dependencies
 
-**Suite:** `baseaicore`, `setspec` (capability vocabulary **≥ 1.1**, for the `user` root —
-[ADR-0032 §1](../../adr/0032-judge-validity-and-user-capability-namespace.md)), `modelrack`,
-`sweatmeter`, `weightsdb` (adopted at Phase 12), `mirrorwall` (adopted at Phase 12).
+**Suite:** `baseaicore` (**≥ 0.4.2**, for `RuntimeProfile.adapters_registered` —
+[ADR-0074](../../adr/0074-adapter-enabled-serving-is-a-runtime-profile-field.md)), `setspec`
+(capability vocabulary **≥ 1.1**, for the `user` root —
+[ADR-0032 §1](../../adr/0032-judge-validity-and-user-capability-namespace.md); payload
+`benchmark.evidence_bundle` **1.1** for adapter-bearing exports), `modelrack` (**≥ 0.7**, for
+`LlamaCppProvider` and adapter registration —
+[ADR-0062](../../adr/0062-llamacpp-serves-adapters-through-a-supervised-process.md)), `sweatmeter`,
+`weightsdb` (adopted at Phase 12), `mirrorwall` (adopted at Phase 12).
 **Third party:** `fastapi`, `uvicorn[standard]`, `typer`, `pydantic`, `pydantic-settings`,
 `sqlalchemy`, `alembic`, `jinja2`.
-**External services:** a model provider (Ollama by default). Optional: a container runtime or
-`bwrap` for code-execution benchmarks; external benchmark packages the user installs.
+**External services:** a model provider (Ollama by default; `llama-server` when
+`provider.kind = "llamacpp"`, which FreeWeight launches and supervises itself). Optional: a
+container runtime or `bwrap` for code-execution benchmarks; external benchmark packages the user
+installs.
 
 **Required at startup:** none. FreeWeight starts, serves its UI and CLI, and reports degraded health
 when a provider is unavailable.
@@ -157,6 +165,7 @@ freeweight serve | health | doctor | version
 freeweight config show|validate|init|path
 freeweight db upgrade|status|backup|restore|vacuum
 freeweight models list|show|refresh
+freeweight adapters list|show                                        (Phase 15)
 freeweight benchmarks list|show                                      (Phase 12)
 freeweight run start|list|show|cancel|wait|repeat
 freeweight results list|show|compare|export
@@ -171,7 +180,15 @@ freeweight token create|list|revoke                                  (waits on A
 ```
 
 `run start` takes `--context-size` to override `[runtime]` for one run
-([ADR-0023](../../adr/0023-runtime-profile-resolution.md) §3). A group marked with a phase is
+([ADR-0023](../../adr/0023-runtime-profile-resolution.md) §3), `--adapter <name>` to measure an
+adapter subject rather than the bare base (§7.5), and `--serving-mode-ab` to run the same suite
+twice on one base — once served clean, once served with the directory's adapters registered —
+which is [ADR-0059](../../adr/0059-adapter-evidence-is-measured-never-inherited.md) §3's
+once-per-base-and-profile overhead measurement. The two arms differ in
+`RuntimeProfile.adapters_registered` and therefore in `runtime_profile_hash`
+([ADR-0074](../../adr/0074-adapter-enabled-serving-is-a-runtime-profile-field.md)), so they are two
+ordinary measurements of one base, separable for ever, and comparable through the existing
+comparison surface. No new comparison mechanism exists, and none is needed. A group marked with a phase is
 scheduled and deliberately absent until then — a verb that exists and does nothing is worse than one
 that does not, because `--help` advertises it. `benchmarks list|show` goes to Phase 12 with the
 rest of the CLI surface work; its HTTP form ships now, so the data is reachable in the meantime.
@@ -194,6 +211,21 @@ document rather than a shared contract
 The envelope is a description; the bundle is the pack itself, and only the bundle round-trips
 ([ADR-0031 §6](../../adr/0031-user-defined-goal-benchmarks.md)). Its format is described in
 [Subjective Goals §2.3](subjective-goals.md).
+
+**`capability.evidence` and `benchmark.evidence_bundle` are each written at the lowest version that
+can express the document** ([ADR-0084](../../adr/0084-a-producer-chooses-a-payload-version-by-content.md)).
+A record measured on a bare base is `capability.evidence` `1.0`; a record measured on an adapter
+subject carries the `adapter` block and is `1.1`. A bundle is `1.1` if any record in it is, and
+`1.0` otherwise — in which case it is **byte-for-byte what `freeweight 1.0.0` wrote**, which a
+golden asserts rather than a paragraph claiming it. Mixed bundles, bare-base and adapter-bearing
+records together, are the normal shape of a real export and are `1.1`.
+
+The choice is made from the records in hand, never from configuration and never from whether
+`[adapters] directory` is set: an installation that has configured adapters and measured none
+writes `1.0`, because its bundle holds nothing a `1.0` bundle could not carry.
+`GET /api/v1/version`'s `schemas` map and `freeweight version` declare the **highest** version this
+build can write, so a consumer checking compatibility before it fetches sees the ceiling; the
+per-document choice is narrower than that declaration, never wider.
 
 ### 7.4 A goal run has two phases
 
@@ -227,6 +259,44 @@ over one unjudgeable answer. A run interrupted between phases resumes into the j
 without regenerating anything — the answers are already stored, which is why goal runs force
 response storage on (§12).
 
+### 7.5 Adapter subjects
+
+**A measurement subject is a base, or a base with one LoRA adapter applied**
+([ADR-0058](../../adr/0058-the-execution-subject-gains-an-adapter-axis.md)). FreeWeight enumerates
+subjects as **base × compatible adapter**, and measures each one in its own right.
+
+**Compatibility is decided by digest, never by name.** An adapter's manifest names the base it was
+trained against and, where its author could prove one, that base's artifact digest. ModelRack's
+`verify_adapter_base_compatibility` compares the declared base against the base actually served and
+fails closed: a mismatch is a refusal rather than an attempt, because applying an adapter to the
+wrong base produces plausible, confident, wrong output. Where the manifest carries no base digest
+the base is *named*, not *proven*, and the subject is flagged `NAME_ONLY` — the existing
+`IdentityConfidence` machinery, not a parallel flag — **everywhere the subject surfaces**: in
+`adapters list`, in the run's provenance, in the comparison view and in the exported evidence's
+confidence.
+
+**Only `provider.kind = "llamacpp"` can serve an adapter subject.** It is the one provider kind
+that hot-swaps adapters over a warm base
+([ADR-0062](../../adr/0062-llamacpp-serves-adapters-through-a-supervised-process.md)); every other
+kind enumerates bare bases only, and `--adapter` against one is a refusal naming the configured
+kind rather than a silent fall-back to the base.
+
+**The canonical subject string comes from `baseaicore`, not from FreeWeight.**
+`MeasurementSubject.canonical_subject_id` and `AdapterIdentity.canonical_suffix` produce
+`llamacpp/qwen2.5-1.5b-instruct.q8_0@sha256:5926a692b27b+terse@sha256:c582629216c5`, and with no
+adapter the string is byte-for-byte the model identity's canonical ID. FreeWeight never
+re-implements that format: two applications agreeing on a subject with no shared code is only true
+if both ask the same library.
+
+**A note on the word "adapter".** This document has used "adapter" since 1.0 for an *external
+benchmark harness* — the subprocess wrapper around lm-eval or SWE-bench (§7.3,
+[benchmark catalogue §4](benchmark-catalog.md)) — and that sense is unchanged and its symbols are
+not renamed. From 1.1 the word also names a **LoRA adapter**, a set of low-rank weight deltas
+applied to a base model. Where the two could be confused the prose says *benchmark adapter* or
+*LoRA adapter*; unqualified "adapter" in an adapter-subject context means the LoRA sense, and the
+configuration groups are unambiguous — `[external]` is the benchmark sense, `[adapters]` is the
+LoRA sense.
+
 ## 8. Inputs
 
 Model references, benchmark suite/test selections, execution parameters (repetitions, timeouts,
@@ -253,13 +323,30 @@ where judge and user diverged most, `score_method_mix`, and exportable goal pack
 
 Owns `freeweight.sqlite3` (or its PostgreSQL equivalent) exclusively: machines, models,
 model_descriptors, runtime_profiles, benchmark_suites, benchmark_tests, runs, run_tests, samples,
-metric_values, tool_calls, telemetry_samples, run_events, artifacts, capability_evidence, settings,
-goals, goal_criteria, goal_tasks, calibration_samples, calibration_grades, calibration_reports,
-judge_verdicts.
+metric_values, tool_calls, telemetry_samples, run_events, artifacts, capability_evidence, adapters,
+settings, goals, goal_criteria, goal_tasks, calibration_samples, calibration_grades,
+calibration_reports, judge_verdicts.
 See [Data Model](data-model.md).
 
 Owns its artifact directory and its exports directory. Reads nothing belonging to another
 application.
+
+**The adapter directory is the operator's; the `adapters` table is FreeWeight's.** `[adapters]
+directory` names a directory of LoRA artifacts and their reviewed
+`model.adapter_manifest` documents, which FreeWeight reads and never writes
+([ADR-0061](../../adr/0061-the-adapter-registry-is-a-directory-and-a-manifest.md) rule 1): an
+operator adds, reviews and removes adapters there with ordinary tools, and a rescan restates the
+directory whole. The `adapters` table is FreeWeight's own record of the subjects it has *measured*,
+and it outlives the directory deliberately — evidence is keyed on the subject, so deleting an
+artifact must not orphan the measurements taken under it
+([ADR-0080](../../adr/0080-a-persisted-decision-names-the-subject-by-reference-and-by-string.md),
+applied here for the same reason LoadCoach applies it). A row whose artifact is gone is a subject
+with history and no availability, which is exactly what it is.
+
+**LoadCoach and FreeWeight each read the same directory and share nothing else.** Both read
+`model.adapter_manifest` `1.0`; neither reads the other's database and neither imports the other's
+code. Two applications agreeing on a subject string with no shared code is the claim integration
+verification I18 exists to make.
 
 ## 11. Public contracts
 
@@ -271,7 +358,18 @@ application.
    [ADR-0017](../../adr/0017-benchmark-confidence-and-freshness.md); consumers apply it and do not
    recompute it.
 4. **Comparability contract.** Exports carry the measurement subject and benchmark version; consumers
-   can therefore determine comparability without asking FreeWeight.
+   can therefore determine comparability without asking FreeWeight. From 1.1 the subject may carry
+   an adapter, and evidence measured on `(base, adapter)` describes that subject and nothing else —
+   not the bare base, not a sibling adapter
+   ([ADR-0058](../../adr/0058-the-execution-subject-gains-an-adapter-axis.md) §4). A consumer that
+   attributes adapter-bearing evidence to a base has made the one error this axis exists to
+   prevent.
+4a. **Adapter-evidence contract.** An adapter subject inherits **nothing** from its base — not at
+   full weight, not discounted, not as a prior
+   ([ADR-0059](../../adr/0059-adapter-evidence-is-measured-never-inherited.md),
+   [ADR-0081](../../adr/0081-an-adapter-subject-inherits-no-evidence-from-its-base.md)). Where a
+   subject has not been measured the answer is *absent*, rendered `—`, never a number. FreeWeight
+   exports no record it did not measure on the subject that record names.
 5. **API contract.** `/api/v1` per [API Standards](../../standards/api-and-contract-standards.md);
    additive within v1.
 6. **Unsupported contract.** Unavailable measurements are `"unsupported"` everywhere — API, export,
@@ -302,7 +400,12 @@ application.
               backup_retention = 5   # automatic pre-migration backups kept (§7)
               statement_timeout_ms = unset          # PostgreSQL only; also sets lock_timeout
 [provider]    kind = "ollama"      base_url = "http://127.0.0.1:11434"  timeout_seconds = 300
+              # kind = "llamacpp" serves GGUF weights from a directory this application supervises
+              model_directory = ""                 # required for kind = "llamacpp"; no default
+              state_dir = ""                       # "" = <data>/llamacpp
+              server_path = "llama-server"         # resolved on PATH unless absolute
 [providers]   allow_remote = false
+[adapters]    directory = ""                       # "" = adapters off (ADR-0061 rule 2)
 [runtime]     context_size = unset                 # tokens; unset = let the provider choose
               gpu_layers = unset   threads = unset   batch_size = unset   keep_alive = unset
 [benchmarks]  long_context_max_tokens = 32000       # ceiling of native.long_context's depth sweep
@@ -594,6 +697,17 @@ The default suite runs with **no GPU, no Ollama, no network**.
 * Database migrations are forward-only with tested upgrade paths from every released version.
 * Result data is never silently reinterpreted by an upgrade: if a metric definition changes, the
   metric gets a new key and the old key is retained.
+* **A payload minor is adopted per document, not per build.** FreeWeight writes the lowest version
+  that can express what it is writing
+  ([ADR-0084](../../adr/0084-a-producer-chooses-a-payload-version-by-content.md)), so upgrading
+  FreeWeight does not change the bytes a consumer receives unless the *content* changed. A
+  1.1 installation that has measured no adapter subject produces documents byte-identical to
+  1.0.0's.
+* **Adapters are additive and off by default.** `[adapters] directory` is empty in a default
+  configuration, which means the feature is off
+  ([ADR-0061](../../adr/0061-the-adapter-registry-is-a-directory-and-a-manifest.md) rule 2). Every
+  existing run, every stored measurement and every export behaves exactly as it did at 1.0.0; a
+  migration marks existing rows as base subjects, which is what they always were.
 
 ## 20. Acceptance criteria
 

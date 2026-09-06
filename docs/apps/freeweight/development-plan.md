@@ -2,7 +2,7 @@
 
 **Sequence position:** first application. Begins after BaseAiCore P4, SetSpec P1–P3, ModelRack P2
 (FakeProvider) and SweatMeter P1–P2 are available.
-**Milestones:** M2 (beta) at P10–P10A · **M3 (FreeWeight 1.0-rc, contract freeze) at P11** · **M6 (FreeWeight 1.0) at P14**.
+**Milestones:** M2 (beta) at P10–P10A · **M3 (FreeWeight 1.0-rc, contract freeze) at P11** · **M6 (FreeWeight 1.0) at P14** · **LA3 (FreeWeight 1.1) at P15**.
 
 Every phase ends in something a person can run and look at. No phase is "implement the backend".
 
@@ -1099,6 +1099,142 @@ and tagging, A/B prompt studies.
 
 ---
 
+## Phase 15 — Adapter subjects, the panel, and evidence at 1.1 · **LA3**
+
+**Goal:** FreeWeight measures a LoRA adapter as a subject in its own right, and exports evidence a
+consumer can route on. A base with an adapter applied is a **measurement subject**, it starts with
+no evidence, its panel is fixed and small, and the bundle that carries it says `1.1` — while an
+installation that measures no adapter is byte-for-byte the 1.0.0 it upgraded from.
+
+This is the FreeWeight half of the adapter arc's LA3 checkpoint
+([adapter-roadmap §4.3](../../roadmap/adapter-roadmap.md)). It is the first phase in this
+application that adds a *provider*: 1.0 could only talk to Ollama, which cannot serve a LoRA at all,
+so every measurement below was previously unreachable rather than merely unbuilt.
+
+**Prerequisites:** P14 (1.0). `modelrack >= 0.7` (`LlamaCppProvider`, adapter registration),
+`baseaicore >= 0.4.2` (`RuntimeProfile.adapters_registered`), `setspec >= 0.6`
+(`capability.evidence` `1.1`, `benchmark.evidence_bundle` `1.1`, `model.adapter_manifest` `1.0`).
+An operator-owned adapter directory with at least one reviewed manifest, and a GGUF base the
+adapters were trained against — the exit demonstration needs real weights and a GPU.
+
+**Work**
+
+* **The provider FreeWeight has never had.** `provider.kind = "llamacpp"` joins the supported kinds
+  and constructs a `LlamaCppProvider` over a directory of GGUF weights, with `model_directory`
+  (required — a wrong directory is a server serving weights nobody asked for, and there is no
+  default worth guessing), `state_dir` and `server_path`. The **singular** `[provider]` block is
+  extended; no named-registration table is introduced
+  ([spec §12](spec.md), and see *Known risks* on why this diverges from LoadCoach).
+* **`[adapters] directory`**, opt-in and empty by default, which means off
+  ([ADR-0061](../../adr/0061-the-adapter-registry-is-a-directory-and-a-manifest.md) rule 2).
+  FreeWeight reads the directory, validates each manifest through SetSpec's
+  `model.adapter_manifest` `1.0`, verifies each artifact against the digest its manifest records,
+  and converts the survivors to ModelRack's `AdapterRegistration` **in the application** — ModelRack
+  reads no directory, no environment variable and no configuration file (rule 3). A rescan restates
+  the directory whole: `register_adapters()` takes the complete set, and a name absent from it is
+  retired.
+* **`freeweight adapters list|show`** — what the directory holds, each adapter's base, its
+  availability and why not, and the subjects it produces.
+* **Subject enumeration and migration `0008`.** Subjects are base × compatible adapter, with
+  compatibility decided by **digest** through ModelRack's verification and never by name alone; a
+  name-only base is flagged `NAME_ONLY` everywhere the subject surfaces. An `adapters` table records
+  the subjects this installation has measured, keyed on the artifact digest, and the migration
+  states the rule for existing rows: they are base subjects, which is what they always were.
+* **`run start --adapter <name>`**, refusing an unknown, unavailable or incompatible name **by
+  name** and listing what is registered. The run records its subject.
+* **The A-2 panel** ([catalogue §8](benchmark-catalog.md)): declared capabilities + the fixed
+  three-suite regression panel + performance. **Evidence is never inherited** — a fresh subject's
+  evidence is empty until measured, and nothing about the base contributes to the adapter's score
+  ([ADR-0059](../../adr/0059-adapter-evidence-is-measured-never-inherited.md)).
+* **The serving-mode A/B** — `run start --serving-mode-ab` runs the same suite twice on one base,
+  clean and adapter-registered. The arms differ in `RuntimeProfile.adapters_registered` and
+  therefore in `runtime_profile_hash`
+  ([ADR-0074](../../adr/0074-adapter-enabled-serving-is-a-runtime-profile-field.md)), so they are
+  two ordinary runs and no new comparison mechanism is built.
+* **Evidence and bundle at `1.1`, by content**
+  ([ADR-0084](../../adr/0084-a-producer-chooses-a-payload-version-by-content.md)): the lowest
+  version that can express the document. Adapter-bearing records are `capability.evidence` `1.1`; a
+  bundle is `1.1` if any record in it is, and otherwise `1.0` and byte-identical to 1.0.0's output.
+* **The comparison view groups subjects under their base**, showing each subject's own evidence and
+  where it came from. Server-rendered with progressive enhancement, no SPA
+  ([ADR-0020](../../adr/0020-ui-rendering-strategy.md)).
+
+**Files/subsystems**
+```text
+src/freeweight/infrastructure/adapters/directory.py     the directory reader and the SetSpec seam
+src/freeweight/infrastructure/providers/factory.py      llamacpp joins the supported kinds
+src/freeweight/infrastructure/db/migrations/versions/0008_adapters_and_subjects.py
+src/freeweight/domain/subjects.py                       enumeration and compatibility
+src/freeweight/services/adapters.py                     what the directory holds, as a service
+src/freeweight/services/panels.py                       the A-2 panel, composed
+src/freeweight/services/evidence.py                     the version-by-content branch
+src/freeweight/cli/commands/adapters.py                 adapters list|show
+tests/contract/test_bundle_version_by_content.py        the byte-identity golden
+tests/live/test_la3_adapters.py                         I18's FreeWeight half
+```
+
+**Tests**
+
+* Enumeration over real artefacts: three adapters on one base produce three subjects; an adapter
+  declaring a different base is not enumerated; a name-only base enumerates and is flagged.
+* `--adapter` with an unknown name refuses, names it, and lists the registered set.
+* A fresh subject's panel is exactly declared + regression + performance, and its evidence is empty.
+  **A join that pulls the base's rows fails a test**, not a review.
+* A goal suite scores an adapter subject with no special case.
+* The two A/B arms are separable by `runtime_profile_hash`.
+* A no-adapter export is **byte-identical** to the committed 1.0.0 golden; an adapter-bearing export
+  validates against `benchmark.evidence_bundle` `1.1`'s schema.
+* An `ollama` configuration with no `[adapters] directory` behaves exactly as at 1.0.0.
+
+**Acceptance criteria**
+
+1. `freeweight config show` on a `kind = "llamacpp"` configuration reports the provider, and
+   `freeweight adapters list` prints every adapter in the operator's directory with its base, its
+   availability, and a named reason for each one that is unavailable.
+2. `freeweight models list` shows the adapter subjects under their base; a subject whose manifest
+   proved no base digest is visibly flagged `NAME_ONLY` there and in every later view of it.
+3. `freeweight run start --model <base> --adapter <unknown>` prints a refusal naming the adapter and
+   listing the registered names, and exits non-zero having created no run.
+4. `freeweight run start --model <base> --adapter <known> --suite native.instruction_following`
+   completes, and `freeweight results show` names the subject as
+   `…@sha256:…+<adapter>@sha256:…`.
+5. A freshly enumerated subject's evidence view is empty — every capability reads `—`, none reads a
+   number — **including** capabilities the base has been measured on.
+6. `freeweight run start --model <base> --serving-mode-ab --suite native.performance` produces two
+   runs with different `runtime_profile_hash` values, and `results compare` shows them side by side
+   with the overhead readable as a number.
+7. `freeweight evidence export` on a database with no adapter measurements produces a file
+   byte-identical to what `freeweight 1.0.0` produces from the same database, and the file says
+   `1.0`. After measuring one adapter subject, the same command produces a `1.1` file that validates
+   against the published schema with `setspec` alone.
+8. The comparison view lists subjects grouped under their base, each with its own evidence and its
+   source.
+
+**Known risks:** catastrophic forgetting invisible to a panel built from an adapter's own claims —
+mitigated by the fixed regression panel ([risks](risks.md) T11). Attributing adapter evidence to a
+base is the failure this phase most has to avoid; it looks exactly like a working join
+([risks](risks.md) T12).
+
+**Likely failure modes:** a convenience join that inherits the base's evidence and passes review
+because the numbers look reasonable; a version branch that always writes `1.1` and breaks the
+byte-identity golden; enumerating by name where a digest was available; treating a missing adapter
+directory as an error rather than as "off".
+
+**Gold standards:** every existing FreeWeight gold standard, unchanged. `UNSUPPORTED` is not zero,
+and an unmeasured subject is *absent* rather than zero
+([ADR-0016](../../adr/0016-unavailable-is-not-zero.md)) — this phase is measurement code and that
+rule is load-bearing in it.
+
+**Deferred:** adapter *composition* (two adapters at once) and in-suite training, both of which need
+new ADRs to reopen ([adapter-roadmap §8](../../roadmap/adapter-roadmap.md)); a named provider
+registry — FreeWeight measures one machine's models one run at a time, it has no pool and no
+scoring, so LoadCoach's `[providers.<name>]` table
+([ADR-0077](../../adr/0077-a-named-provider-block-and-the-singular-block-are-one-registry.md))
+solves a problem this application does not have. A second provider here is its own row with its own
+evidence, and this divergence is deliberate rather than drift.
+
+---
+
 # Appendix A — Model assignment
 
 Two different questions get asked with the same words, so both are answered, separately:
@@ -1141,6 +1277,7 @@ A broken migration announces itself; a `kappa_w` that is wrong by a factor stays
 | 12 | Adopt WeightsDB and MirrorWall | Sonnet 5 | high | A refactor whose success criterion is *no behaviour change*. Bounded, but session and pragma handling differ subtly between the inline code and the extracted package |
 | 13 | External benchmark adapters | Sonnet 5 | high | Adapter-per-benchmark is repetitive work. **Escalate to Opus 5 / high** for the subprocess isolation boundary and for parsing external output as untrusted input (ADR-0018) |
 | 14 | Hardening and 1.0 | Sonnet 5 | high | Performance budgets, security checklist, docs, upgrade paths — enumerable. **Escalate to Opus 5 / xhigh** for the final audit of all 18 spec §20 acceptance criteria and the gold standards, where the job is to find what everyone stopped seeing |
+| 15 | Adapter subjects, the panel, evidence at 1.1 | Sonnet 5 | high | Measurement plumbing on an engine that already works, and the panel's composition is settled in the catalogue. **Escalate to Opus 5 / high** for the no-inheritance boundary — the failure mode is a join that looks correct and quietly raises the score of weights nobody measured — and for the version-by-content branch, where "always write the newest" is the wrong answer that passes every test you would think to write |
 
 Three phases carry the risk for the whole application: **5** (the engine everything runs on),
 **8B** (the instrument the subjective feature depends on) and **11** (the contract that cannot be

@@ -24,6 +24,30 @@ mitigation and the signal that tells us it is happening.
 | T8 | **Long runs die** (OOM, driver reset, power) and lose hours of work | Medium | High | Per-sample durability; `interrupted` state; resume from the last completed test; events persisted | Frequent `interrupted` runs |
 | T9 | **Database growth** — millions of samples and telemetry rows slow the dashboard | Medium | Medium | Indexes from the first migration; query-plan assertions in tests; configurable telemetry retention; vacuum tooling; PostgreSQL as the escape valve | Dashboard queries exceeding budget at realistic volume |
 | T10 | **Fingerprint over-sensitivity** — every run looks incomparable | Medium | Medium | Deliberate exclusions (driver, storage) from the machine fingerprint; drift handled as confidence reduction rather than separation; field-level diff shown | Users unable to compare anything they measured |
+| T11 | **Catastrophic forgetting goes unmeasured** — a LoRA trained for one thing has silently lost another, and the panel that would have caught it was built from what the adapter *claims* | High | High | The panel is declared + a **fixed regression panel** + performance, never declared alone ([catalogue §8](benchmark-catalog.md), [ADR-0059](../../adr/0059-adapter-evidence-is-measured-never-inherited.md)); the regression panel is fixed in the catalogue and versioned with it, not configurable, so two adapters' regression numbers are comparable | An adapter scoring well on every declared capability and below its base on `instruction_following` or `structured_output` |
+| T12 | **Adapter evidence attributed to the base** — a join, an inheritance rule or a convenience default lets a measurement taken under a LoRA raise the score of weights nobody measured | Medium | **Critical** | No inheritance in any form, asserted rather than documented ([ADR-0059](../../adr/0059-adapter-evidence-is-measured-never-inherited.md), [ADR-0058 §4](../../adr/0058-the-execution-subject-gains-an-adapter-axis.md)); an unmeasured subject reads `—`, never a number ([ADR-0016](../../adr/0016-unavailable-is-not-zero.md)); the consumer refuses the mis-binding independently, so both ends have to fail before it happens | A subject with no runs showing a score; a base's score moving after an adapter was measured |
+| T13 | **Adapter applied to the wrong base** — a manifest names its base by name only, the name matches something else on this machine, and the output is plausible, confident and wrong | Medium | High | Compatibility decided by **digest**, and a mismatch is a refusal rather than an attempt (`verify_adapter_base_compatibility`, fails closed); a name-only base is flagged `NAME_ONLY` everywhere the subject surfaces, including in the exported evidence's confidence | An adapter enumerating against a base whose digest its manifest never recorded |
+
+**What would change the regression panel.** T11's mitigation is a *fixed* panel, and fixing it is a
+bet that three suites are enough. The bet is revisited when there is measured forgetting data to
+revisit it with — which is [ADR-0059](../../adr/0059-adapter-evidence-is-measured-never-inherited.md)'s
+own revisit trigger, and specifically:
+
+* **A regression the panel missed.** An adapter that passes all three regression suites and is then
+  found, in use or by a fuller panel, to have lost something material. That is the panel failing at
+  its one job, and the lost capability's suite is the candidate fourth row.
+* **A regression suite that never moves.** If, across every adapter measured on this machine, one of
+  the three never separates a good adapter from a damaged one, it is costing GPU time for no
+  information and should be replaced rather than kept for symmetry.
+* **Row 3 resolving to the same suite everywhere.** The "base's strongest measured capability" rule
+  exists to make the panel targeted. If in practice it always lands on the same suite, the rule is
+  decoration and should become a fourth fixed row that says so plainly.
+* **Cost, honestly measured.** If the three-suite panel is cheap enough that operators run a fuller
+  one anyway, the panel is too small; if it is expensive enough that they skip measuring adapters,
+  it is too big. Both are observable from run history rather than from opinion.
+
+Making the panel **configurable** is not on that list, and would need its own ADR: it overturns the
+comparability the whole design assumes ([catalogue §8.2](benchmark-catalog.md)).
 
 ## 2. Integration risks
 
@@ -34,6 +58,8 @@ mitigation and the signal that tells us it is happening.
 | I3 | **External benchmark CLIs change** | High | Medium | Pinned versions and dataset hashes; recorded output fixtures; adapters fail loudly with the version they expected |
 | I4 | **Shared package churn** (BaseAiCore/ModelRack breaking changes) | Medium | Medium | Compatible version ranges; nightly compatibility matrix; pre-1.0 changes coordinated in the PR description |
 | I5 | **Descriptor refresh rewrites history** | Low | High | Descriptor snapshots are immutable rows; runs reference the snapshot they used |
+| I6 | **The two applications disagree about a subject string** — FreeWeight exports evidence keyed on a subject LoadCoach spells differently, and the bundle imports as `unmatched` for ever | Low | High | Both derive the string from `baseaicore`'s `MeasurementSubject.canonical_subject_id` / `AdapterIdentity.canonical_suffix`, and neither re-implements the format; integration verification I18 asserts the agreement across a real file with no shared code and no shared database | Adapter-bearing records importing as `unmatched` while their base's records bind |
+| I7 | **The operator's adapter directory drifts from what was measured** — an artifact is replaced in place, and old measurements re-attach to new weights | Medium | High | Identity is the artifact digest, not the path or the name; a manifest whose recorded hash no longer matches its artifact makes that adapter *unavailable* and named, never silently re-used ([ADR-0061](../../adr/0061-the-adapter-registry-is-a-directory-and-a-manifest.md) rule 5); FreeWeight's `adapters` table outlives the directory, so a deleted artifact leaves a subject with history and no availability rather than an orphan | An adapter reported unavailable with a digest mismatch after a re-conversion |
 
 ## 3. Security risks
 
