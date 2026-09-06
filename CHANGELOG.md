@@ -49,6 +49,26 @@ packaging and release standards §3.
 - **`freeweight adapters list|show`.** What the directory holds, each adapter's base and
   availability, and which ones this installation has measured under. An unusable adapter is listed
   **with its reason**, never omitted.
+- **The A-2 panel.** An adapter subject's panel is **declared capabilities + a fixed regression
+  panel + performance**, and no more
+  ([ADR-0059](docs/adr/0059-adapter-evidence-is-measured-never-inherited.md),
+  [benchmark catalogue §8](docs/apps/freeweight/benchmark-catalog.md)). `freeweight adapters show
+  <name> --model <base>` composes it and prints what has actually been measured on that subject.
+  - The regression panel is `native.instruction_following`, `native.structured_output`, and the
+    **base's strongest measured capability**. The first two are fixed in every installation and are
+    **not configurable**: a per-deployment regression panel is not a regression panel, because two
+    adapters' numbers stop being comparable. The panel carries its own version, so numbers taken
+    under different panels are visibly different rather than silently so.
+  - A base with no evidence resolves the third row to nothing, and the panel says to measure the
+    base first. It does not invent a strongest capability ([ADR-0016](docs/adr/0016-unavailable-is-not-zero.md)).
+  - A `user.<slug>` declared capability resolves to its `goal.<slug>` suite with no special case: a
+    house-voice LoRA scored by a calibrated house-voice goal is the intended pairing.
+- **Evidence is never inherited, and it is structural rather than remembered.** `Subject` — the key
+  evidence aggregates by — carries the adapter, so a base's runs and an adapter subject's runs land
+  in different groups and no join exists that could pull one into the other. Reading a subject's
+  evidence filters on `subject_canonical_id`, which names one subject exactly; `model_id` alone
+  spans a base and every adapter subject on it. A subject with no measurements reads `—`, never a
+  number and never the base's.
 - **Migration `0008`.** The `adapters` table, `runs.adapter_id`, and `capability_evidence`'s
   `adapter_id` + `subject_canonical_id`. Every existing row is a **base subject**, which is what it
   always was: `adapter_id` is `NULL` and `subject_canonical_id` is backfilled from
@@ -70,6 +90,11 @@ packaging and release standards §3.
   and reported success. The pragma is set through the raw driver cursor, because WeightsDB puts the
   driver in autocommit and `PRAGMA foreign_keys` is a documented no-op inside a transaction — a
   silent one. The rc1 upgrade test now counts those six tables' rows across the migration.
+- **`EvidenceRepository.replace_for_subject` now matches the adapter axis.** Without it,
+  recomputing an adapter subject's evidence would have deleted its base's rows, and recomputing the
+  base would have deleted every adapter subject's — the same mis-attribution ADR-0058 §4 refuses,
+  in its most destructive form. `None` matches `IS NULL` exactly rather than being left
+  unconstrained.
 
 ### Changed
 - **`capability.evidence` and `benchmark.evidence_bundle` are chosen per document, by content**

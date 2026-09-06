@@ -27,13 +27,14 @@ __all__ = ["EvidenceRepository"]
 class EvidenceRepository:
     """Reads and writes ``capability_evidence``."""
 
-    def replace_for_subject(  # noqa: PLR0913 — a subject is exactly these three keys
+    def replace_for_subject(  # noqa: PLR0913 — a subject is exactly these four keys plus a policy
         self,
         session: Session,
         *,
         model_id: str,
         runtime_profile_id: str,
         machine_id: str,
+        adapter_id: str | None = None,
         policy_version: str,
         rows: Sequence[dict[str, Any]],
     ) -> int:
@@ -44,6 +45,11 @@ class EvidenceRepository:
             model_id: The subject's model.
             runtime_profile_id: The subject's runtime profile.
             machine_id: The subject's machine.
+            adapter_id: The subject's adapter, or ``None`` for the bare base. **Part of the
+                subject, so part of the delete**: matched as ``IS NULL`` when absent rather than
+                left unconstrained. Omitting it would make recomputing an adapter subject delete
+                its base's evidence — and recomputing the base delete every adapter subject's —
+                which is the mis-attribution ADR-0058 §4 refuses, in its most destructive form.
             policy_version: The policy version being rewritten. Rows under another version are
                 left alone — that is what lets two policies coexist.
             rows: Column mappings to insert. May be empty, which clears the subject's evidence
@@ -57,6 +63,9 @@ class EvidenceRepository:
                 CapabilityEvidence.model_id == model_id,
                 CapabilityEvidence.runtime_profile_id == runtime_profile_id,
                 CapabilityEvidence.machine_id == machine_id,
+                CapabilityEvidence.adapter_id.is_(None)
+                if adapter_id is None
+                else CapabilityEvidence.adapter_id == adapter_id,
                 CapabilityEvidence.policy_version == policy_version,
             )
         )
@@ -86,6 +95,7 @@ class EvidenceRepository:
         model_id: str | None = None,
         machine_id: str | None = None,
         runtime_profile_id: str | None = None,
+        subject_canonical_id: str | None = None,
         min_confidence: float | None = None,
         policy_version: str | None = None,
         since: datetime | None = None,
@@ -102,6 +112,10 @@ class EvidenceRepository:
             model_id: Exact model row, when given.
             machine_id: Exact machine row, when given.
             runtime_profile_id: Exact runtime profile row, when given.
+            subject_canonical_id: Exact subject string, when given — ``…@sha256:…`` for a bare
+                base, ``…@sha256:…+name@sha256:…`` for an adapter subject. **This is the filter to
+                use for "one subject's evidence"**: ``model_id`` alone spans a base and every
+                adapter subject on it, which is not what a reader asking about a subject means.
             min_confidence: Rows at or above this confidence, when given.
             policy_version: Rows under this policy version, when given.
             since: Rows whose ``computed_at`` is strictly later, when given — the incremental
@@ -121,6 +135,10 @@ class EvidenceRepository:
             statement = statement.where(CapabilityEvidence.machine_id == machine_id)
         if runtime_profile_id is not None:
             statement = statement.where(CapabilityEvidence.runtime_profile_id == runtime_profile_id)
+        if subject_canonical_id is not None:
+            statement = statement.where(
+                CapabilityEvidence.subject_canonical_id == subject_canonical_id
+            )
         if min_confidence is not None:
             statement = statement.where(CapabilityEvidence.confidence >= min_confidence)
         if policy_version is not None:

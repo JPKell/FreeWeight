@@ -1692,6 +1692,7 @@ def recompute_evidence(
                     model_id=subject.model_id,
                     runtime_profile_id=subject.runtime_profile_id,
                     machine_id=subject.machine_id,
+                    adapter_id=subject.adapter_id,
                     policy_version=version,
                     rows=(),
                 )
@@ -1701,6 +1702,7 @@ def recompute_evidence(
                     model_id=key.model_id,
                     runtime_profile_id=key.runtime_profile_id,
                     machine_id=key.machine_id,
+                    adapter_id=key.adapter_id,
                     policy_version=version,
                     rows=[record.row() for record in records],
                 )

@@ -21,24 +21,29 @@ from typing import TYPE_CHECKING, Any, ClassVar
 
 from baseaicore import ModelIdentity, ProviderKind, SuiteError, utc_now
 
-from freeweight.domain.subjects import enumerate_subjects, subject_for
+from freeweight.domain.panels import Panel, compose_panel
+from freeweight.domain.subjects import AdapterSubject, enumerate_subjects, subject_for
 from freeweight.infrastructure.adapters import read_directory
 
 if TYPE_CHECKING:
+    from collections.abc import Mapping, Sequence
     from datetime import datetime
 
     from sqlalchemy.orm import Session
 
     from freeweight.config import AdapterSettings
-    from freeweight.domain.subjects import AdapterSubject
+    from freeweight.domain.capability_mapping import CapabilityMapping
     from freeweight.infrastructure.adapters import AdapterEntry, DirectoryReading
     from freeweight.services.database import Database
 
 __all__ = [
     "AdapterOverview",
     "AdaptersDisabled",
+    "SubjectPanel",
     "adapter_overview",
     "adapter_row_for",
+    "measured_scores",
+    "panel_for",
     "read_entries",
     "resolve_subject",
     "subjects_for_model",
@@ -265,3 +270,97 @@ def adapter_row_for(
     row.last_seen_at = stamp
     session.flush()
     return row
+
+
+@dataclass(frozen=True, slots=True)
+class SubjectPanel:
+    """One subject's panel, and the evidence it actually has.
+
+    Attributes:
+        subject: The subject.
+        panel: What
+            [ADR-0059](../../../docs/adr/0059-adapter-evidence-is-measured-never-inherited.md)
+            says to run against it.
+        measured: ``{capability_id: score}`` **measured on this subject**, and on nothing else.
+            Empty for a subject nobody has benchmarked, which is the state every adapter subject
+            starts in and is rendered ``—`` rather than a number.
+    """
+
+    subject: AdapterSubject
+    panel: Panel
+    measured: Mapping[str, float]
+
+    @property
+    def has_evidence(self) -> bool:
+        """Whether anything has been measured on this subject."""
+        return bool(self.measured)
+
+    def as_json(self) -> dict[str, Any]:
+        """Render for ``--json`` and for the comparison view."""
+        return {
+            "subject": self.subject.canonical_id,
+            "adapter": self.subject.adapter_name,
+            "identity_confidence": self.subject.confidence.value,
+            "name_only": self.subject.is_name_only,
+            "panel": self.panel.as_json(),
+            "measured": dict(self.measured),
+            "has_evidence": self.has_evidence,
+        }
+
+
+def measured_scores(database: Database, subject: AdapterSubject) -> dict[str, float]:
+    """Return the capability scores measured **on this subject**, keyed by capability.
+
+    Filtered on ``subject_canonical_id``, which names the subject exactly — the base and each of
+    its adapter subjects are different strings. Filtering on ``model_id`` instead would span all of
+    them, and that is precisely the join
+    [ADR-0059](../../../docs/adr/0059-adapter-evidence-is-measured-never-inherited.md) forbids: it
+    would publish the base's strengths as an adapter's claims while leaving the adapter's damage
+    unmeasured, so the fabricated numbers would be exactly the ones that win routing.
+
+    Args:
+        database: The application's database handle.
+        subject: The subject to read.
+
+    Returns:
+        ``{capability_id: score}``. **Empty** for a subject with no measurements — never the base's
+        scores, never a discounted copy of them, never a prior. Absent is absent (ADR-0016).
+    """
+    from freeweight.infrastructure.db.repositories.evidence import EvidenceRepository
+
+    with database.read() as session:
+        rows = EvidenceRepository().list_all(session, subject_canonical_id=subject.canonical_id)
+        return {str(row.capability_id): float(row.score) for row in rows}
+
+
+def panel_for(
+    database: Database,
+    subject: AdapterSubject,
+    *,
+    mapping: CapabilityMapping,
+    available_suites: Sequence[str] | None = None,
+) -> SubjectPanel:
+    """Compose one subject's panel and read the evidence it already has.
+
+    The base's scores are read **only** to choose the regression panel's third row (catalogue
+    §8.2). They decide which suite to *run*; they never become this subject's evidence.
+
+    Args:
+        database: The application's database handle.
+        subject: The subject.
+        mapping: The capability mapping.
+        available_suites: What the registry can run, so a panel cannot name a suite that would
+            fail at run time instead of at composition.
+
+    Returns:
+        The subject's panel and its own measured scores.
+    """
+    declared = () if subject.entry is None else subject.entry.declared_capabilities
+    base = AdapterSubject(base=subject.base, confidence=subject.base.identity_confidence)
+    panel = compose_panel(
+        mapping,
+        declared_capabilities=declared,
+        base_scores=measured_scores(database, base),
+        available_suites=available_suites,
+    )
+    return SubjectPanel(subject=subject, panel=panel, measured=measured_scores(database, subject))

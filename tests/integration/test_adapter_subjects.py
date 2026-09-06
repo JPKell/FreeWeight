@@ -15,7 +15,7 @@ from typing import TYPE_CHECKING, Any
 import pytest
 from baseaicore import DataClassification, IdentityConfidence
 
-from freeweight.config import ExecutionSettings
+from freeweight.config import EvidenceSettings, ExecutionSettings, Settings
 from freeweight.domain.subjects import IncompatibleAdapter
 from freeweight.infrastructure.adapters import AdapterEntry
 from freeweight.services.evidence import Subject, recompute_evidence, subject_of_run
@@ -197,3 +197,149 @@ class TestEvidenceIsNeverInherited:
 
         assert all(record.adapter_id != adapter_id for record in report.emitted)
         assert all(not record.is_adapter_bearing for record in report.emitted)
+
+
+class TestThePanelIsMeasuredNeverInherited:
+    """ADR-0059's rule 1, asserted through the real service rather than reviewed for."""
+
+    def test_a_fresh_subjects_evidence_is_empty_even_when_its_base_is_measured(
+        self,
+        run_environment: Callable[..., RunEnvironment],
+        evidence_settings: EvidenceSettings,
+    ) -> None:
+        """The failure this phase exists to prevent, and it looks exactly like a working join."""
+        from freeweight.services.adapters import measured_scores, resolve_subject
+
+        env = run_environment()
+        entries = (_entry(env, "terse", artifact_digest=_ADAPTER_DIGEST),)
+        _run_to_completion(env, adapter=None, entries=entries, settings=evidence_settings)
+
+        base = resolve_subject(_model_row(env), entries, None)
+        adapter = resolve_subject(_model_row(env), entries, "terse")
+
+        assert measured_scores(env.database, base), "the base must have evidence for this to test"
+        assert measured_scores(env.database, adapter) == {}
+
+    def test_measuring_the_adapter_does_not_move_the_bases_evidence(
+        self,
+        run_environment: Callable[..., RunEnvironment],
+        evidence_settings: EvidenceSettings,
+    ) -> None:
+        """Recomputing one subject must not rewrite another's rows (replace_for_subject)."""
+        from freeweight.services.adapters import measured_scores, resolve_subject
+
+        env = run_environment()
+        entries = (_entry(env, "terse", artifact_digest=_ADAPTER_DIGEST),)
+        _run_to_completion(env, adapter=None, entries=entries, settings=evidence_settings)
+        base = resolve_subject(_model_row(env), entries, None)
+        before = measured_scores(env.database, base)
+
+        _run_to_completion(env, adapter="terse", entries=entries, settings=evidence_settings)
+
+        assert measured_scores(env.database, base) == before
+        assert measured_scores(env.database, resolve_subject(_model_row(env), entries, "terse"))
+
+    def test_the_panel_is_declared_plus_regression_plus_performance(
+        self, run_environment: Callable[..., RunEnvironment]
+    ) -> None:
+        from freeweight.domain.panels import FIXED_REGRESSION_SUITES, PERFORMANCE_SUITE
+        from freeweight.services.adapters import panel_for, resolve_subject
+        from freeweight.services.evidence import load_capability_mapping
+
+        env = run_environment()
+        entries = (_entry(env, "terse", artifact_digest=_ADAPTER_DIGEST),)
+        subject = resolve_subject(_model_row(env), entries, "terse")
+
+        composed = panel_for(env.database, subject, mapping=load_capability_mapping())
+
+        assert [part.name for part in composed.panel.parts] == [
+            "declared",
+            "regression",
+            "performance",
+        ]
+        assert composed.panel.part("regression").suites[:2] == FIXED_REGRESSION_SUITES
+        assert composed.panel.part("performance").suites == (PERFORMANCE_SUITE,)
+        assert composed.measured == {}
+        assert not composed.has_evidence
+
+    def test_the_regression_panels_third_row_comes_from_the_base(
+        self,
+        run_environment: Callable[..., RunEnvironment],
+        evidence_settings: EvidenceSettings,
+        tmp_path: Path,
+    ) -> None:
+        """The base's evidence chooses a suite to *run*; it never becomes the subject's score."""
+        from freeweight.services.adapters import panel_for, resolve_subject
+        from freeweight.services.evidence import load_capability_mapping
+
+        env = run_environment()
+        entries = (_entry(env, "terse", artifact_digest=_ADAPTER_DIGEST),)
+        _run_to_completion(env, adapter=None, entries=entries, settings=evidence_settings)
+        subject = resolve_subject(_model_row(env), entries, "terse")
+
+        composed = panel_for(
+            env.database,
+            subject,
+            mapping=load_capability_mapping(tmp_path / "weights.toml"),
+        )
+
+        assert composed.panel.regression_third_row is not None
+        assert composed.measured == {}, "the base's evidence must not become the subject's"
+
+
+def _model_row(env: RunEnvironment) -> Any:
+    """The one discovered model, as the identity fields a subject needs."""
+    from freeweight.infrastructure.db.repositories.models import ModelRepository
+
+    with env.database.read() as session:
+        row = ModelRepository().get_by_canonical_id(session, env.model_ref)
+        assert row is not None
+        return type(
+            "Row",
+            (),
+            {
+                "provider_kind": row.provider_kind,
+                "provider_model_name": row.provider_model_name,
+                "artifact_digest": row.artifact_digest,
+            },
+        )()
+
+
+_WEIGHTS = """
+version = "test"
+
+[capabilities.reliability]
+sources = [
+  { suite = "native.echo", metric_key = "harness_roundtrip_success", weight = 1.0 },
+]
+"""
+
+
+@pytest.fixture
+def evidence_settings(tmp_path: Path) -> EvidenceSettings:
+    """A mapping under which the echo suite produces one `reliability` record."""
+    weights = tmp_path / "weights.toml"
+    weights.write_text(_WEIGHTS, encoding="utf-8")
+    return EvidenceSettings(capability_weights_path=str(weights))
+
+
+def _run_to_completion(
+    env: RunEnvironment,
+    *,
+    adapter: str | None,
+    entries: tuple[AdapterEntry, ...],
+    settings: EvidenceSettings,
+) -> str:
+    """Start one run, execute it, and recompute the evidence it supports."""
+    from freeweight.services.evidence import recompute_for_run
+    from freeweight.services.scheduler import RunScheduler
+
+    summary = _start(env, adapter=adapter, entries=entries)
+    RunScheduler(
+        env.database,
+        env.provider,
+        registry=env.registry,
+        settings=Settings(evidence=settings),
+    ).run_once()
+    recompute_for_run(env.database, summary.id, settings=settings)
+    return str(summary.id)

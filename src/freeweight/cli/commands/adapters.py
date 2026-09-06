@@ -17,11 +17,12 @@ from __future__ import annotations
 import json
 from collections.abc import Iterator
 from contextlib import contextmanager
-from typing import TYPE_CHECKING, Annotated
+from typing import TYPE_CHECKING, Annotated, Any
 
 import typer
 
 if TYPE_CHECKING:
+    from freeweight.infrastructure.adapters import AdapterEntry
     from freeweight.services.database import Database
 
 __all__ = ["app"]
@@ -106,12 +107,28 @@ def list_command(config: _ConfigOption = None, json_output: _JsonOption = False)
 @app.command("show")
 def show(
     name: Annotated[str, typer.Argument(help="The adapter's name.")],
+    model: Annotated[
+        str | None,
+        typer.Option(
+            "--model",
+            help=(
+                "Compose this adapter's panel against a stored base and show what has been "
+                "measured on the resulting subject."
+            ),
+        ),
+    ] = None,
     config: _ConfigOption = None,
     json_output: _JsonOption = False,
 ) -> None:
     """Show one adapter in full: its identity, its base claim and what it declares. Mode: local.
 
-    Exits ``2`` when no adapter of that name is in the directory, listing the names that are.
+    With ``--model``, also composes the subject's panel (ADR-0059) and prints what has actually
+    been measured **on that subject**. An unmeasured capability prints ``—``, never a number and
+    never the base's: an adapter subject inherits nothing from its base, at any weight
+    (ADR-0016, ADR-0059).
+
+    Exits ``2`` when no adapter of that name is in the directory, listing the names that are, or
+    when ``--model`` names no stored model.
     """
     from baseaicore import SuiteError
 
@@ -134,11 +151,22 @@ def show(
         )
         raise typer.Exit(2)
 
-    payload = {**entry.as_json(), "measured": entry.artifact_sha256 in overview.measured}
+    payload: dict[str, object] = {
+        **entry.as_json(),
+        "measured": entry.artifact_sha256 in overview.measured,
+    }
+    panel = None
+    if model is not None:
+        with _open(config) as (database, _adapters):
+            panel = _panel_for(database, model, entry)
+        payload["subject"] = panel.as_json()
+
     if json_output:
         typer.echo(json.dumps(payload))
         return
     for key, value in payload.items():
+        if key == "subject":
+            continue
         rendered = ", ".join(str(item) for item in value) if isinstance(value, list) else value
         typer.echo(f"{key}: {rendered}")
     if entry.base_confidence.value == "name_only":
@@ -146,3 +174,67 @@ def show(
             "note: this adapter's manifest names its base without proving a digest, so every "
             "subject it produces is flagged NAME_ONLY and its evidence carries reduced confidence."
         )
+    if panel is not None:
+        typer.echo(f"\nsubject: {panel.subject.canonical_id}")
+        typer.echo(f"panel (v{panel.panel.panel_version}):")
+        for part in panel.panel.parts:
+            typer.echo(f"  {part.name}: {', '.join(part.suites) or '(none)'}")
+            typer.echo(f"      {part.reason}")
+        typer.echo("measured on this subject:")
+        if not panel.measured:
+            typer.echo("  — nothing yet. An adapter subject inherits no evidence from its base.")
+        for capability, score in sorted(panel.measured.items()):
+            typer.echo(f"  {capability}: {score:.3f}")
+
+
+def _panel_for(database: Database, model_ref: str, entry: AdapterEntry) -> Any:
+    """Compose one subject's panel, or exit 2 when the model is not stored."""
+    import typer as _typer
+    from baseaicore import SuiteError
+
+    from freeweight.infrastructure.db.repositories.models import ModelRepository
+    from freeweight.services.adapters import panel_for, resolve_subject
+    from freeweight.services.evidence import load_capability_mapping
+    from freeweight.services.runs import build_registry
+
+    with database.read() as session:
+        row = ModelRepository().get_by_canonical_id(
+            session, model_ref
+        ) or ModelRepository().get_by_provider_model_name(session, model_ref)
+        if row is None:
+            typer.echo(
+                f"Error: no stored model matches {model_ref!r}; run `freeweight models refresh` "
+                "first (MODEL_NOT_FOUND)",
+                err=True,
+            )
+            raise _typer.Exit(2)
+        detached = _Detached(row)
+    try:
+        subject = resolve_subject(detached, (entry,), entry.name)
+    except SuiteError as exc:
+        typer.echo(f"Error: {exc.message} ({exc.code})", err=True)
+        raise _typer.Exit(2) from exc
+    registry = build_registry()
+    return panel_for(
+        database,
+        subject,
+        mapping=load_capability_mapping(),
+        available_suites=[benchmark.manifest.key for benchmark in registry.all()],
+    )
+
+
+class _Detached:
+    """The three identity fields a subject needs, copied out of a session-bound row.
+
+    SQLAlchemy models never leave the repository layer (coding standards §4), and this command
+    reads one outside its session; copying the three fields is cheaper than a repository method
+    nothing else would call.
+    """
+
+    __slots__ = ("artifact_digest", "provider_kind", "provider_model_name")
+
+    def __init__(self, row: Any) -> None:
+        """Copy the identity triple off ``row``."""
+        self.provider_kind = row.provider_kind
+        self.provider_model_name = row.provider_model_name
+        self.artifact_digest = row.artifact_digest
