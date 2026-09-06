@@ -49,6 +49,34 @@ own revisit trigger, and specifically:
 Making the panel **configurable** is not on that list, and would need its own ADR: it overturns the
 comparability the whole design assumes ([catalogue §8.2](benchmark-catalog.md)).
 
+### First run against real adapters, 2026-09-06 (row H5)
+
+The panel had only ever been *composed*; the LA3 journey measured adapter subjects with
+`native.echo` for speed, so rows 1 and 2 had never met a LoRA. They have now
+(`FreeWeight/tests/live/test_a2_regression_panel.py`), on the reference machine against
+`Qwen2.5-1.5B-Instruct.Q8_0` and its three trained adapters:
+
+| Subject | `instruction_following` | `structured_output` |
+|---|---|---|
+| bare base | 0.727 (n=11) | 1.000 (n=3) |
+| `+terse` | 0.818 (n=11) | 1.000 (n=3) |
+| `+pirate` | 0.818 (n=11) | 1.000 (n=3) |
+| `+verbose` | 0.818 (n=11) | 1.000 (n=3) |
+
+**No forgetting was detected, and that is the weaker half of the finding.** All three adapters
+moved `instruction_following` by exactly `+0.091` — one case in eleven — and none moved
+`structured_output` at all. Three adapters trained for three different voices scoring identically
+on both rows is not evidence that all three are undamaged; it is evidence that **at n=11 and n=3 the
+panel resolves nothing finer than gross forgetting**. The adapters are certainly live: the same
+provider, prompted identically, answers as the base, as a pirate, tersely and verbosely.
+
+This is the **second** revisit trigger above — "a regression suite that never moves" — arriving in
+its quietest form, and it is recorded rather than acted on: one base, one machine, three adapters
+none of which is damaged. What would settle it is a deliberately damaged adapter. Until then the
+honest statement is that the panel *ran*, produced each subject's own numbers, and inherited
+nothing — and that its sample sizes are too small to be read as a clean bill of health for any
+particular LoRA.
+
 ## 2. Integration risks
 
 | # | Risk | L | I | Mitigation |

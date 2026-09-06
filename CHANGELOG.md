@@ -105,6 +105,30 @@ packaging and release standards §3.
   ADR-0060's revisit trigger cannot be acted on without one.
 
 ### Fixed
+- **A run on an adapter-serving provider records that it was one.** `freeweight run start` passed
+  `RuntimeProfile.adapters_registered = None` unconditionally — "not stated", which
+  [ADR-0074](docs/adr/0074-adapter-enabled-serving-is-a-runtime-profile-field.md) reserves for a
+  provider that has no concept of adapters — even when it had just handed a llama.cpp server three
+  LoRAs to launch with. Rule 3 puts the field on the constructing application precisely because it
+  is the actor that supplies the registration set, so it is now derived from the provider and the
+  directory (`freeweight.services.adapters.serving_mode`) rather than assumed.
+
+  The consequence was invisible locally and fatal across the boundary, which is how row H5's I18
+  found it: `None` "disagrees with nothing and is always served", so the run succeeded, exported
+  evidence under a `runtime_profile_hash` that never happened, and LoadCoach — resolving the honest
+  `True` for the same server — excluded every one of those measurements as
+  `evidence_profile_mismatch`. Correctly, and silently.
+
+  **No shipped hash moves.** Only `llamacpp` declares `adapter_hot_swap`, so Ollama and fake runs
+  still resolve `None` and hash exactly as they did at `1.0.0`; `llamacpp` is new in this release,
+  so nothing published was measured under the old spelling. `--serving-mode-ab` states both arms
+  explicitly and is unchanged: there the setting *is* the measurement.
+- **The comparison grouping is bounded.** `group_by_base` showed every subject under a base and the
+  page gave the base cell a `rowspan` to match, so a base with a hundred subjects rendered a hundred
+  rows nobody compares anything in. It now shows at most `MAX_SUBJECTS_PER_BASE` (12) and states
+  what it withheld — "and N more subjects on this base" — rather than truncating silently. The bare
+  base is never the one hidden, `adapter_count` still counts every adapter, and nothing is dropped
+  from the store: the cap bounds the rendering, not the query. Paging is deliberately not built.
 - **A migration run now suspends SQLite foreign-key enforcement**
   ([ADR-0082](docs/adr/0082-a-migration-run-suspends-sqlite-foreign-key-enforcement.md)), the one
   stated exception to database standards §2. Adding a foreign key to an existing SQLite table is a

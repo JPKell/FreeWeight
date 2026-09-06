@@ -46,6 +46,7 @@ __all__ = [
     "panel_for",
     "read_entries",
     "resolve_subject",
+    "serving_mode",
     "subjects_for_model",
 ]
 
@@ -122,6 +123,40 @@ def read_entries(adapters: AdapterSettings) -> tuple[AdapterEntry, ...]:
     """
     directory = adapters.resolved_directory()
     return () if directory is None else read_directory(directory).entries
+
+
+def serving_mode(provider: Any, entries: Sequence[AdapterEntry]) -> bool | None:
+    """Report the ``RuntimeProfile.adapters_registered`` this run is actually served under.
+
+    ADR-0074 rule 3: the constructing application sets the field, because it is the actor that
+    also supplied the registration set. FreeWeight offers the directory's **available** entries to
+    the provider at construction
+    (:func:`~freeweight.infrastructure.providers.factory.register_adapters_with`), so this function
+    answers the same question that call did, from the same two inputs.
+
+    Not ``list_adapters()``: a snapshot moves while a restart is pending, and ADR-0074's rejected
+    alternative is explicit that the profile is what the caller asked for rather than something a
+    provider stamps on afterwards.
+
+    Getting this wrong is not cosmetic and is not caught by anything local. ``None`` "disagrees
+    with nothing and is always served", so a run that registers three adapters and records ``None``
+    is served happily, exports evidence under a profile hash that never happened, and a consumer
+    resolving the honest ``True`` excludes that evidence as ``evidence_profile_mismatch`` — silently
+    and correctly. Row H5's I18 found exactly that.
+
+    Args:
+        provider: The constructed provider this run will be served by.
+        entries: What the operator's adapter directory holds, from :func:`read_entries` — every
+            entry, available or not.
+
+    Returns:
+        ``True`` when this provider can serve adapters and at least one available adapter was
+        offered to it; ``False`` when it can and none was; ``None`` when the provider has no
+        concept of adapters at all, which is every profile written before this field existed.
+    """
+    if not provider.capabilities().adapter_hot_swap:
+        return None
+    return any(entry.available for entry in entries)
 
 
 def adapter_overview(database: Database, adapters: AdapterSettings) -> AdapterOverview:

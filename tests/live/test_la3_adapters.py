@@ -36,7 +36,7 @@ import json
 import os
 from contextlib import suppress
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import pytest
 
@@ -158,13 +158,22 @@ def journey(settings: Any, tmp_path: Path) -> Any:
         database.close()
 
 
-def _measure(journey: Any, *, adapter: str | None, registered: bool | None = None) -> str:
-    """Run one suite against one subject and recompute the evidence it supports."""
+def _measure(journey: Any, *, adapter: str | None, registered: bool | None | str = "derive") -> str:
+    """Run one suite against one subject and recompute the evidence it supports.
+
+    ``registered`` defaults to what ``serving_mode`` derives, which is what ``run start`` does and
+    therefore what a real export records. Stating ``None`` here would export evidence under a
+    profile hash that never happened, and a consumer resolving the honest ``True`` would exclude
+    it as ``evidence_profile_mismatch`` — which is exactly what row H5's I18 found (ADR-0074).
+    """
+    from freeweight.services.adapters import serving_mode
     from freeweight.services.evidence import recompute_for_run
     from freeweight.services.runs import ExecutionConfig, create_run
     from freeweight.services.scheduler import RunScheduler
 
     settings = journey["settings"]
+    if registered == "derive":
+        registered = serving_mode(journey["provider"], journey["entries"])
     summary = create_run(
         journey["database"],
         journey["provider"],
@@ -173,7 +182,9 @@ def _measure(journey: Any, *, adapter: str | None, registered: bool | None = Non
         model_ref=journey["model_ref"],
         suite_key=_SUITE,
         execution=ExecutionConfig.resolve(settings.execution, measured_repetitions=1),
-        runtime_profile=settings.runtime.to_profile(adapters_registered=registered),
+        runtime_profile=settings.runtime.to_profile(
+            adapters_registered=cast("bool | None", registered)
+        ),
         adapter_name=adapter,
         adapter_entries=journey["entries"],
     )

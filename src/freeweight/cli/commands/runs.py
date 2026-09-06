@@ -232,7 +232,7 @@ def start(  # noqa: PLR0913 — every parameter is a documented run option, not 
     """
     from baseaicore import SuiteError
 
-    from freeweight.services.adapters import read_entries
+    from freeweight.services.adapters import read_entries, serving_mode
     from freeweight.services.runs import ExecutionConfig, build_registry_for, create_run
     from freeweight.services.scheduler import RunScheduler
 
@@ -278,7 +278,9 @@ def start(  # noqa: PLR0913 — every parameter is a documented run option, not 
                     settings.execution, measured_repetitions=repetitions
                 ),
                 runtime_profile=_profile_for(
-                    settings, context_size=context_size, adapters_registered=None
+                    settings,
+                    context_size=context_size,
+                    adapters_registered=serving_mode(provider, entries),
                 ),
                 label=label,
                 allow_prompt_override=allow_prompt_override,
@@ -337,9 +339,12 @@ def _profile_for(
     """Build this run's runtime profile from ``[runtime]``, the ``--context-size`` override and
     the serving mode.
 
-    ``adapters_registered=None`` is unstated, which is what every profile meant before adapters
-    existed — so an ordinary run's ``runtime_profile_hash`` is exactly what it was at 1.0.0
-    (ADR-0074).
+    ``adapters_registered`` comes from
+    :func:`~freeweight.services.adapters.serving_mode`, which answers it from the provider and the
+    directory rather than assuming: a run on a provider with no concept of adapters is ``None``
+    and hashes exactly as it did at 1.0.0, and a run on a server that was handed adapters says so
+    (ADR-0074 rule 3). ``--serving-mode-ab`` states both arms explicitly instead, because there the
+    setting is the measurement.
     """
     runtime = (
         settings.runtime.model_copy(update={"context_size": context_size})
