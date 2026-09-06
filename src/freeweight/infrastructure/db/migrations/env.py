@@ -28,9 +28,49 @@ config = context.config
 target_metadata = Base.metadata
 
 
+def _set_foreign_keys(connection: object, *, on: bool) -> None:
+    """Set SQLite's ``foreign_keys`` pragma on this connection, outside any transaction.
+
+    Run through the **raw DBAPI cursor** deliberately. WeightsDB puts the driver in autocommit and
+    emits ``BEGIN IMMEDIATE`` from SQLAlchemy's ``begin`` event, so executing the pragma through
+    the SQLAlchemy connection would open a transaction first — and ``PRAGMA foreign_keys`` is a
+    documented no-op inside one. A silent no-op, which is the worst kind.
+
+    Args:
+        connection: The open SQLAlchemy connection Alembic was handed.
+        on: Whether enforcement should be enabled.
+    """
+    raw = connection.connection  # type: ignore[attr-defined]  # alembic hands a Connection
+    cursor = raw.cursor()
+    try:
+        cursor.execute(f"PRAGMA foreign_keys={'ON' if on else 'OFF'}")
+    finally:
+        cursor.close()
+
+
 def run_migrations_online() -> None:
-    """Run migrations against the connection the caller placed in ``config.attributes``."""
+    """Run migrations against the connection the caller placed in ``config.attributes``.
+
+    **Foreign keys are enforced off for the duration on SQLite**, and restored afterwards
+    ([ADR-0082](../../../../../../../docs/adr/0082-a-migration-run-suspends-sqlite-foreign-key-enforcement.md)).
+    They are ``ON`` in normal operation (database standards §2); this is that standard's one stated
+    exception.
+
+    Adding a constraint to an existing SQLite table is a **table rebuild** — alembic's batch mode
+    copies, drops and renames — and dropping a table that other rows reference
+    ``ON DELETE CASCADE`` deletes those rows. Migration ``0008`` adds a foreign key to ``runs``,
+    which has six cascading children: ``run_tests``, ``run_events``, ``artifacts``,
+    ``metric_values``, ``telemetry_samples`` and (through ``run_tests``) ``samples``. With
+    enforcement on, upgrading a real 1.0 database would silently delete every measurement in it and
+    report success.
+
+    The pragma takes effect only outside a transaction, which is why it runs before
+    ``begin_transaction`` and is restored in a ``finally``.
+    """
     connection = config.attributes["connection"]
+    sqlite = connection.dialect.name == "sqlite"
+    if sqlite:
+        _set_foreign_keys(connection, on=False)
     version_table = config.attributes.get("version_table", "alembic_version")
     context.configure(
         connection=connection,
@@ -38,8 +78,12 @@ def run_migrations_online() -> None:
         version_table=version_table,
         render_as_batch=connection.dialect.name == "sqlite",
     )
-    with context.begin_transaction():
-        context.run_migrations()
+    try:
+        with context.begin_transaction():
+            context.run_migrations()
+    finally:
+        if sqlite:
+            _set_foreign_keys(connection, on=True)
 
 
 run_migrations_online()

@@ -35,7 +35,49 @@ packaging and release standards §3.
     operator who gets silence cannot tell a typo from an empty directory. LoadCoach makes the
     opposite call for a long-running service with a `doctor` command; the divergence is deliberate.
 
+- **A run measures a subject, not only a model.** `freeweight run start --adapter <name>` serves
+  the base with a registered LoRA applied, and the run records which one
+  ([ADR-0058](docs/adr/0058-the-execution-subject-gains-an-adapter-axis.md)). An unknown,
+  unavailable or incompatible name is refused **by name** with the registered set in the message,
+  and never falls back to the bare base — a caller that asked for an adapter and silently got the
+  base would attribute the base's behaviour to the adapter.
+  - Subjects enumerate as **base × compatible adapter**, with compatibility decided by
+    `verify_adapter_base_compatibility` — **by digest, never by name alone**. A manifest that names
+    its base without proving a digest produces a subject flagged `NAME_ONLY`, which rides the
+    existing `IdentityConfidence` machinery rather than a parallel flag.
+  - The bare base is always enumerated and always first. Adopting adapters takes nothing away.
+- **`freeweight adapters list|show`.** What the directory holds, each adapter's base and
+  availability, and which ones this installation has measured under. An unusable adapter is listed
+  **with its reason**, never omitted.
+- **Migration `0008`.** The `adapters` table, `runs.adapter_id`, and `capability_evidence`'s
+  `adapter_id` + `subject_canonical_id`. Every existing row is a **base subject**, which is what it
+  always was: `adapter_id` is `NULL` and `subject_canonical_id` is backfilled from
+  `models.canonical_id`, which for a subject with no adapter is byte-for-byte what
+  `MeasurementSubject.canonical_subject_id` returns.
+  - `adapter_id` joins `capability_evidence`'s uniqueness key. Without it a subject's evidence would
+    collide with its base's, which is the mis-attribution ADR-0058 §4 refuses.
+  - The `adapters` table **outlives the directory**: a rescan upserts and never deletes, so an
+    artifact an operator removes leaves a subject with history and no availability rather than
+    orphaned evidence ([ADR-0080](docs/adr/0080-a-persisted-decision-names-the-subject-by-reference-and-by-string.md)).
+
+### Fixed
+- **A migration run now suspends SQLite foreign-key enforcement**
+  ([ADR-0082](docs/adr/0082-a-migration-run-suspends-sqlite-foreign-key-enforcement.md)), the one
+  stated exception to database standards §2. Adding a foreign key to an existing SQLite table is a
+  copy-drop-rename, and `runs` has six `ON DELETE CASCADE` children — `run_tests`, `run_events`,
+  `artifacts`, `metric_values`, `telemetry_samples` and, through `run_tests`, `samples`. With
+  enforcement on, migration `0008` would have deleted **every measurement** in a real 1.0 database
+  and reported success. The pragma is set through the raw driver cursor, because WeightsDB puts the
+  driver in autocommit and `PRAGMA foreign_keys` is a documented no-op inside a transaction — a
+  silent one. The rc1 upgrade test now counts those six tables' rows across the migration.
+
 ### Changed
+- **`capability.evidence` and `benchmark.evidence_bundle` are chosen per document, by content**
+  ([ADR-0084](docs/adr/0084-a-producer-chooses-a-payload-version-by-content.md)). A record measured
+  on a bare base is `1.0`; one measured on an adapter subject is `1.1`. A bundle is `1.1` if any
+  record in it is, and `1.0` otherwise — in which case it is byte-for-byte what `1.0.0` wrote.
+  `freeweight version` and `GET /api/v1/version` now report `1.1` for both, because that map is the
+  **ceiling** a consumer must be able to accept; the document it receives is narrower, never wider.
 - **`modelrack` moved to `>=0.7,<0.8`** and **`baseaicore` to `>=0.4.2,<0.5`**. 0.7 is where
   `LlamaCppProvider` and adapter registration arrive; 0.4.2 is where
   `RuntimeProfile.adapters_registered` does

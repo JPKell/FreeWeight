@@ -27,6 +27,7 @@ from weightsdb.backup import backup as take_snapshot
 
 from freeweight.infrastructure.db.base import Base
 from freeweight.infrastructure.db.models import (
+    Adapter,
     ApiToken,
     Machine,
     Model,
@@ -37,6 +38,7 @@ from freeweight.infrastructure.db.models import (
 from freeweight.services.database import MIGRATIONS_LOCATION, Database, ensure_ready
 
 _EXPECTED_TABLES = {
+    Adapter.__tablename__,
     Machine.__tablename__,
     Model.__tablename__,
     ModelDescriptor.__tablename__,
@@ -290,13 +292,20 @@ def test_migration_outcome_states_the_dialect_restore_difference(runner: Migrati
     assert fresh.backed_up is False
 
 
-def test_rc1_database_opens_at_head_with_no_new_revision(tmp_path: Path) -> None:
-    """P12's named failure mode: a migration history broken by a changed version table name.
+def test_rc1_database_migrates_to_0008_and_keeps_its_rows(tmp_path: Path) -> None:
+    """P12's named failure mode, and Phase 15's upgrade path, on one real database.
 
     The fixture is a database file created by a real ``1.0.0rc1`` install (commit ``0a6bc40``,
     migrated by the pre-adoption in-application runner) — not one this test created — with real
-    rows in it. WeightsDB's runner must find that history's ``alembic_version`` rows, report the
-    database already at head, apply **no** new revision, and leave the rows readable.
+    rows in it. WeightsDB's runner must find that history's ``alembic_version`` rows, apply
+    ``0008`` and nothing else, and leave every row readable.
+
+    Until Phase 15 this asserted that **no** revision applied, because P12's acceptance criterion
+    forbade adding one. ``0008`` is the first revision since, and it is the one that most has to be
+    proved on a real database rather than a fresh one: on SQLite it rebuilds ``runs``, which has
+    six ``ON DELETE CASCADE`` children, so with foreign keys enforced it would delete every
+    measurement in the file and report success (ADR-0082). The row counts below are that
+    assertion.
     """
     fixture = (
         Path(__file__).parent.parent / "fixtures" / "databases" / "freeweight-1.0.0rc1.sqlite3"
@@ -309,14 +318,21 @@ def test_rc1_database_opens_at_head_with_no_new_revision(tmp_path: Path) -> None
         runner = MigrationRunner(engine, script_location=MIGRATIONS_LOCATION)
         current_before = runner.current()
         assert current_before is not None, "the rc1 fixture must carry a recorded revision"
-        assert runner.is_at_head(), (
-            f"an rc1 database must open at head; found {current_before!r} "
-            f"against heads {runner.heads()!r} — the version table was not found or the history "
-            "gained a revision the adoption was forbidden to add"
+        assert current_before == "0007", (
+            f"the rc1 fixture must sit one revision behind head; found {current_before!r} — the "
+            "version table was not found, or the history gained a revision nobody accounted for"
         )
+        counts_before = _cascading_child_counts(engine)
 
         outcome = ensure_ready(Database(engine), auto_migrate=True)
-        assert outcome is None, "an rc1 database needs no migration; one ran"
+
+        assert outcome is not None, "0008 must apply to an rc1 database; nothing ran"
+        assert (outcome.from_revision, outcome.to_revision) == ("0007", "0008")
+        assert runner.is_at_head()
+        assert _cascading_child_counts(engine) == counts_before, (
+            "rebuilding `runs` cascaded and deleted rows: the foreign-key pragma guard in env.py "
+            "did not take effect (ADR-0082)"
+        )
 
         with engine.connect() as connection:
             hostname = connection.execute(
@@ -326,7 +342,21 @@ def test_rc1_database_opens_at_head_with_no_new_revision(tmp_path: Path) -> None
             cooldown = connection.execute(
                 text("SELECT value_json FROM settings WHERE key = 'execution.cooldown_seconds'")
             ).scalar_one()
+            orphans = connection.execute(
+                text("SELECT COUNT(*) FROM runs WHERE adapter_id IS NOT NULL")
+            ).scalar_one()
         assert hostname == "rc1-fixture-host"
         assert cooldown == 7
+        assert orphans == 0, "every pre-1.1 run is a base subject; none may gain an adapter"
     finally:
         engine.dispose()
+
+
+def _cascading_child_counts(engine: Engine) -> dict[str, int]:
+    """Count the rows a cascading rebuild of ``runs`` would take with it."""
+    tables = ("runs", "run_tests", "samples", "metric_values", "run_events", "artifacts")
+    with engine.connect() as connection:
+        return {
+            table: connection.execute(text(f"SELECT COUNT(*) FROM {table}")).scalar_one()  # noqa: S608 — table names are the literal tuple above
+            for table in tables
+        }

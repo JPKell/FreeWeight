@@ -1,8 +1,10 @@
-"""Upgrade from the only released tag (v1.0.0rc1) preserves real data, through the running app.
+"""Upgrade from a released database preserves real data, through the running app.
 
-P14 asks for upgrade testing from every released version with real data preserved. v1.0.0rc1 is the
-only released tag, and Phase 12's acceptance criterion forbade a new migration, so an rc1 database
-is already at head — there is no forward migration to apply, which is itself the thing to prove.
+P14 asks for upgrade testing from every released version with real data preserved. The v1.0.0rc1
+fixture is the oldest real database available, and until Phase 15 there was no forward migration to
+apply — Phase 12's acceptance criterion forbade adding one. ``0008`` is the first since, so this
+now proves the *upgrade*, not merely that the schema already matched.
+
 This test goes past the migration check in ``test_migrations.py`` and boots the whole application
 (WeightsDB, MirrorWall, the run engine, the API) against a copy of a real rc1 database, then reads
 the rc1 rows back through the API — the honest "the new version opens last version's data and
@@ -36,14 +38,31 @@ def rc1_database(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     return working
 
 
-def test_this_version_opens_an_rc1_database_with_no_migration(rc1_database: Path) -> None:
+def test_this_version_migrates_an_rc1_database_to_head(rc1_database: Path) -> None:
+    """The upgrade applies exactly ``0008``, and a second open applies nothing."""
     with Database.from_url(f"sqlite:///{rc1_database}") as database:
         outcome = ensure_ready(database, auto_migrate=True)
 
-    assert outcome is None, "an rc1 database must need no migration on this version"
+    assert outcome is not None, "0008 must apply to an rc1 database on this version"
+    assert (outcome.from_revision, outcome.to_revision) == ("0007", "0008")
+
+    with Database.from_url(f"sqlite:///{rc1_database}") as database:
+        again = ensure_ready(database, auto_migrate=True)
+
+    assert again is None, "a migrated database must need nothing on the next open"
 
 
 def test_the_application_boots_on_an_rc1_database_and_serves_its_rows(rc1_database: Path) -> None:
+    """Boot on last version's data *after* the upgrade, which is what an upgrade is.
+
+    ``create_app`` opens no database and applies no migration — :func:`freeweight.bootstrap.
+    bootstrap` does, which is what ``freeweight serve`` runs. This test stands in for that step
+    explicitly rather than relying on there being no migration to apply, which was true only for as
+    long as the history had not moved since rc1.
+    """
+    with Database.from_url(f"sqlite:///{rc1_database}") as database:
+        ensure_ready(database, auto_migrate=True)
+
     loaded = load_settings(config_path=rc1_database.parent / "missing.toml")
 
     with TestClient(create_app(loaded.settings), base_url="http://127.0.0.1") as client:

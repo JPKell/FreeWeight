@@ -97,17 +97,25 @@ CALIBRATION_REPORT_SCHEMA_VERSION = SchemaVersion(1, 0)
 
 EMITTED_SCHEMAS: Mapping[str, str] = {
     "benchmark.run_summary": "1.0",
-    "capability.evidence": "1.0",
-    "benchmark.evidence_bundle": "1.0",
+    "capability.evidence": "1.1",
+    "benchmark.evidence_bundle": "1.1",
     "benchmark.goal_pack": "1.0",
     "benchmark.calibration_report": "1.0",
     "freeweight.export": "1.0",
 }
-"""Every document schema this build writes, with the version it writes it at.
+"""Every document schema this build writes, with the **highest** version it can write it at.
 
 What ``freeweight version`` and ``GET /api/v1/version`` report under ``schemas`` (CLI standards
 §2), so a consumer can check the schema versions before it fetches a bundle (API §10 step 1).
-Declared here, beside the constants that write them, rather than in the two front ends."""
+Declared here, beside the constants that write them, rather than in the two front ends.
+
+The ceiling, not the version of any particular document. Since Phase 15 this build can write
+`capability.evidence` and `benchmark.evidence_bundle` at either `1.0` or `1.1` and chooses per
+document, by content
+([ADR-0084](../../../docs/adr/0084-a-producer-chooses-a-payload-version-by-content.md) rule 4): a
+record measured on a bare base is `1.0`, one measured on an adapter subject is `1.1`, and a bundle
+takes `1.1` if any record in it does. A consumer reading this map learns what it must be able to
+accept, which is the question it is asking; what it actually receives is narrower, never wider."""
 
 
 @contextmanager

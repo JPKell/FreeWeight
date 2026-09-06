@@ -80,6 +80,7 @@ class CapabilityEvidence(Base):
         CheckConstraint("measured_at <= computed_at", name="measured_before_computed"),
         UniqueConstraint(
             "model_id",
+            "adapter_id",
             "runtime_profile_id",
             "machine_id",
             "capability_id",
@@ -92,6 +93,11 @@ class CapabilityEvidence(Base):
         Index("ix_capability_evidence_runtime_profile_id", "runtime_profile_id"),
         Index("ix_capability_evidence_machine_id", "machine_id"),
         Index("ix_capability_evidence_goal_id", "goal_id"),
+        Index(
+            "ix_capability_evidence_subject_canonical_id_capability_id",
+            "subject_canonical_id",
+            "capability_id",
+        ),
     )
 
     id: Mapped[str] = ulid_primary_key()
@@ -107,6 +113,17 @@ class CapabilityEvidence(Base):
     model_descriptor_id: Mapped[str | None] = mapped_column(
         String(26), ForeignKey("model_descriptors.id", ondelete="SET NULL")
     )
+    # Phase 15. The subject's adapter, named twice on purpose (ADR-0080): the foreign key survives
+    # a rename, and the canonical string survives the row. NULL/base means the bare base, and for
+    # such a row `subject_canonical_id` is byte-for-byte the model's `canonical_id` — so every row
+    # written before adapters existed means exactly what it always meant (ADR-0058).
+    #
+    # `adapter_id` is part of the uniqueness key above. Without it a subject's evidence would
+    # collide with its base's, which is the mis-attribution ADR-0058 §4 exists to refuse.
+    adapter_id: Mapped[str | None] = mapped_column(
+        String(26), ForeignKey("adapters.id", ondelete="RESTRICT")
+    )
+    subject_canonical_id: Mapped[str] = mapped_column(String, nullable=False)
     capability_id: Mapped[str] = mapped_column(String, nullable=False)
     score: Mapped[float] = mapped_column(Float, nullable=False)
     confidence: Mapped[float] = mapped_column(Float, nullable=False)

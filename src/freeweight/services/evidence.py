@@ -93,10 +93,14 @@ if TYPE_CHECKING:
 __all__ = [
     "BUNDLE_SCHEMA",
     "BUNDLE_SCHEMA_VERSION",
+    "BUNDLE_SCHEMA_VERSION_ADAPTER",
     "DEFAULT_EVIDENCE_LIMIT",
     "EVIDENCE_SCHEMA",
     "EVIDENCE_SCHEMA_VERSION",
+    "EVIDENCE_SCHEMA_VERSION_ADAPTER",
+    "MAX_BUNDLE_SCHEMA_VERSION",
     "MAX_EVIDENCE_LIMIT",
+    "MAX_EVIDENCE_SCHEMA_VERSION",
     "AggregationReport",
     "ContributingMetric",
     "EvidenceNotFound",
@@ -123,11 +127,43 @@ logger = logging.getLogger(__name__)
 
 EVIDENCE_SCHEMA = "capability.evidence"
 EVIDENCE_SCHEMA_VERSION = SchemaVersion(1, 0)
-"""The ``capability.evidence`` version this build writes (spec §7.3)."""
+"""The ``capability.evidence`` version a record measured on a **bare base** is written at.
+
+Not "the version this build writes": since Phase 15 this build can write two, and it chooses per
+document ([ADR-0084](../../../docs/adr/0084-a-producer-chooses-a-payload-version-by-content.md)).
+This is the version of a document the frozen shape can express, and it is byte-for-byte what
+`freeweight 1.0.0` wrote."""
+
+EVIDENCE_SCHEMA_VERSION_ADAPTER = SchemaVersion(1, 1)
+"""The ``capability.evidence`` version a record measured on an **adapter subject** is written at.
+
+`1.1` adds exactly one optional field, ``adapter``
+([ADR-0058](../../../docs/adr/0058-the-execution-subject-gains-an-adapter-axis.md), ADR-0068
+rule 1). A record that does not use it dumps byte-identically to `1.0`, which is why a bare record
+is written at `1.0` rather than at this version."""
 
 BUNDLE_SCHEMA = "benchmark.evidence_bundle"
 BUNDLE_SCHEMA_VERSION = SchemaVersion(1, 0)
-"""The ``benchmark.evidence_bundle`` version this build writes."""
+"""The ``benchmark.evidence_bundle`` version a bundle carrying **no** adapter-bearing record is
+written at, byte-identically to `freeweight 1.0.0`'s output."""
+
+BUNDLE_SCHEMA_VERSION_ADAPTER = SchemaVersion(1, 1)
+"""The ``benchmark.evidence_bundle`` version a bundle carrying **any** adapter-bearing record is
+written at.
+
+Carrying the evidence minor into the bundle is the *bundle's* own minor, decided and scheduled
+separately (ADR-0068 rule 5) — not a side effect of the evidence one."""
+
+MAX_EVIDENCE_SCHEMA_VERSION = EVIDENCE_SCHEMA_VERSION_ADAPTER
+"""The highest ``capability.evidence`` version this build can write.
+
+What ``freeweight version`` and ``GET /api/v1/version`` declare, so a consumer checking
+compatibility before it fetches sees the **ceiling**. The per-document choice is narrower than this
+declaration, never wider (ADR-0084 rule 4)."""
+
+MAX_BUNDLE_SCHEMA_VERSION = BUNDLE_SCHEMA_VERSION_ADAPTER
+"""The highest ``benchmark.evidence_bundle`` version this build can write. See
+:data:`MAX_EVIDENCE_SCHEMA_VERSION`."""
 
 DEFAULT_EVIDENCE_LIMIT = 50
 MAX_EVIDENCE_LIMIT = 500
@@ -161,17 +197,33 @@ class EvidenceNotFound(NotFoundError):
 
 @dataclass(frozen=True, slots=True)
 class Subject:
-    """One measurement subject: a model under a runtime profile on a machine (ADR-0023).
+    """One measurement subject: a model, optionally under an adapter, under a profile, on a machine.
+
+    ADR-0023 defined the first three;
+    [ADR-0058](../../../docs/adr/0058-the-execution-subject-gains-an-adapter-axis.md) added the
+    fourth at Phase 15.
+
+    **This type is the grouping key evidence is aggregated by**, which is what makes
+    "an adapter subject inherits nothing from its base"
+    ([ADR-0059](../../../docs/adr/0059-adapter-evidence-is-measured-never-inherited.md)) a
+    structural property rather than a rule somebody has to remember. A base's runs and an adapter
+    subject's runs land in different groups because ``adapter_id`` differs, so no join exists that
+    could pull one into the other — the failure mode here looks exactly like a working query, so it
+    is designed out rather than guarded against.
 
     Attributes:
         model_id: The ``models`` row.
         runtime_profile_id: The ``runtime_profiles`` row.
         machine_id: The ``machines`` row.
+        adapter_id: The ``adapters`` row, or ``None`` for the bare base — which is what every
+            subject meant before adapters existed, and what every subject still means in an
+            installation that has configured none.
     """
 
     model_id: str
     runtime_profile_id: str
     machine_id: str
+    adapter_id: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -286,6 +338,41 @@ class EvidenceRecord:  # noqa: PLR0904 — a record is read in several shapes, a
     score_method_mix: Mapping[str, float] | None = None
     judge_set: Mapping[str, Any] | None = None
     calibration: Mapping[str, Any] | None = None
+    adapter_id: str | None = None
+    adapter_name: str | None = None
+    adapter_artifact_digest: str | None = None
+    adapter_source_digest: str | None = None
+
+    @property
+    def is_adapter_bearing(self) -> bool:
+        """Whether this measurement was taken under a LoRA rather than on the bare base.
+
+        The one predicate the payload version turns on
+        ([ADR-0084](../../../docs/adr/0084-a-producer-chooses-a-payload-version-by-content.md)): a
+        bearing record is written at `1.1`, a bare one at `1.0` and byte-identically to what
+        1.0.0 wrote.
+        """
+        return self.adapter_name is not None
+
+    @property
+    def subject_canonical_id(self) -> str:
+        """Return ``baseaicore``'s canonical subject string for this record.
+
+        Delegated rather than formatted here, on purpose: I18's claim is that two applications
+        agree on a subject with **no shared code**, which is only true while both ask the same
+        library. With no adapter the answer is byte-for-byte the model's canonical ID, which is why
+        every row written before adapters existed means what it always meant (ADR-0058).
+        """
+        if self.adapter_name is None or self.adapter_artifact_digest is None:
+            return self.model_canonical_id
+        from baseaicore import AdapterIdentity
+
+        identity = AdapterIdentity(
+            name=self.adapter_name,
+            artifact_digest=self.adapter_artifact_digest,
+            source_digest=self.adapter_source_digest,
+        )
+        return f"{self.model_canonical_id}{identity.canonical_suffix}"
 
     @property
     def is_goal_sourced(self) -> bool:
@@ -302,12 +389,30 @@ class EvidenceRecord:  # noqa: PLR0904 — a record is read in several shapes, a
             return MetricKind.PERFORMANCE
         return MetricKind.QUALITY
 
-    def wire_payload(self) -> Any:  # noqa: ANN401 — a CapabilityEvidenceOut instance
+    @property
+    def schema_version(self) -> SchemaVersion:
+        """The ``capability.evidence`` version this record is written at.
+
+        By content, not by build (ADR-0084 rule 1): the lowest version that can express the
+        document. A record with no adapter is `1.0` — the version its bytes are already valid at —
+        and a record carrying one is `1.1`.
+        """
+        return (
+            EVIDENCE_SCHEMA_VERSION_ADAPTER if self.is_adapter_bearing else EVIDENCE_SCHEMA_VERSION
+        )
+
+    def wire_payload(self) -> Any:  # noqa: ANN401 — a CapabilityEvidence[V1_1]Out instance
         """Build and validate the ``capability.evidence`` payload through SetSpec's writer model.
 
         Through the *outbound* model, so every coherence rule the contract has — the goal group's
         five rules, ``measured_at ≤ computed_at``, the score method mix summing to one — runs over
         what FreeWeight exports rather than over what a test happened to cover.
+
+        Which writer model depends on **this record**, not on this build: a bare-base record
+        validates through the frozen ``CapabilityEvidenceOut`` (which permanently means `1.0`,
+        ADR-0068 rule 3) and an adapter-bearing one through ``CapabilityEvidenceV1_1Out``. The
+        bare path is therefore byte-for-byte the path `1.0.0` took, with no new field, no new
+        validator and no ``"adapter": null``.
 
         Raises:
             ValidationError: The stored row does not satisfy the contract. Raised rather than
@@ -315,7 +420,7 @@ class EvidenceRecord:  # noqa: PLR0904 — a record is read in several shapes, a
                 database problem behind a document that looks fine.
         """
         from pydantic import ValidationError as PydanticValidationError
-        from setspec.capability.v1 import CapabilityEvidenceOut
+        from setspec.capability.v1 import CapabilityEvidenceOut, CapabilityEvidenceV1_1Out
 
         payload: dict[str, Any] = {
             "model": dict(self.model_payload),
@@ -360,8 +465,16 @@ class EvidenceRecord:  # noqa: PLR0904 — a record is read in several shapes, a
                     "uncalibrated": False,
                 }
             )
+        writer: Any = CapabilityEvidenceOut
+        if self.is_adapter_bearing:
+            writer = CapabilityEvidenceV1_1Out
+            payload["adapter"] = {
+                "name": self.adapter_name,
+                "artifact_digest": self.adapter_artifact_digest,
+                "source_digest": self.adapter_source_digest,
+            }
         try:
-            return CapabilityEvidenceOut.model_validate(payload)
+            return writer.model_validate(payload)
         except PydanticValidationError as exc:
             raise ValidationError(
                 f"Evidence {self.id!r} ({self.capability_id}) cannot be exported as "
@@ -378,7 +491,7 @@ class EvidenceRecord:  # noqa: PLR0904 — a record is read in several shapes, a
         text = dump_envelope(
             self.wire_payload(),
             schema=EVIDENCE_SCHEMA,
-            version=EVIDENCE_SCHEMA_VERSION,
+            version=self.schema_version,
             generator=_GENERATOR,
             generated_at=generated_at,
         )
@@ -408,6 +521,8 @@ class EvidenceRecord:  # noqa: PLR0904 — a record is read in several shapes, a
             "runtime_profile_id": self.runtime_profile_id,
             "machine_id": self.machine_id,
             "model_descriptor_id": self.model_descriptor_id,
+            "adapter_id": self.adapter_id,
+            "subject_canonical_id": self.subject_canonical_id,
             "capability_id": self.capability_id,
             "score": self.score,
             "confidence": self.confidence,
@@ -719,6 +834,7 @@ class _SubjectRuns:
     measurements: tuple[_SuiteMeasurement, ...]
     separated: tuple[str, ...]
     current_environment: Environment | None
+    adapter: Any = None
 
 
 def _partition_key(suite: Any, run: Any) -> tuple[str, str, str]:  # noqa: ANN401 — ORM rows
@@ -852,7 +968,12 @@ def _read_subjects(session: Session, subject: Subject | None) -> list[_SubjectRu
     """Read every completed run, grouped by subject, merged by suite partition."""
     from sqlalchemy import select
 
-    from freeweight.infrastructure.db.models import Machine, ModelDescriptor, RuntimeProfile
+    from freeweight.infrastructure.db.models import (
+        Adapter,
+        Machine,
+        ModelDescriptor,
+        RuntimeProfile,
+    )
     from freeweight.infrastructure.db.models_runs import BenchmarkSuite, Run
     from freeweight.infrastructure.db.repositories.models import ModelRepository
     from freeweight.infrastructure.db.repositories.runs import MetricValueRepository
@@ -868,10 +989,16 @@ def _read_subjects(session: Session, subject: Subject | None) -> list[_SubjectRu
             Run.model_id == subject.model_id,
             Run.runtime_profile_id == subject.runtime_profile_id,
             Run.machine_id == subject.machine_id,
+            # `IS NULL` when the subject is a bare base, and never "any adapter". Matching loosely
+            # here would let a base's recomputation sweep in its adapter subjects' runs, which is
+            # the mis-attribution ADR-0058 §4 refuses.
+            Run.adapter_id.is_(None)
+            if subject.adapter_id is None
+            else Run.adapter_id == subject.adapter_id,
         )
     grouped: dict[Subject, list[tuple[Any, Any]]] = {}
     for run, suite in session.execute(statement):
-        key = Subject(run.model_id, run.runtime_profile_id, run.machine_id)
+        key = Subject(run.model_id, run.runtime_profile_id, run.machine_id, run.adapter_id)
         grouped.setdefault(key, []).append((run, suite))
 
     subjects: list[_SubjectRuns] = []
@@ -882,6 +1009,7 @@ def _read_subjects(session: Session, subject: Subject | None) -> list[_SubjectRu
         profile = session.get(RuntimeProfile, key.runtime_profile_id)
         if model is None or machine is None or profile is None:  # pragma: no cover — RESTRICT
             continue
+        adapter = None if key.adapter_id is None else session.get(Adapter, key.adapter_id)
         by_suite: dict[str, dict[tuple[str, str, str], list[tuple[Any, Any]]]] = {}
         for run, suite in pairs:
             by_suite.setdefault(str(suite.key), {}).setdefault(
@@ -946,6 +1074,7 @@ def _read_subjects(session: Session, subject: Subject | None) -> list[_SubjectRu
                 measurements=tuple(measurements),
                 separated=tuple(separated),
                 current_environment=environments[key.machine_id],
+                adapter=adapter,
             )
         )
     return subjects
@@ -1169,6 +1298,12 @@ def _goal_records(  # noqa: PLR0913 — a goal record is a function of exactly t
         identity_confidence=rows.model.identity_confidence,
         model_payload=model_identity_payload(rows.model, rows.descriptor),
         model_descriptor_id=rows.descriptor.id if rows.descriptor is not None else None,
+        adapter_id=None if rows.adapter is None else rows.adapter.id,
+        adapter_name=None if rows.adapter is None else str(rows.adapter.name),
+        adapter_artifact_digest=(
+            None if rows.adapter is None else str(rows.adapter.artifact_sha256)
+        ),
+        adapter_source_digest=None if rows.adapter is None else rows.adapter.source_sha256,
         runtime_profile_id=rows.profile.id,
         runtime_profile_hash=rows.profile.profile_hash,
         machine_id=rows.machine.id,
@@ -1306,6 +1441,12 @@ def _capability_record(  # noqa: PLR0913 — a record is a function of exactly t
         identity_confidence=rows.model.identity_confidence,
         model_payload=model_identity_payload(rows.model, rows.descriptor),
         model_descriptor_id=rows.descriptor.id if rows.descriptor is not None else None,
+        adapter_id=None if rows.adapter is None else rows.adapter.id,
+        adapter_name=None if rows.adapter is None else str(rows.adapter.name),
+        adapter_artifact_digest=(
+            None if rows.adapter is None else str(rows.adapter.artifact_sha256)
+        ),
+        adapter_source_digest=None if rows.adapter is None else rows.adapter.source_sha256,
         runtime_profile_id=rows.profile.id,
         runtime_profile_hash=rows.profile.profile_hash,
         machine_id=rows.machine.id,
@@ -1597,7 +1738,7 @@ def subject_of_run(database: Database, run_id: str) -> Subject:
         run = RunRepository().get_by_id(session, run_id)
         if run is None:
             raise NotFoundError(f"No run matches {run_id!r}.", details={"run": run_id})
-        return Subject(run.model_id, run.runtime_profile_id, run.machine_id)
+        return Subject(run.model_id, run.runtime_profile_id, run.machine_id, run.adapter_id)
 
 
 def recompute_for_run(
@@ -1624,7 +1765,12 @@ def recompute_for_run(
 
 def _record_from_row(session: Session, row: Any) -> EvidenceRecord:  # noqa: ANN401 — an ORM row
     """Rebuild an :class:`EvidenceRecord` from its stored row and the identity rows it points at."""
-    from freeweight.infrastructure.db.models import Machine, ModelDescriptor, RuntimeProfile
+    from freeweight.infrastructure.db.models import (
+        Adapter,
+        Machine,
+        ModelDescriptor,
+        RuntimeProfile,
+    )
     from freeweight.infrastructure.db.models_goals import Goal
     from freeweight.infrastructure.db.repositories.models import ModelRepository
 
@@ -1655,6 +1801,7 @@ def _record_from_row(session: Session, row: Any) -> EvidenceRecord:  # noqa: ANN
         )
         if isinstance(entry, dict)
     )
+    adapter = None if row.adapter_id is None else session.get(Adapter, row.adapter_id)
     capability = str(row.capability_id)
     slug = goal.slug if goal is not None else None
     if slug is None and capability.startswith(f"{_GOAL_ROOT}."):
@@ -1699,6 +1846,10 @@ def _record_from_row(session: Session, row: Any) -> EvidenceRecord:  # noqa: ANN
             if isinstance(row.confidence_factors_json, dict)
             else {}
         ),
+        adapter_id=row.adapter_id,
+        adapter_name=None if adapter is None else str(adapter.name),
+        adapter_artifact_digest=None if adapter is None else str(adapter.artifact_sha256),
+        adapter_source_digest=None if adapter is None else adapter.source_sha256,
         goal_id=row.goal_id,
         goal_slug=slug,
         goal_hash=row.goal_hash,
@@ -1864,6 +2015,19 @@ def evidence_bundle(
     ``complete`` is ``True`` only when nothing narrows the selection — no ``since``, no filter —
     because only a complete bundle may let a consumer infer removals (ADR-0022 §5).
 
+    **The version is chosen by content, not by build**
+    ([ADR-0084](../../../docs/adr/0084-a-producer-chooses-a-payload-version-by-content.md)). A
+    bundle carrying any adapter-bearing record needs `1.1` to be expressible and is written there;
+    one carrying none is written at `1.0` and is **byte-for-byte what `freeweight 1.0.0` wrote**
+    from the same rows. Carrying the evidence minor into the bundle is the bundle's own minor
+    (ADR-0068 rule 5), which is why two writer models exist rather than one that grew a field.
+
+    Always writing `1.1` would be simpler here and is deliberately not done: acceptance is by
+    major, so nothing would *break*, but every consumer that records, pins or asserts a bundle
+    version would move for a field almost none of them will ever see — and the byte-identity
+    assertion, which is this release's strongest regression test, would have nothing to assert
+    against.
+
     Args:
         database: The application's database handle.
         query: The selection. ``limit`` and ``cursor`` are ignored: a bundle is one document.
@@ -1877,7 +2041,7 @@ def evidence_bundle(
         NotFoundError: ``query.model`` matches nothing.
         ValidationError: ``query.model`` is ambiguous, or a stored record fails the contract.
     """
-    from setspec.capability.v1 import EvidenceBundleOut
+    from setspec.capability.v1 import EvidenceBundleOut, EvidenceBundleV1_1Out
 
     generated_at = now if now is not None else clock()
     try:
@@ -1886,7 +2050,10 @@ def evidence_bundle(
             source_id = _source_id(session)
     except Exception as exc:  # noqa: BLE001 — translated into the suite's own error type below
         raise _translate(exc) from exc
-    bundle = EvidenceBundleOut.model_validate(
+    bearing = any(record.is_adapter_bearing for record in records)
+    writer: Any = EvidenceBundleV1_1Out if bearing else EvidenceBundleOut
+    version = BUNDLE_SCHEMA_VERSION_ADAPTER if bearing else BUNDLE_SCHEMA_VERSION
+    bundle = writer.model_validate(
         {
             "source_id": source_id,
             "complete": query.selects_everything,
@@ -1896,7 +2063,7 @@ def evidence_bundle(
     return dump_envelope(
         bundle,
         schema=BUNDLE_SCHEMA,
-        version=BUNDLE_SCHEMA_VERSION,
+        version=version,
         generator=_GENERATOR,
         generated_at=generated_at,
     )

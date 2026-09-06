@@ -138,6 +138,16 @@ def start(  # noqa: PLR0913 — every parameter is a documented run option, not 
             ),
         ),
     ] = None,
+    adapter: Annotated[
+        str | None,
+        typer.Option(
+            "--adapter",
+            help=(
+                "Measure this base with a registered LoRA adapter applied. A different adapter "
+                "is a different subject, never a variation of the base's results."
+            ),
+        ),
+    ] = None,
     detach: Annotated[
         bool,
         typer.Option(
@@ -179,14 +189,26 @@ def start(  # noqa: PLR0913 — every parameter is a documented run option, not 
     ``runtime_profile_hash``, which is what makes measuring one model at 8K and again at 64K two
     comparable-in-their-own-right subjects rather than two runs FreeWeight would merge.
 
+    ``--adapter`` names a LoRA from ``[adapters] directory`` to serve the base with (ADR-0058).
+    That makes the run a measurement of a **different subject** — evidence taken under an adapter
+    describes that subject and nothing else, not the bare base and not a sibling adapter
+    (ADR-0059) — so it is a named axis rather than a runtime setting. An unknown, unavailable or
+    incompatible name is refused **by name** with the registered set listed, and never falls back
+    to the bare base. Only ``provider.kind = "llamacpp"`` can serve one.
+
     Example:
         freeweight run start --model ollama/qwen3.5:9b --suite native.performance
 
     Example:
         freeweight run start --model ollama/qwen3.5:9b --suite native.memory_kv --context-size 8192
+
+    Example:
+        freeweight run start --model llamacpp/qwen2.5-1.5b-instruct.q8_0 \
+            --suite native.instruction_following --adapter terse
     """
     from baseaicore import SuiteError
 
+    from freeweight.services.adapters import read_entries
     from freeweight.services.runs import ExecutionConfig, build_registry_for, create_run
     from freeweight.services.scheduler import RunScheduler
 
@@ -213,6 +235,8 @@ def start(  # noqa: PLR0913 — every parameter is a documented run option, not 
                 ),
                 label=label,
                 allow_prompt_override=allow_prompt_override,
+                adapter_name=adapter,
+                adapter_entries=read_entries(settings.adapters),
             )
         except SuiteError as exc:
             typer.echo(f"Error: {exc.message} ({exc.code})", err=True)

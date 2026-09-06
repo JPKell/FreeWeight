@@ -209,6 +209,7 @@ class Run(Base):
         Index("ix_runs_machine_id_created_at", "machine_id", "created_at"),
         Index("ix_runs_suite_id_created_at", "suite_id", "created_at"),
         Index("ix_runs_reproducibility_fingerprint", "reproducibility_fingerprint"),
+        Index("ix_runs_adapter_id_created_at", "adapter_id", "created_at"),
     )
 
     id: Mapped[str] = ulid_primary_key()
@@ -243,6 +244,14 @@ class Run(Base):
     prompt_pack_hash: Mapped[str | None] = mapped_column(String)
     served_context: Mapped[int | None] = mapped_column(Integer)
     served_context_source: Mapped[str | None] = mapped_column(String)
+    # Phase 15. Which adapter this run measured **under** — its own named axis, because it changes
+    # the weights' behaviour and has to be nameable. Whether adapters were merely *registered* on
+    # the server is not here: that is `RuntimeProfile.adapters_registered` and therefore part of
+    # `runtime_profile_hash` (ADR-0074, ADR-0060). NULL is the bare base, and is what every run
+    # taken before adapters existed was.
+    adapter_id: Mapped[str | None] = mapped_column(
+        String(26), ForeignKey("adapters.id", ondelete="RESTRICT")
+    )
     gpu_index: Mapped[int | None] = mapped_column(Integer)
     multi_gpu_visible: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     sandbox_tier: Mapped[str | None] = mapped_column(String)

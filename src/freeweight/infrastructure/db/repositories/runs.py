@@ -296,6 +296,7 @@ class RunRepository:
         served_context_source: str | None = None,
         gpu_index: int | None = None,
         multi_gpu_visible: bool = False,
+        adapter_id: str | None = None,
         degradations_json: Any = None,
     ) -> Run:
         """Insert one run in its initial state and return it.
@@ -325,6 +326,8 @@ class RunRepository:
             served_context_source: ``configured``, ``reported`` or ``assumed``.
             gpu_index: The device this run's metrics are attributed to (ADR-0027 §3).
             multi_gpu_visible: Whether more than one GPU was visible when the run was created.
+            adapter_id: The ``adapters`` row this run measured under, or ``None`` for the bare
+                base — which is what every run before Phase 15 was (ADR-0058).
             degradations_json: Conditions recorded against the run at creation, such as the
                 divergences a forced repeat proceeded past.
 
@@ -353,6 +356,7 @@ class RunRepository:
             served_context_source=served_context_source,
             gpu_index=gpu_index,
             multi_gpu_visible=multi_gpu_visible,
+            adapter_id=adapter_id,
             degradations_json=degradations_json,
         )
         session.add(run)

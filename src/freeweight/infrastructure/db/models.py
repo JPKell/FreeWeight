@@ -29,10 +29,19 @@ from weightsdb import PortableJSON, UtcDateTime, ulid_primary_key
 
 from freeweight.infrastructure.db.base import Base, utcnow
 
-__all__ = ["ApiToken", "Machine", "Model", "ModelDescriptor", "RuntimeProfile", "Setting"]
+__all__ = [
+    "Adapter",
+    "ApiToken",
+    "Machine",
+    "Model",
+    "ModelDescriptor",
+    "RuntimeProfile",
+    "Setting",
+]
 
 _PROVIDER_KINDS = ("ollama", "openai_compatible", "llamacpp", "vllm", "fake")
 _IDENTITY_CONFIDENCES = ("digest", "name_only")
+_DATA_CLASSIFICATIONS = ("public", "internal", "confidential", "restricted")
 
 
 def _in_list(column: str, allowed: tuple[str, ...]) -> str:
@@ -133,6 +142,51 @@ class Model(Base):
     first_seen_at: Mapped[datetime] = mapped_column(UtcDateTime, nullable=False, default=utcnow)
     last_seen_at: Mapped[datetime] = mapped_column(UtcDateTime, nullable=False, default=utcnow)
     aliases_json: Mapped[object | None] = mapped_column(PortableJSON)
+
+
+class Adapter(Base):
+    """One LoRA adapter this installation has measured a subject under (Phase 15, ADR-0061).
+
+    **Not a mirror of the operator's directory.** The directory is the registry
+    ([ADR-0061](../../../../../../docs/adr/0061-the-adapter-registry-is-a-directory-and-a-manifest.md))
+    and FreeWeight only reads it; this table is FreeWeight's own record of the subjects its
+    measurements belong to, and it deliberately **outlives** the directory. Evidence is keyed on
+    the subject, so an artifact an operator deletes must leave a subject with history and no
+    availability rather than orphaned rows
+    ([ADR-0080](../../../../../../docs/adr/0080-a-persisted-decision-names-the-subject-by-reference-and-by-string.md)).
+    A rescan therefore upserts and never deletes; ``last_seen_at`` going stale is how a removed
+    adapter is reported.
+
+    ``artifact_sha256`` is the identity and carries the unique constraint. The name is a label and
+    the path is a locator: renaming the file changes nothing, and re-converting it produces
+    different bytes and therefore a **different** adapter, which is the correct answer rather than
+    an inconvenience (ADR-0061 rule 5).
+    """
+
+    __tablename__ = "adapters"
+    __table_args__ = (
+        CheckConstraint(_in_list("base_confidence", _IDENTITY_CONFIDENCES), name="base_confidence"),
+        CheckConstraint(
+            _in_list("data_classification", _DATA_CLASSIFICATIONS), name="data_classification"
+        ),
+        Index("uq_adapters_artifact_sha256", "artifact_sha256", unique=True),
+        Index("ix_adapters_name", "name"),
+        Index("ix_adapters_base_model_name", "base_model_name"),
+    )
+
+    id: Mapped[str] = ulid_primary_key()
+    name: Mapped[str] = mapped_column(String, nullable=False)
+    artifact_sha256: Mapped[str] = mapped_column(String, nullable=False)
+    artifact_path: Mapped[str] = mapped_column(String, nullable=False)
+    source_sha256: Mapped[str | None] = mapped_column(String)
+    base_model_name: Mapped[str] = mapped_column(String, nullable=False)
+    base_artifact_digest: Mapped[str | None] = mapped_column(String)
+    base_confidence: Mapped[str] = mapped_column(String, nullable=False)
+    declared_capabilities_json: Mapped[object | None] = mapped_column(PortableJSON)
+    data_classification: Mapped[str] = mapped_column(String, nullable=False)
+    notes: Mapped[str | None] = mapped_column(String)
+    first_seen_at: Mapped[datetime] = mapped_column(UtcDateTime, nullable=False, default=utcnow)
+    last_seen_at: Mapped[datetime] = mapped_column(UtcDateTime, nullable=False, default=utcnow)
 
 
 class ModelDescriptor(Base):

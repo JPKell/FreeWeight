@@ -12,6 +12,7 @@ from typing import Annotated
 
 import typer
 
+from freeweight.cli.commands import adapters as adapters_commands
 from freeweight.cli.commands import benchmarks as benchmarks_commands
 from freeweight.cli.commands import config as config_commands
 from freeweight.cli.commands import db as db_commands
@@ -68,6 +69,11 @@ app.command(name="doctor", help="Diagnose a broken installation.")(system_comman
 app.add_typer(config_commands.app, name="config", help="Configuration inspection and management.")
 app.add_typer(db_commands.app, name="db", help="Database migration and maintenance.")
 app.add_typer(models_commands.app, name="models", help="Model discovery and inspection.")
+app.add_typer(
+    adapters_commands.app,
+    name="adapters",
+    help="Inspect the LoRA adapters this installation can measure under.",
+)
 app.add_typer(benchmarks_commands.app, name="benchmarks", help="List and inspect benchmark suites.")
 app.add_typer(
     goals_commands.app, name="goals", help="Author, inspect and move user-authored goals."

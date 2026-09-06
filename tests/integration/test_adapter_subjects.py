@@ -1,0 +1,199 @@
+"""A run measures an adapter subject, and evidence never crosses between subjects.
+
+Phase 15. The single failure this phase exists to prevent is a join that quietly attributes an
+adapter's measurements to its base, or a base's to an adapter
+([ADR-0058 §4](../../docs/adr/0058-the-execution-subject-gains-an-adapter-axis.md),
+[ADR-0059](../../docs/adr/0059-adapter-evidence-is-measured-never-inherited.md)). It looks exactly
+like a working query, so it is asserted here rather than reviewed for.
+"""
+
+from __future__ import annotations
+
+from pathlib import Path
+from typing import TYPE_CHECKING, Any
+
+import pytest
+from baseaicore import DataClassification, IdentityConfidence
+
+from freeweight.config import ExecutionSettings
+from freeweight.domain.subjects import IncompatibleAdapter
+from freeweight.infrastructure.adapters import AdapterEntry
+from freeweight.services.evidence import Subject, recompute_evidence, subject_of_run
+from freeweight.services.runs import ExecutionConfig, create_run
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
+
+    from tests.conftest import RunEnvironment
+
+_ADAPTER_DIGEST = "sha256:" + "c3" * 32
+_SIBLING_DIGEST = "sha256:" + "d4" * 32
+
+
+def _entry(env: RunEnvironment, name: str, *, artifact_digest: str) -> AdapterEntry:
+    """An entry declaring the fake provider's own model as its base, proved by digest."""
+    identity = env.provider.list_models()[0].identity
+    return AdapterEntry(
+        name=name,
+        manifest_path=Path(f"/adapters/{name}.manifest.json"),
+        artifact_path=Path(f"/adapters/{name}.gguf"),
+        artifact_sha256=artifact_digest,
+        source_sha256=None,
+        base_model_name=identity.provider_model_name,
+        base_artifact_digest=identity.artifact_digest,
+        base_confidence=IdentityConfidence.DIGEST,
+        declared_capabilities=("instruction_following",),
+        data_classification=DataClassification.INTERNAL,
+        notes=None,
+        available=True,
+    )
+
+
+def _start(env: RunEnvironment, *, adapter: str | None, entries: tuple[AdapterEntry, ...]) -> Any:
+    """Queue one run of the echo suite, optionally under an adapter."""
+    return create_run(
+        env.database,
+        env.provider,
+        env.collector,
+        env.registry,
+        model_ref=env.model_ref,
+        suite_key="native.echo",
+        execution=ExecutionConfig.resolve(
+            ExecutionSettings(warmup_repetitions=0, cooldown_seconds=0), measured_repetitions=1
+        ),
+        adapter_name=adapter,
+        adapter_entries=entries,
+    )
+
+
+class TestARunRecordsItsSubject:
+    """`--adapter` is a named axis on the run, not a runtime setting."""
+
+    def test_a_run_with_no_adapter_records_none(
+        self, run_environment: Callable[..., RunEnvironment]
+    ) -> None:
+        """Every run before Phase 15 was this, and it still means what it always meant."""
+        env = run_environment()
+
+        summary = _start(env, adapter=None, entries=())
+
+        assert subject_of_run(env.database, summary.id).adapter_id is None
+
+    def test_a_run_under_an_adapter_records_it_and_creates_the_row(
+        self, run_environment: Callable[..., RunEnvironment]
+    ) -> None:
+        env = run_environment()
+        entries = (_entry(env, "terse", artifact_digest=_ADAPTER_DIGEST),)
+
+        summary = _start(env, adapter="terse", entries=entries)
+
+        subject = subject_of_run(env.database, summary.id)
+        assert subject.adapter_id is not None
+        from freeweight.infrastructure.db.models import Adapter
+
+        with env.database.read() as session:
+            row = session.get(Adapter, subject.adapter_id)
+            assert row is not None
+            assert row.name == "terse"
+            assert row.artifact_sha256 == _ADAPTER_DIGEST
+
+    def test_two_runs_under_one_adapter_share_one_row(
+        self, run_environment: Callable[..., RunEnvironment]
+    ) -> None:
+        """Keyed on the artifact digest, so a second run does not make a second subject."""
+        env = run_environment()
+        entries = (_entry(env, "terse", artifact_digest=_ADAPTER_DIGEST),)
+
+        first = _start(env, adapter="terse", entries=entries)
+        second = _start(env, adapter="terse", entries=entries)
+
+        assert (
+            subject_of_run(env.database, first.id).adapter_id
+            == subject_of_run(env.database, second.id).adapter_id
+        )
+
+    def test_an_unknown_adapter_is_refused_and_creates_no_run(
+        self, run_environment: Callable[..., RunEnvironment]
+    ) -> None:
+        """Validation happens before anything is written (api.md §4)."""
+        env = run_environment()
+        from freeweight.infrastructure.db.models_runs import Run
+
+        with pytest.raises(IncompatibleAdapter):
+            _start(env, adapter="nope", entries=())
+
+        with env.database.read() as session:
+            assert session.query(Run).count() == 0
+
+    def test_an_adapter_for_another_base_is_refused(
+        self, run_environment: Callable[..., RunEnvironment]
+    ) -> None:
+        env = run_environment()
+        wrong = _entry(env, "wrong", artifact_digest=_SIBLING_DIGEST)
+        wrong = AdapterEntry(
+            **{
+                **{field: getattr(wrong, field) for field in wrong.__slots__},
+                "base_artifact_digest": "sha256:" + "ee" * 32,
+            }
+        )
+
+        with pytest.raises(IncompatibleAdapter):
+            _start(env, adapter="wrong", entries=(wrong,))
+
+
+class TestEvidenceIsNeverInherited:
+    """The subject is the aggregation key, so no join exists that could cross subjects."""
+
+    def test_a_base_and_an_adapter_subject_are_different_subjects(
+        self, run_environment: Callable[..., RunEnvironment]
+    ) -> None:
+        env = run_environment()
+        entries = (_entry(env, "terse", artifact_digest=_ADAPTER_DIGEST),)
+
+        base_run = _start(env, adapter=None, entries=entries)
+        adapter_run = _start(env, adapter="terse", entries=entries)
+
+        base_subject = subject_of_run(env.database, base_run.id)
+        adapter_subject = subject_of_run(env.database, adapter_run.id)
+        assert base_subject != adapter_subject
+        assert base_subject.model_id == adapter_subject.model_id
+        assert base_subject.adapter_id is None
+        assert adapter_subject.adapter_id is not None
+
+    def test_two_adapters_on_one_base_are_two_subjects(
+        self, run_environment: Callable[..., RunEnvironment]
+    ) -> None:
+        """A sibling adapter's evidence is no more the subject's than the base's is."""
+        env = run_environment()
+        entries = (
+            _entry(env, "terse", artifact_digest=_ADAPTER_DIGEST),
+            _entry(env, "pirate", artifact_digest=_SIBLING_DIGEST),
+        )
+
+        terse = subject_of_run(env.database, _start(env, adapter="terse", entries=entries).id)
+        pirate = subject_of_run(env.database, _start(env, adapter="pirate", entries=entries).id)
+
+        assert terse.adapter_id != pirate.adapter_id
+
+    def test_recomputing_a_base_subject_never_reads_an_adapter_subjects_runs(
+        self, run_environment: Callable[..., RunEnvironment]
+    ) -> None:
+        """`adapter_id IS NULL`, never "any adapter" — the loose filter is the whole bug."""
+        env = run_environment()
+        entries = (_entry(env, "terse", artifact_digest=_ADAPTER_DIGEST),)
+        _start(env, adapter=None, entries=entries)
+        adapter_run = _start(env, adapter="terse", entries=entries)
+        adapter_id = subject_of_run(env.database, adapter_run.id).adapter_id
+
+        report = recompute_evidence(
+            env.database,
+            subject=Subject(
+                model_id=subject_of_run(env.database, adapter_run.id).model_id,
+                runtime_profile_id=subject_of_run(env.database, adapter_run.id).runtime_profile_id,
+                machine_id=subject_of_run(env.database, adapter_run.id).machine_id,
+                adapter_id=None,
+            ),
+        )
+
+        assert all(record.adapter_id != adapter_id for record in report.emitted)
+        assert all(not record.is_adapter_bearing for record in report.emitted)

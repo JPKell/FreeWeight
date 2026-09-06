@@ -146,6 +146,7 @@ from freeweight.infrastructure.db.repositories.runs import (
     ToolCallRepository,
 )
 from freeweight.infrastructure.db.repositories.telemetry import TelemetryRepository
+from freeweight.services.adapters import adapter_row_for, resolve_subject
 from freeweight.services.events import RunEventPublisher
 from freeweight.services.goals import LoadedGoal
 from freeweight.services.machine import profile_machine
@@ -168,6 +169,7 @@ if TYPE_CHECKING:
     from sweatmeter import TelemetryCollector
 
     from freeweight.config import ExecutionSettings, TelemetrySettings
+    from freeweight.infrastructure.adapters import AdapterEntry
     from freeweight.services.database import Database
 
 __all__ = [
@@ -899,6 +901,8 @@ def create_run(
     label: str | None = None,
     extra_degradations: Sequence[Degradation] | None = None,
     allow_prompt_override: bool = False,
+    adapter_name: str | None = None,
+    adapter_entries: Sequence[AdapterEntry] = (),
     clock: Clock = utc_now,
 ) -> RunSummary:
     """Validate a run request, persist it as ``queued``, and return it.
@@ -931,6 +935,14 @@ def create_run(
         extra_degradations: Conditions to record on the run before it starts — in practice the
             divergences a ``--force``d repeat chose to proceed past, so the new run's provenance
             says it is not the same measurement rather than quietly claiming it is.
+        adapter_name: The LoRA adapter to measure this base under, or ``None`` for the bare base —
+            which is what every run before Phase 15 was, and what every run in an installation with
+            no ``[adapters] directory`` still is. Naming one makes this run a measurement of a
+            different **subject** (ADR-0058), not a variation of the base's.
+        adapter_entries: What the operator's adapter directory holds, from
+            :func:`~freeweight.services.adapters.read_entries`. Passed in rather than read here:
+            reading a directory is infrastructure, and a service that did it could not be tested
+            without one.
         allow_prompt_override: Whether to proceed when a prompt this suite declares has been
             replaced from the user's override directory. ``False`` refuses the run: an overridden
             prompt invalidates comparison with results produced by the shipped one, so the run has
@@ -949,6 +961,11 @@ def create_run(
         ModelNotFound: ``model_ref`` resolves to no stored model. Discovery has to have run first
             — a run records the descriptor snapshot it measured against, and there is none for a
             model this installation has never seen.
+        IncompatibleAdapter: ``adapter_name`` names no registered adapter, names an unavailable
+            one, or names one that cannot be applied to this base. Refused **by name**, with the
+            registered set in the message, and never by falling back to the bare base: a caller
+            that asked for an adapter and silently got the base would attribute the base's
+            behaviour to the adapter.
         ValidationError: ``model_ref`` is an ambiguous prefix, or the model has no stored
             descriptor.
         DatabaseUnavailable: The database could not be read or written.
@@ -990,6 +1007,11 @@ def create_run(
                 details={"model": model.canonical_id},
             )
         machine = _machine_row(session, machine_profile.machine_fingerprint)
+        # Resolved before anything is written, like every other validation here: a run naming an
+        # adapter it cannot measure under creates nothing (api.md §4). `resolve_subject` refuses by
+        # name and never falls back to the bare base.
+        subject = resolve_subject(model, tuple(adapter_entries), adapter_name)
+        adapter_row = adapter_row_for(session, subject, now=now)
         # `None` is the caller saying "provider defaults", which ADR-0023 §1 makes a real,
         # hashable profile rather than an absence. Resolved once here so every use below — the
         # stored row, the served-context resolution and the fingerprint — sees the same object.
@@ -1064,6 +1086,7 @@ def create_run(
             prompt_pack_hash=library.pack_hash() if library is not None else None,
             served_context=served.numeric_tokens,
             served_context_source=served.source.value,
+            adapter_id=None if adapter_row is None else adapter_row.id,
             gpu_index=execution.gpu_index,
             multi_gpu_visible=len(machine_profile.gpus) > 1,
             degradations_json=degradations or None,

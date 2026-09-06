@@ -945,7 +945,14 @@ class TestTheCli:
         assert runner.invoke(cli_app, ["evidence", "export", "--since", "yesterday"]).exit_code == 2
         assert runner.invoke(cli_app, ["evidence", "show", "--model", "no-such"]).exit_code == 2
 
-    def test_version_names_the_schemas_this_build_writes(self) -> None:
+    def test_version_names_the_highest_schema_versions_this_build_can_write(self) -> None:
+        """The **ceiling**, so a consumer knows what it must be able to accept (ADR-0084 rule 4).
+
+        Not the version of any particular document: since Phase 15 this build writes
+        `capability.evidence` and `benchmark.evidence_bundle` at `1.0` or `1.1` per document, by
+        content. A consumer checking compatibility before it fetches needs the highest, and gets a
+        narrower document than it prepared for — never a wider one.
+        """
         from typer.testing import CliRunner
 
         from freeweight.cli.main import app as cli_app
@@ -953,6 +960,6 @@ class TestTheCli:
         result = CliRunner().invoke(cli_app, ["version", "--json"])
         assert result.exit_code == 0
         schemas = json.loads(result.stdout)["schemas"]
-        assert schemas["capability.evidence"] == "1.0"
-        assert schemas["benchmark.evidence_bundle"] == "1.0"
-        assert "capability.evidence 1.0" in CliRunner().invoke(cli_app, ["--version"]).output
+        assert schemas["capability.evidence"] == "1.1"
+        assert schemas["benchmark.evidence_bundle"] == "1.1"
+        assert "capability.evidence 1.1" in CliRunner().invoke(cli_app, ["--version"]).output
