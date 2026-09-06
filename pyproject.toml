@@ -127,6 +127,10 @@ ignore = ["D100", "D104"]
 "scripts/*.py" = ["T201"]
 # Performance tests print their measured figures so the numbers are part of the -s record.
 "tests/performance/*.py" = ["S101", "D1", "T201"]
+# Live journeys do the same: they run under `-s` against real hardware, and their printed output
+# *is* the evidence — a handoff quotes it verbatim, so it has to be produced rather than asserted
+# away. The numbers cannot be fixtures, which is why these tests exist at all.
+"tests/live/*.py" = ["S101", "D1", "T201"]
 
 [tool.ruff.lint.pydocstyle]
 convention = "google"

@@ -98,6 +98,12 @@ packaging and release standards §3.
     artifact an operator removes leaves a subject with history and no availability rather than
     orphaned evidence ([ADR-0080](docs/adr/0080-a-persisted-decision-names-the-subject-by-reference-and-by-string.md)).
 
+- **`tests/live/test_la3_adapters.py`** — LA3's FreeWeight half against a real `llama-server`:
+  subjects enumerate by digest over real artefacts, two of three adapters are measured and the third
+  is deliberately left alone, evidence never crosses between subjects, the export is `1.1` and
+  validates with `setspec` alone, and the serving-mode overhead is **printed as a number** because
+  ADR-0060's revisit trigger cannot be acted on without one.
+
 ### Fixed
 - **A migration run now suspends SQLite foreign-key enforcement**
   ([ADR-0082](docs/adr/0082-a-migration-run-suspends-sqlite-foreign-key-enforcement.md)), the one
