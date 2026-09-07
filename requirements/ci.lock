@@ -1813,9 +1813,9 @@ websockets==17.1 \
     --hash=sha256:fd8f47dbf2e8adb15c847215f83436de3fdb120b51fdae0fbbdf69fd97a3ad80 \
     --hash=sha256:ff3e2ba7a9f0a110b0555452e9b5a03a34e11662544e01beea15f144b48ba7b7
     # via uvicorn
-weightsdb==0.2.0 \
-    --hash=sha256:5edabbc63a5da6acd2334b50e3029b132caa047dafdf7a4484021b61f04c78bc \
-    --hash=sha256:7f76be69db9dd905141370920f8a93dbfda8bfadbf0b343ba49ebc6d4c4891f0
+weightsdb==0.2.1 \
+    --hash=sha256:b105fffbb8c639c129d2a0bb5231298ec5d8ed91c2bb1e4667039c90bb2f8776 \
+    --hash=sha256:e1f9ce64f7e8165b16adfd131b70b798dcc7de4d8b9c9b611eae9c83e1e34993
     # via
     #   freeweight
     #   freeweight (pyproject.toml)

@@ -258,6 +258,13 @@ shared database.
   surface (`GET`/`PUT /api/v1/settings`, the Settings page) reports the same fallback rather than a
   value the running process would refuse to serve.
 
+### Changed
+- `requirements/ci.lock` recompiled with `-P weightsdb -P baseaicore -P setspec -P mirrorwall -P
+  modelrack -P sweatmeter`. Exactly one pin moves: `weightsdb` 0.2.0 → 0.2.1 — the other five
+  package selectors were already at their current version. Proved from the lock in a clean
+  Python 3.13.15 venv installed `--require-hashes`, not from this repository's venv, which carries
+  editable installs of the workspace checkouts and cannot show what a consumer resolves.
+
 ## [1.0.0] - 2026-08-30
 
 - **`GET /goals/new` no longer 500s.** The goal wizard's first page rendered `{{ intent or '' }}`
