@@ -464,6 +464,21 @@ def update_settings(
     return read_settings(database, settings)
 
 
+def _coerce_stored_or_none(setting: RuntimeSetting, raw: Any) -> Any:  # noqa: ANN401
+    """``raw`` coerced to ``setting``'s type, or ``None`` when this build cannot read it.
+
+    A row whose type or bounds the registry now refuses — most often because it was written by a
+    version with wider bounds — is indistinguishable here from nothing having been stored: both
+    are the caller's cue to fall back to the configured value (configuration standards §7). ``raw``
+    is already validated at write time (:func:`update_settings`), so this only fires for a row a
+    *different* build wrote.
+    """
+    try:
+        return _coerce(setting, raw)
+    except ValidationError:
+        return None
+
+
 def apply_stored(database: Database, settings: Settings) -> Settings:
     """Return ``settings`` with stored runtime values folded in at their documented precedence.
 
@@ -471,6 +486,12 @@ def apply_stored(database: Database, settings: Settings) -> Settings:
     overridden by the environment. This is the one deviation from configuration standards §1, it
     exists only for settings a UI can change, and it is applied in exactly one place — here — so
     no caller has to remember the ordering.
+
+    A stored row this build cannot coerce — the wrong type, or outside the registry's current
+    bounds — is served as the configured value rather than raising: a version that narrowed a
+    bound, or a row a differently-built peer wrote, must not stop this process from starting
+    (LoadCoach and PromptCadence apply the identical rule in ``read_runtime_settings``). Each such
+    row is logged once, at ``WARNING``, and never fatal.
 
     Args:
         database: The application's database handle.
@@ -486,13 +507,22 @@ def apply_stored(database: Database, settings: Settings) -> Settings:
         stored = _stored_or_none(database, setting)
         if stored is None:
             continue
-        overrides.setdefault(setting.section, {})[setting.field] = stored
+        value = _coerce_stored_or_none(setting, stored)
+        if value is None:
+            logger.warning(
+                "settings.stored_row_unreadable",
+                extra={"key": setting.key, "stored": stored},
+            )
+            continue
+        overrides.setdefault(setting.section, {})[setting.field] = value
     if not overrides:
         return settings
-    data = settings.model_dump()
+    updated = settings.model_copy(deep=True)
     for section, fields in overrides.items():
-        data[section].update(fields)
-    return Settings.model_validate(data)
+        section_obj = getattr(updated, section)
+        for field, value in fields.items():
+            setattr(section_obj, field, value)
+    return updated
 
 
 def runtime_settings_document(
@@ -537,12 +567,16 @@ def runtime_settings_document(
         # :func:`apply_stored` folded in when the process started. A row written since then is
         # what work started from now on will use (see :func:`update_settings`), and this is the
         # rule :func:`apply_stored` itself applies: the row wins unless the environment pins the
-        # key. ``items[*].value`` still reports the startup value, which is one of the reasons it
-        # is deprecated.
-        effective[setting.key] = (
-            view.stored_value
+        # key, or unless this build cannot coerce it — the identical fallback, so this surface
+        # never reports a value the running process would refuse to serve. ``items[*].value``
+        # still reports the startup value, which is one of the reasons it is deprecated.
+        coerced_stored = (
+            _coerce_stored_or_none(setting, view.stored_value)
             if view.stored_value is not None and shadowed_by is None
-            else _effective(baseline, setting)
+            else None
+        )
+        effective[setting.key] = (
+            coerced_stored if coerced_stored is not None else _effective(baseline, setting)
         )
         definitions[setting.key] = {
             "type": setting.kind,

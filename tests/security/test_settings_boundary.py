@@ -20,12 +20,19 @@ from collections.abc import Iterator
 from pathlib import Path
 
 import pytest
+from baseaicore import utc_now
 from fastapi.testclient import TestClient
 from weightsdb import MigrationRunner, create_engine_for
 
 from freeweight.config import load_settings
-from freeweight.services.database import MIGRATIONS_LOCATION
-from freeweight.services.settings import CONFIG_ONLY_KEYS, RUNTIME_SETTINGS
+from freeweight.infrastructure.db.repositories.settings import SettingsRepository
+from freeweight.services.database import MIGRATIONS_LOCATION, Database
+from freeweight.services.settings import (
+    CONFIG_ONLY_KEYS,
+    RUNTIME_SETTINGS,
+    SETTINGS_KEY_PREFIX,
+    apply_stored,
+)
 from freeweight.web.app import create_app
 
 # The whole point of the two tests that use it: a request that would expose the server to every
@@ -267,3 +274,82 @@ class TestTheSuiteShape:
         assert {item["key"] for item in body["items"]} == set(body["settings"])
         assert set(body["definitions"]) == set(body["settings"])
         assert set(body["settings"]) == {setting.key for setting in RUNTIME_SETTINGS}
+
+
+def _store_raw(workspace: Path, key: str, value: object) -> str:
+    """Write ``value`` under ``key`` bypassing the coerce-on-write ``update_settings`` performs.
+
+    Simulates a row a *different* build wrote: one whose bounds or type this build's registry no
+    longer accepts. ``SettingsRepository.set`` is the table's only writer and does not validate,
+    exactly like a value another version's (wider or narrower) registry once allowed through.
+    """
+    database_url = f"sqlite:///{workspace / 'freeweight.sqlite3'}"
+    with Database.from_url(database_url) as database, database.write() as session:
+        SettingsRepository().set(session, SETTINGS_KEY_PREFIX + key, value, now=utc_now())
+    return database_url
+
+
+class TestAStoredRowThisBuildCannotCoerce:
+    """§7 finding 2: a row this build cannot read is served as configuration, never fatal.
+
+    LoadCoach's and PromptCadence's ``read_runtime_settings`` fall back to the configured value
+    for a row outside the registry's current bounds or of the wrong type, rather than stopping the
+    process from starting. FreeWeight's ``apply_stored`` used to feed every stored value through
+    one ``Settings.model_validate`` call, so one bad row failed the whole server's startup.
+    """
+
+    def test_a_row_outside_the_current_bounds_serves_the_configured_value_at_startup(
+        self, workspace: Path
+    ) -> None:
+        """``telemetry.interval_ms``'s registry bound is 60 000 ms; this row is a million."""
+        _store_raw(workspace, "telemetry.interval_ms", 1_000_000)
+        loaded = load_settings(config_path=workspace / "missing.toml")
+
+        with TestClient(create_app(loaded.settings), base_url="http://127.0.0.1") as client:
+            health = client.get("/api/v1/health")
+            document = client.get("/api/v1/settings").json()
+
+        assert health.status_code == 200, "an unreadable row must not stop the server starting"
+        assert document["settings"]["telemetry.interval_ms"] == 1000  # noqa: PLR2004
+        assert document["definitions"]["telemetry.interval_ms"]["configured"] == 1000  # noqa: PLR2004
+
+    def test_a_row_of_the_wrong_type_serves_the_configured_value_at_startup(
+        self, workspace: Path
+    ) -> None:
+        """``execution.measured_repetitions`` is an int; this row is not coercible to one."""
+        _store_raw(workspace, "execution.measured_repetitions", "not-a-number")
+        loaded = load_settings(config_path=workspace / "missing.toml")
+
+        with TestClient(create_app(loaded.settings), base_url="http://127.0.0.1") as client:
+            health = client.get("/api/v1/health")
+            document = client.get("/api/v1/settings").json()
+
+        assert health.status_code == 200, "an unreadable row must not stop the server starting"
+        assert document["settings"]["execution.measured_repetitions"] == 3  # noqa: PLR2004
+
+    def test_apply_stored_falls_back_per_key_rather_than_discarding_every_override(
+        self, workspace: Path
+    ) -> None:
+        """One unreadable row must not cost a sibling, good row its effect."""
+        database_url = _store_raw(workspace, "telemetry.interval_ms", 1_000_000)
+        _store_raw(workspace, "execution.seed", 7)
+        loaded = load_settings(config_path=workspace / "missing.toml")
+
+        with Database.from_url(database_url) as database:
+            applied = apply_stored(database, loaded.settings)
+
+        assert applied.telemetry.interval_ms == loaded.settings.telemetry.interval_ms
+        assert applied.execution.seed == 7  # noqa: PLR2004
+        assert loaded.settings.telemetry.interval_ms == 1000  # noqa: PLR2004, unmutated argument
+
+    def test_the_unreadable_row_is_logged_once_rather_than_raising(
+        self, workspace: Path, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        database_url = _store_raw(workspace, "telemetry.interval_ms", 1_000_000)
+        loaded = load_settings(config_path=workspace / "missing.toml")
+
+        with Database.from_url(database_url) as database, caplog.at_level("WARNING"):
+            apply_stored(database, loaded.settings)
+
+        messages = [record.message for record in caplog.records]
+        assert sum(1 for message in messages if "settings.stored_row_unreadable" in message) == 1

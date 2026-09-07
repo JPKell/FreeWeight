@@ -247,6 +247,17 @@ shared database.
     consumer resolves: a clean venv installed with `--require-hashes -r requirements/ci.lock`
     runs the full suite green, `tests/contract/test_evidence_schema.py` included.
 
+### Fixed
+- **A stored runtime-settings row this build cannot coerce no longer stops the server from
+  starting.** `apply_stored` fed every stored value through one `Settings.model_validate` call, so
+  a row outside the registry's current bounds or of the wrong type — most likely one written by a
+  version with wider bounds, or a peer build's differently-shaped row — failed the whole process's
+  startup. Each stored value is now coerced and bound-checked individually, the identical per-key
+  rule LoadCoach's and PromptCadence's `read_runtime_settings` apply: a row this build cannot read
+  serves the configured value instead, logged once at `WARNING`, and never fatal. The settings
+  surface (`GET`/`PUT /api/v1/settings`, the Settings page) reports the same fallback rather than a
+  value the running process would refuse to serve.
+
 ## [1.0.0] - 2026-08-30
 
 - **`GET /goals/new` no longer 500s.** The goal wizard's first page rendered `{{ intent or '' }}`
