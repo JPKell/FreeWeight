@@ -9,6 +9,8 @@ packaging and release standards §3.
 
 ### Added
 
+- `docs/upgrading.md` refreshed to cover every shipped version (M9 audit Group 5, item D9).
+
 - `.github/workflows/release.yml` now writes `SHA256SUMS` over `dist/*` and attaches it
   alongside the wheel and sdist on the GitHub release (M9 audit Group 5, item R4).
 

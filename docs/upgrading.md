@@ -29,6 +29,32 @@ itself on first startup.
 * A database written by a *newer* FreeWeight than the one you are running is refused with
   `SCHEMA_AHEAD` rather than downgraded — downgrades are not supported.
 
+## Migration notes
+
+| Version | Migration | What it adds |
+|---|---|---|
+| 1.1.0 | `0008` | The `adapters` table, `runs.adapter_id`, and `capability_evidence`'s `adapter_id` + `subject_canonical_id`. Every existing row is a **base subject** — `adapter_id` is `NULL` and `subject_canonical_id` is backfilled from `models.canonical_id`. Additive throughout; no existing value changes |
+| 1.0.0 | — | The 1.0 schema this document's baseline assumes |
+
+## Behaviour changes at 1.1.0
+
+* **Nothing changes for an installation with no `[adapters] directory`.** The feature is off by
+  default (empty directory), and with it empty FreeWeight measures exactly as 1.0 did.
+* **`provider.kind = "llamacpp"` is new.** Naming it before 1.1 was a configuration error; it now
+  serves GGUF weights from `model_directory` (required) through a supervised llama.cpp server.
+* **A run under `--adapter` now actually serves the adapter** (fixed in this release —
+  `_build_request` previously never set `GenerationRequest.adapter`, so every adapter-bearing run
+  before 1.1.0 measured the bare base while recording an adapter's identity). **Every
+  adapter-bearing evidence record produced before 1.1.0 measures the bare base and should be
+  discarded and re-measured.**
+* **`GET`/`PUT /api/v1/settings` gains the suite's `settings`/`definitions` shape** beside the
+  original `items`, which is unchanged and now deprecated (removed only at a future `/api/v2`).
+* **The comparison grouping caps a base's subjects at 12**, naming what it withheld — a base with
+  more subjects no longer renders one row apiece with no way to compare anything in.
+* **A migration run now suspends SQLite foreign-key enforcement for its own connection.** This
+  matters only if you run `alembic` commands directly against a SQLite database outside
+  `freeweight db upgrade`; the CLI path already accounts for it.
+
 ## Rollback
 
 If you need to go back to the previous version:
