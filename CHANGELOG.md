@@ -32,6 +32,13 @@ packaging and release standards §3.
   migrated and seeded through its own CLI/repository layer, exercised by
   `test_1_1_0_database_migrates_to_head_and_keeps_its_rows` (M9 audit Group 3, item O1).
 
+### Removed
+
+- `pydantic-settings` from `dependencies` — declared but never imported (ADR-0114); each
+  application performs its own layered configuration merge. `requirements/ci.lock`
+  recompiled with pip-tools 7.6.1 on Python 3.13 (M9 audit Group 5, the pydantic-settings
+  finding from row L2).
+
 ## [1.1.0] — 2026-09-06
 
 FreeWeight 1.1: **LA3** — GGUF weights served through a llama.cpp server FreeWeight supervises, an
