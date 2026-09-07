@@ -18,6 +18,17 @@ packaging and release standards §3.
   from `pyproject.toml`, and `tests/unit/test_readme_compatibility.py` asserting the two
   cannot drift (M9 audit Group 5, item R3).
 
+- `tests/integration/test_downgrade_and_schema_ahead.py` drives the packaging standards §6.1
+  downgrade drill end to end: upgrade, write a row, back up, jump `alembic_version` ahead,
+  `SchemaAhead` refuses and names both revisions and the backup directory, restore the backup,
+  start again (M9 audit Group 3, item O2). `SchemaAhead`'s message and `details` now name the
+  backup directory, which they did not before this test existed.
+- `tests/integration/test_backup_restore.py` gains a backup/restore round trip parametrized over
+  `weightsdb.testing.temporary_sqlite`/`temporary_postgres` directly (M9 audit Group 3, item O4).
+- `tests/fixtures/databases/freeweight-1.1.0.sqlite3`, a real `freeweight==1.1.0` PyPI install
+  migrated and seeded through its own CLI/repository layer, exercised by
+  `test_1_1_0_database_migrates_to_head_and_keeps_its_rows` (M9 audit Group 3, item O1).
+
 ## [1.1.0] — 2026-09-06
 
 FreeWeight 1.1: **LA3** — GGUF weights served through a llama.cpp server FreeWeight supervises, an

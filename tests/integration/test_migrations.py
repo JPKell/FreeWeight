@@ -35,6 +35,7 @@ from freeweight.infrastructure.db.models import (
     RuntimeProfile,
     Setting,
 )
+from freeweight.infrastructure.db.repositories.settings import SettingsRepository
 from freeweight.services.database import MIGRATIONS_LOCATION, Database, ensure_ready
 
 _EXPECTED_TABLES = {
@@ -348,6 +349,43 @@ def test_rc1_database_migrates_to_0008_and_keeps_its_rows(tmp_path: Path) -> Non
         assert hostname == "rc1-fixture-host"
         assert cooldown == 7
         assert orphans == 0, "every pre-1.1 run is a base subject; none may gain an adapter"
+    finally:
+        engine.dispose()
+
+
+def test_1_1_0_database_migrates_to_head_and_keeps_its_rows(tmp_path: Path) -> None:
+    """The released-version companion to the ``rc1`` fixture above (M9_AUDIT.md Group 3, O1).
+
+    The fixture is a real ``freeweight==1.1.0`` install (from PyPI, in a scratch venv) migrated by
+    its own ``freeweight db upgrade``, with two rows written through
+    :class:`~freeweight.infrastructure.db.repositories.settings.SettingsRepository` — the same
+    repository layer a real CLI write would go through. ``1.1.0``'s head is this build's head too
+    (``0008`` — no revision has landed since that release), so today this asserts the upgrade is
+    the documented no-op (CLI standards §11) and the rows are untouched; it starts asserting a real
+    migration the day ``0009`` lands, which is the point of capturing it now rather than later.
+    """
+    fixture = Path(__file__).parent.parent / "fixtures" / "databases" / "freeweight-1.1.0.sqlite3"
+    working_copy = tmp_path / "freeweight-1.1.0.sqlite3"
+    shutil.copyfile(fixture, working_copy)
+
+    engine = create_engine_for(f"sqlite:///{working_copy}")
+    try:
+        runner = MigrationRunner(engine, script_location=MIGRATIONS_LOCATION)
+        current_before = runner.current()
+        assert current_before is not None, "the 1.1.0 fixture must carry a recorded revision"
+
+        outcome = ensure_ready(Database(engine), auto_migrate=True)
+
+        assert runner.is_at_head()
+        database = Database(engine)
+        repository = SettingsRepository()
+        with database.read() as session:
+            assert repository.get(session, "fixture.marker") == "freeweight-1.1.0-fixture"
+            assert repository.get(session, "fixture.count") == 2
+        if current_before == runner.heads()[0]:
+            assert outcome is None  # already at head: the documented no-op
+        else:  # pragma: no cover — exercised once a migration lands after 1.1.0
+            assert outcome is not None
     finally:
         engine.dispose()
 
