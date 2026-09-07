@@ -7,6 +7,8 @@ packaging and release standards §3.
 
 ## [Unreleased]
 
+## [1.1.1] — 2026-09-07
+
 ### Changed
 
 - `mirrorwall` floor raised from `0.2` to `0.2.2`: the two earlier releases pin `setspec<0.5`,
