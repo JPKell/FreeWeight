@@ -150,5 +150,10 @@ class TestI3FreeWeightToSetSpec:
         from freeweight.config import load_settings
         from freeweight.web.app import create_app
 
-        served = create_app(load_settings().settings).openapi()
-        assert served["paths"].keys() == json.loads(snapshot.read_text())["paths"].keys()
+        served = json.loads(
+            json.dumps(create_app(load_settings().settings).openapi(), sort_keys=True)
+        )
+        committed = json.loads(snapshot.read_text())
+        assert served == committed, (
+            "docs/openapi.json drifted; regenerate with python scripts/generate_openapi_snapshot.py"
+        )
