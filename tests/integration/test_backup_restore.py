@@ -25,6 +25,7 @@ from weightsdb.backup import (
     restore,
     sqlite_path,
 )
+from weightsdb.testing import temporary_postgres, temporary_sqlite
 
 from freeweight.services.database import MIGRATIONS_LOCATION
 
@@ -418,6 +419,55 @@ def test_checkpoint_truncates_the_wal(sqlite_engine: Engine) -> None:
     checkpoint(sqlite_engine)
 
     assert wal.stat().st_size == 0
+
+
+@pytest.mark.parametrize("dialect", ["sqlite", "postgresql"])
+def test_backup_round_trips_or_refuses_restore_on_both_dialects(
+    dialect: str, tmp_path: Path
+) -> None:
+    """Database standards §7 on the ``weightsdb.testing`` fixtures directly, not this file's own.
+
+    Every other test above builds its SQLite engine from this file's ``sqlite_engine`` fixture
+    and its PostgreSQL engine from ``conftest.py``'s ``postgres_url`` — both predate WeightsDB
+    shipping ``temporary_sqlite``/``temporary_postgres`` as supported test API (M9_AUDIT.md Group
+    3, item O4). This is the one test in the file built on those fixtures directly, so a reader
+    checking "does this run against the same harness every other application in the suite uses"
+    finds a yes without having to trust that the two engines behave identically.
+
+    PostgreSQL skips honestly (no server locally) rather than pretending to pass — the same
+    ``WEIGHTSDB_REQUIRE_POSTGRES=1`` escape hatch the ``db-matrix`` CI job sets turns that skip
+    into a failure there.
+    """
+    context = temporary_sqlite() if dialect == "sqlite" else temporary_postgres()
+    with context as engine:
+        MigrationRunner(engine, script_location=MIGRATIONS_LOCATION).upgrade(backup=False)
+        with engine.begin() as connection:
+            connection.execute(
+                text(
+                    "INSERT INTO settings (key, value_json, updated_at) "
+                    "VALUES ('dialect-row', '1', '2026-08-26 00:00:00')"
+                )
+            )
+        destination = tmp_path / ("backup.sqlite3" if dialect == "sqlite" else "backup.dump")
+        if dialect == "postgresql" and shutil.which("pg_dump") is None:
+            pytest.skip("pg_dump is not on PATH")
+        result = backup(engine, destination)
+        assert result.size_bytes > 0
+
+        if dialect == "sqlite":
+            with engine.begin() as connection:
+                connection.execute(text("DELETE FROM settings WHERE key = 'dialect-row'"))
+            restore(engine, destination, confirm=True)
+            with engine.connect() as connection:
+                assert (
+                    connection.execute(
+                        text("SELECT value_json FROM settings WHERE key = 'dialect-row'")
+                    ).scalar_one()
+                    == 1
+                )
+        else:
+            with pytest.raises(DatabaseError, match="pg_restore"):
+                restore(engine, destination, confirm=True)
 
 
 def _head_revision() -> str:
