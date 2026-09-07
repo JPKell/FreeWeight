@@ -9,6 +9,9 @@ packaging and release standards §3.
 
 ### Added
 
+- `tests/unit/test_every_command_has_help.py`, walking `typer.main.get_command(app)`
+  recursively so every command and option must carry help text (M9 audit Group 5, item D4).
+
 - `docs/upgrading.md` refreshed to cover every shipped version (M9 audit Group 5, item D9).
 
 - `.github/workflows/release.yml` now writes `SHA256SUMS` over `dist/*` and attaches it
