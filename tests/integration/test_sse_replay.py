@@ -286,6 +286,16 @@ class TestHttpLevel:
         database = tmp_path / "freeweight.sqlite3"
         monkeypatch.setenv("FREEWEIGHT_STORAGE__DATABASE_URL", f"sqlite:///{database}")
         monkeypatch.setenv("FREEWEIGHT_PROVIDER__KIND", "fake")
+        # This is the one test in this file that runs the real web lifespan, which builds a real
+        # telemetry collector (services/telemetry.py:build_collector) reading actual host
+        # utilization — not the fake one RunEnvironment hands the other tests here. The shipped
+        # default idle_gpu_threshold_percent=10.0 (spec §13) makes the scheduler's settle phase
+        # wait on that real reading for up to 120s before a run leaves `preparing`; under a loaded
+        # machine (e.g. a concurrent full-suite --cov run) real host CPU sits above 10% for the
+        # whole wait, so the run outlasts this test's own poll deadline ("run stuck in preparing").
+        # Every other fixture that runs a real run over HTTP already disables this (e.g.
+        # tests/e2e/test_run_journey.py); this one just forgot to.
+        monkeypatch.setenv("FREEWEIGHT_EXECUTION__IDLE_GPU_THRESHOLD_PERCENT", "0")
         engine = create_engine_for(f"sqlite:///{database}")
         try:
             MigrationRunner(engine, script_location=MIGRATIONS_LOCATION).upgrade(backup=False)
