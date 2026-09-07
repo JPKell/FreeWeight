@@ -205,6 +205,88 @@ def test_config_show_redacts_tokens(tmp_path: Path) -> None:
     assert "********" in result.output
 
 
+def _store(tmp_path: Path, key: str, value: object) -> str:
+    """Migrate a scratch database, store one runtime setting, and return its URL."""
+    from weightsdb import MigrationRunner
+
+    from freeweight.config import load_settings
+    from freeweight.services.database import MIGRATIONS_LOCATION, Database
+    from freeweight.services.settings import update_settings
+
+    database_url = f"sqlite:///{tmp_path / 'freeweight.sqlite3'}"
+    with Database.from_url(database_url) as database:
+        MigrationRunner(database.engine, script_location=MIGRATIONS_LOCATION).upgrade(backup=False)
+        update_settings(database, load_settings().settings, {key: value})
+    return database_url
+
+
+def test_config_show_marks_a_database_sourced_value_and_prints_the_stored_one(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Configuration standards §7: a stored value is marked ``(database)``, not ``default``."""
+    monkeypatch.setenv(
+        "FREEWEIGHT_STORAGE__DATABASE_URL", _store(tmp_path, "telemetry.interval_ms", 500)
+    )
+    result = runner.invoke(app, ["config", "show"])
+
+    assert result.exit_code == 0
+    line = next(
+        row for row in result.output.splitlines() if row.startswith("telemetry.interval_ms")
+    )
+    assert "500" in line and "(database)" in line
+    payload = json.loads(runner.invoke(app, ["config", "show", "--json"]).output)
+    assert payload["values"]["telemetry"]["interval_ms"] == 500
+    assert payload["sources"]["telemetry.interval_ms"] == "database"
+
+
+def test_config_show_reports_a_stored_row_an_environment_variable_beats(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The row is named beside the variable that wins, never printed as the effective value."""
+    monkeypatch.setenv(
+        "FREEWEIGHT_STORAGE__DATABASE_URL", _store(tmp_path, "telemetry.interval_ms", 500)
+    )
+    monkeypatch.setenv("FREEWEIGHT_TELEMETRY__INTERVAL_MS", "250")
+
+    result = runner.invoke(app, ["config", "show"])
+
+    assert result.exit_code == 0
+    line = next(
+        row for row in result.output.splitlines() if row.startswith("telemetry.interval_ms")
+    )
+    assert " 250 " in line
+    assert "env FREEWEIGHT_TELEMETRY__INTERVAL_MS; database row 500 shadowed" in line
+
+
+def test_config_show_prints_its_normal_output_when_there_is_no_database(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A fresh install has no database yet, and inspecting configuration must not need one."""
+    missing = tmp_path / "absent.sqlite3"
+    monkeypatch.setenv("FREEWEIGHT_STORAGE__DATABASE_URL", f"sqlite:///{missing}")
+
+    result = runner.invoke(app, ["config", "show"])
+
+    assert result.exit_code == 0
+    assert "(database)" not in result.output
+    assert "telemetry.interval_ms" in result.output
+    assert not missing.exists(), "an inspection command leaves no database behind"
+
+
+def test_config_show_prints_its_normal_output_when_the_database_is_unmigrated(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    unmigrated = tmp_path / "empty.sqlite3"
+    unmigrated.touch()
+    monkeypatch.setenv("FREEWEIGHT_STORAGE__DATABASE_URL", f"sqlite:///{unmigrated}")
+
+    result = runner.invoke(app, ["config", "show"])
+
+    assert result.exit_code == 0
+    assert "(database)" not in result.output
+    assert "telemetry.interval_ms" in result.output
+
+
 def test_config_validate_succeeds_on_defaults() -> None:
     result = runner.invoke(app, ["config", "validate"])
 

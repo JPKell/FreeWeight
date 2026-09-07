@@ -171,6 +171,15 @@ shared database.
   unconstrained.
 
 ### Changed
+- **`freeweight config show` marks database-sourced values `(database)`**, the third of
+  configuration standards §7's three rules and the one this application had not kept: it rendered
+  the loader's source map and opened no database, so a stored runtime setting printed as `default`.
+  It now overlays the keys the `settings` table decides, prints the stored value, and names the
+  variable beside a stored row an environment variable beats. The overlay never raises and never
+  creates a missing SQLite file — an absent, unmigrated or unreachable database means the
+  configured values are the right answer, and an inspection command must not leave a database
+  behind that `db status` would call unmigrated. FreeWeight's *precedence* was already correct;
+  only the reporting was missing. (Found while closing the same gap in LoadCoach.)
 - **The two fixed regression rows bound their own output**, at 512 tokens per turn
   ([ADR-0089](docs/adr/0089-the-fixed-regression-rows-bound-their-own-output.md)). A damaged
   adapter usually loses the instruction *to stop* along with every other instruction, so uncapped
