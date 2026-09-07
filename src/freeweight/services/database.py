@@ -30,8 +30,9 @@ from weightsdb import (
     session_scope,
     transaction,
 )
-from weightsdb.backup import database_size_bytes, integrity_check
+from weightsdb.backup import database_size_bytes, integrity_check, sqlite_path
 
+from freeweight.config import data_dir
 from freeweight.infrastructure.db.models import (
     ApiToken,
     Machine,
@@ -246,6 +247,19 @@ def migration_runner(engine: Engine, *, backup_retention: int = 5) -> MigrationR
     )
 
 
+def _backup_directory(engine: Engine) -> Path:
+    """Where a manual or automatic backup of ``engine``'s database is written.
+
+    Mirrors :func:`~freeweight.services.database_admin.backup_database`'s own default path
+    (SQLite: beside the database file; PostgreSQL: under the configured data directory), so a
+    :class:`~weightsdb.errors.SchemaAhead` refusal can name the directory an operator finds their
+    pre-migration backup in without duplicating this module's admin logic.
+    """
+    if engine.dialect.name == "sqlite":
+        return sqlite_path(engine).parent / "backups"
+    return data_dir() / "backups"
+
+
 def ensure_ready(
     database: Database, *, auto_migrate: bool, backup_retention: int = 5
 ) -> MigrationOutcome | None:
@@ -300,11 +314,18 @@ def ensure_ready(
     if current == head:
         return None
     if current is not None and current not in runner.known_revisions():
+        backup_directory = _backup_directory(database.engine)
         raise SchemaAhead(
             f"The database is at revision {current!r}, which this build's migrations do not "
             f"produce (known head: {head!r}). It was likely written by a newer application "
-            "version.",
-            details={"current": current, "head": head},
+            f"version. Downgrading: stop the application, restore the pre-migration backup "
+            f"under {backup_directory}, then install the older version (see "
+            "docs/upgrading.md).",
+            details={
+                "current": current,
+                "head": head,
+                "backup_directory": str(backup_directory),
+            },
         )
     if current is not None and not auto_migrate:
         raise MigrationRequired(

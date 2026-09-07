@@ -34,6 +34,14 @@ destructive operation, so it previews what it will replace and requires confirma
 skip the prompt in a script). After a restore, run `freeweight db status` to confirm the revision
 and integrity.
 
+## Downgrading
+
+Downgrading the application without downgrading the database is refused, not attempted: a database
+ahead of the installed code raises `SchemaAhead` at startup, naming both revisions and the backup
+directory to restore from (packaging standards §6.1). The supported path is: stop the application,
+restore the pre-migration backup named in that refusal, then install the older version — proved end
+to end by `tests/integration/test_downgrade_and_schema_ahead.py`.
+
 ## What is and is not in a backup
 
 A backup is the whole database: machines, models, runs, samples, metrics, telemetry, capability
