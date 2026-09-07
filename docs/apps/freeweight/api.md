@@ -248,6 +248,24 @@ Models and machines are never removed by a result deletion.
 |---|---|
 | `GET /settings` · `PUT /settings` | Runtime-changeable settings only. Attempts to change a security-relevant setting return 403 `FORBIDDEN` naming the config-only key |
 
+The body carries the same answer twice
+([ADR-0102](../../adr/0102-freeweights-settings-body-gains-the-suites-shape.md)):
+
+* `settings` — `key -> the value work started from now on will use` — and `definitions`, one entry
+  per key carrying `type`, `description`, `minimum`, `maximum`, `unit`, `choices`, `env_var`, the
+  `configured` value, the `stored` row (or `null`), `source` (`"database"` when the row is what
+  the next run will use, else `"configuration"`) and `shadowed_by` (`"env FREEWEIGHT_…"` naming
+  the variable that beats the row, else `null`). This is LoadCoach's and PromptCadence's shape,
+  field for field, so one operator reads one vocabulary across all three consoles.
+* `items` — the original list, with `value`, `stored_value`, `source` (`"env"` / `"database"` /
+  `"file or default"`) and `overridden_by_env`. **Deprecated**, unchanged, and removed when
+  FreeWeight next has an `/api/v2`; ADR-0013 permits adding inside a major version, not replacing.
+  Note that `items[*].value` reports the value folded in when the process **started**, while
+  `settings` applies the stored row at read time — for a key changed since startup the two differ,
+  and `settings` is the one that answers "what will the next run use".
+
+`config_only` lists the security-relevant keys the endpoint refuses by name, in both renderings.
+
 **"Applies to work started from now on" is exact, and narrower than it sounds.** A stored value is
 read when the application builds the sampler and the scheduler, so it is in force from the next
 start. It does **not** re-interval a telemetry sampler that is already running, and it does not

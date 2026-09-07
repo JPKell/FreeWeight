@@ -170,6 +170,23 @@ shared database.
   in its most destructive form. `None` matches `IS NULL` exactly rather than being left
   unconstrained.
 
+### Added
+- **`GET`/`PUT /api/v1/settings` carry the suite's settings shape** beside the original one
+  ([ADR-0102](docs/adr/0102-freeweights-settings-body-gains-the-suites-shape.md)). The body gains
+  `settings` (`key -> the value work started from now on will use`) and `definitions` (per key:
+  `type`, `description`, `minimum`, `maximum`, `unit`, `choices`, `env_var`, `configured`,
+  `stored`, `source` and `shadowed_by`) — LoadCoach's and PromptCadence's field names, meaning for
+  meaning, so one operator reads one vocabulary across all three consoles. **`items` is unchanged
+  and deprecated**: it is removed when FreeWeight next has an `/api/v2`, because ADR-0013 permits
+  adding inside a major version and not replacing. `items[*].value` reports the value folded in
+  when the process started; `settings` applies the stored row at read time, so for a key changed
+  since startup the two differ and `settings` is the one that answers "what will the next run
+  use". The console still renders `items`' objects and is unchanged by this release.
+- The lifespan keeps the **loaded** settings beside the applied ones, so `configured` is
+  answerable again: folding stored values in and keeping only the result made "what was
+  configured" unrecoverable, and a document built from it could report only what it had already
+  applied.
+
 ### Changed
 - **`freeweight config show` marks database-sourced values `(database)`**, the third of
   configuration standards §7's three rules and the one this application had not kept: it rendered

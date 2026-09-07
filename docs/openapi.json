@@ -366,7 +366,7 @@
   },
   "info": {
     "title": "FreeWeight",
-    "version": "1.0.0"
+    "version": "1.1.0"
   },
   "openapi": "3.1.0",
   "paths": {
@@ -3020,7 +3020,7 @@
     },
     "/api/v1/settings": {
       "get": {
-        "description": "Return every runtime-changeable setting with its effective value and its source.\n\n``config_only`` lists the security-relevant keys this endpoint refuses, so a client can render\nthem as read-only rather than discovering the refusal by attempting one.",
+        "description": "Return every runtime-changeable setting with its effective value and its source.\n\n``config_only`` lists the security-relevant keys this endpoint refuses, so a client can render\nthem as read-only rather than discovering the refusal by attempting one.\n\nThe body carries the same answer twice: ``items``, the original list, **deprecated** and\nremoved at ``/api/v2`` (ADR-0102); and ``settings`` plus ``definitions``, the shape LoadCoach\nand PromptCadence serve, where each definition names the configured value, the stored row,\nwhich of the two is effective, and what shadows the row.",
         "operationId": "get_settings_endpoint_api_v1_settings_get",
         "responses": {
           "200": {

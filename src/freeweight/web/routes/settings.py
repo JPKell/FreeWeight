@@ -27,6 +27,7 @@ from freeweight.__about__ import __version__
 from freeweight.services.settings import (
     config_only_keys,
     read_settings,
+    runtime_settings_document,
     update_settings,
 )
 from freeweight.web.rendering import render
@@ -59,12 +60,22 @@ def _settings(request: Request) -> Settings:
     return request.app.state.settings  # type: ignore[no-any-return]  # app state is untyped
 
 
-def _document(views: Any) -> dict[str, Any]:  # noqa: ANN401 — a Sequence[SettingView]
+def _configured(request: Request) -> Settings:
+    """The settings as *loaded*, before stored values were folded in.
+
+    Kept beside the applied object by the lifespan (:mod:`freeweight.web.app`). An application
+    built without entering its lifespan — a unit test calling ``create_app`` directly — has
+    applied nothing, so the running settings are the configured ones and are the right fallback.
+    """
+    configured = getattr(request.app.state, "configured_settings", None)
+    return _settings(request) if configured is None else configured
+
+
+def _document(request: Request) -> dict[str, Any]:
     """The response body both endpoints return."""
-    return {
-        "items": [view.as_json() for view in views],
-        "config_only": list(config_only_keys()),
-    }
+    return runtime_settings_document(
+        _database(request), _settings(request), configured=_configured(request)
+    )
 
 
 @api_router.get("/settings", summary="Runtime-changeable settings")
@@ -73,8 +84,13 @@ def get_settings_endpoint(request: Request) -> dict[str, Any]:
 
     ``config_only`` lists the security-relevant keys this endpoint refuses, so a client can render
     them as read-only rather than discovering the refusal by attempting one.
+
+    The body carries the same answer twice: ``items``, the original list, **deprecated** and
+    removed at ``/api/v2`` (ADR-0102); and ``settings`` plus ``definitions``, the shape LoadCoach
+    and PromptCadence serve, where each definition names the configured value, the stored row,
+    which of the two is effective, and what shadows the row.
     """
-    return _document(read_settings(_database(request), _settings(request)))
+    return _document(request)
 
 
 @api_router.put("/settings", summary="Change runtime-changeable settings")
@@ -88,8 +104,8 @@ def put_settings_endpoint(request: Request, body: SettingsBody) -> dict[str, Any
         SettingUnknown: A named key is not runtime-changeable.
         ValidationError: A value is the wrong type or out of range.
     """
-    views = update_settings(_database(request), _settings(request), body.changes)
-    return _document(views)
+    update_settings(_database(request), _settings(request), body.changes)
+    return _document(request)
 
 
 def _page(

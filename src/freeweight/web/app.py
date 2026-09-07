@@ -112,6 +112,10 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
     # requires a database handle, and `create_app` opens nothing. Everything built below —
     # the telemetry sampler's interval, the scheduler's execution defaults — is therefore built
     # from what the settings page actually saved.
+    # Kept pristine beside the applied object: `configured` and `effective` are two different
+    # facts, and a settings document built only from the applied settings could report what it
+    # had already applied and nothing else.
+    app.state.configured_settings = settings
     settings = apply_stored(database, settings)
     app.state.settings = settings
     # Built once for the same reason the database handle is: OllamaProvider owns a pooled

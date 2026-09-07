@@ -42,6 +42,8 @@ __all__ = [
     "SettingUnknown",
     "SettingView",
     "read_settings",
+    "runtime_settings_document",
+    "shadowing_source",
     "update_settings",
 ]
 
@@ -276,6 +278,24 @@ class SettingView:
         }
 
 
+def shadowing_source(setting: RuntimeSetting) -> str | None:
+    """The environment variable pinning ``setting``, or ``None`` when nothing pins it.
+
+    The suite's three registries name a shadow the same way — ``"env FREEWEIGHT_…"`` — so an
+    operator moving between FreeWeight's, LoadCoach's and PromptCadence's consoles reads one
+    vocabulary rather than three spellings of one fact.
+
+    Args:
+        setting: The registry entry to check.
+
+    Returns:
+        ``"env FREEWEIGHT_…"``, naming the variable, or ``None``. Whether a *stored row* is
+        actually being shadowed is a separate question: a variable pinning a key nothing has
+        stored shadows nothing.
+    """
+    return f"env {setting.env_var}" if setting.env_var in os.environ else None
+
+
 def _effective(settings: Settings, setting: RuntimeSetting) -> Any:  # noqa: ANN401 — any scalar
     """The value the running server is using for one key."""
     return getattr(getattr(settings, setting.section), setting.field)
@@ -473,6 +493,76 @@ def apply_stored(database: Database, settings: Settings) -> Settings:
     for section, fields in overrides.items():
         data[section].update(fields)
     return Settings.model_validate(data)
+
+
+def runtime_settings_document(
+    database: Database,
+    settings: Settings,
+    *,
+    configured: Settings | None = None,
+) -> dict[str, Any]:
+    """The ``GET``/``PUT /api/v1/settings`` body: what is effective, why, and what is refused.
+
+    Carries two renderings of one answer. ``items`` is the original list, unchanged, and is
+    **deprecated** (ADR-0102): it is removed at ``/api/v2`` and served meanwhile.
+    ``settings`` and ``definitions`` are the shape LoadCoach and PromptCadence serve, so a reader
+    of any two of the three consoles meets one vocabulary: ``configured``, ``stored``, ``source``
+    (``"database"`` or ``"configuration"``) and ``shadowed_by``. Adding rather than replacing is
+    what ADR-0013 permits inside a major version.
+
+    Args:
+        database: The application's database handle.
+        settings: The settings the server is **running** with — the ones
+            :func:`apply_stored` produced, so ``effective`` is what work will actually use.
+        configured: The settings as *loaded*, before stored values were folded in. Defaults to
+            ``settings``, which is right only when nothing has been applied; the web layer passes
+            the pristine object it kept, because ``configured`` and ``effective`` are two
+            different facts and a document that conflated them could only report what it had
+            already applied.
+
+    Returns:
+        ``items`` (deprecated), ``settings`` (``key -> the value work started from now on will
+        use``), ``definitions``
+        (per key: type, description, bounds, unit, choices, environment variable, ``configured``,
+        ``stored``, ``source`` and ``shadowed_by``) and ``config_only``.
+    """
+    views = read_settings(database, settings)
+    baseline = settings if configured is None else configured
+    definitions: dict[str, Any] = {}
+    effective: dict[str, Any] = {}
+    for view in views:
+        setting = view.setting
+        shadowed_by = shadowing_source(setting) if view.overridden_by_env else None
+        # Computed here rather than read off ``view.effective_value``, which is the value
+        # :func:`apply_stored` folded in when the process started. A row written since then is
+        # what work started from now on will use (see :func:`update_settings`), and this is the
+        # rule :func:`apply_stored` itself applies: the row wins unless the environment pins the
+        # key. ``items[*].value`` still reports the startup value, which is one of the reasons it
+        # is deprecated.
+        effective[setting.key] = (
+            view.stored_value
+            if view.stored_value is not None and shadowed_by is None
+            else _effective(baseline, setting)
+        )
+        definitions[setting.key] = {
+            "type": setting.kind,
+            "description": setting.description,
+            "minimum": setting.minimum,
+            "maximum": setting.maximum,
+            "unit": setting.unit,
+            "choices": list(setting.choices),
+            "env_var": setting.env_var,
+            "configured": _effective(baseline, setting),
+            "stored": view.stored_value,
+            "source": "database" if view.source == "database" else "configuration",
+            "shadowed_by": shadowed_by,
+        }
+    return {
+        "items": [view.as_json() for view in views],
+        "settings": effective,
+        "definitions": definitions,
+        "config_only": list(config_only_keys()),
+    }
 
 
 def config_only_keys() -> Sequence[str]:

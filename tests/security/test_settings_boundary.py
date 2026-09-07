@@ -208,3 +208,62 @@ class TestTheFormAgreesWithTheApi:
         assert "security-relevant" in refused.text
         assert "server.host" in refused.text
         assert client.get("/api/v1/settings").json()["items"] == before["items"]
+
+
+class TestTheSuiteShape:
+    """The second rendering the body carries (ADR-0102): LoadCoach's and PromptCadence's shape.
+
+    ``items`` keeps its own vocabulary unchanged — it is deprecated, not rewritten — so these
+    assertions are about ``settings`` and ``definitions`` only.
+    """
+
+    def test_the_document_names_the_configured_value_the_row_and_which_is_effective(
+        self, client: TestClient
+    ) -> None:
+        body = client.put(
+            "/api/v1/settings", json={"changes": {"telemetry.interval_ms": 2000}}
+        ).json()
+
+        assert body["settings"]["telemetry.interval_ms"] == 2000  # noqa: PLR2004
+        definition = body["definitions"]["telemetry.interval_ms"]
+        assert definition["stored"] == 2000  # noqa: PLR2004
+        assert definition["source"] == "database"
+        assert definition["shadowed_by"] is None
+        assert definition["configured"] == 1000, "the file's value, not the applied one"  # noqa: PLR2004
+        assert definition["type"] == "int" and definition["unit"] == "ms"
+        assert definition["env_var"] == "FREEWEIGHT_TELEMETRY__INTERVAL_MS"
+
+    def test_a_key_with_no_row_reports_configuration_and_no_stored_value(
+        self, client: TestClient
+    ) -> None:
+        definition = client.get("/api/v1/settings").json()["definitions"]["execution.seed"]
+
+        assert definition["source"] == "configuration"
+        assert definition["stored"] is None
+        assert definition["shadowed_by"] is None
+
+    def test_a_shadowed_row_is_reported_as_shadowed_and_not_as_the_value(
+        self, workspace: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The same fact ``items`` reports as ``overridden_by_env``, in the suite's vocabulary."""
+        loaded = load_settings(config_path=workspace / "missing.toml")
+        with TestClient(create_app(loaded.settings), base_url="http://127.0.0.1") as client:
+            client.put("/api/v1/settings", json={"changes": {"telemetry.interval_ms": 2000}})
+
+        monkeypatch.setenv("FREEWEIGHT_TELEMETRY__INTERVAL_MS", "500")
+        reloaded = load_settings(config_path=workspace / "missing.toml")
+        with TestClient(create_app(reloaded.settings), base_url="http://127.0.0.1") as client:
+            body = client.get("/api/v1/settings").json()
+
+        assert body["settings"]["telemetry.interval_ms"] == 500  # noqa: PLR2004
+        definition = body["definitions"]["telemetry.interval_ms"]
+        assert definition["stored"] == 2000, "the row is kept and shown, not discarded"  # noqa: PLR2004
+        assert definition["source"] == "configuration"
+        assert definition["shadowed_by"] == "env FREEWEIGHT_TELEMETRY__INTERVAL_MS"
+
+    def test_both_renderings_answer_for_the_same_keys(self, client: TestClient) -> None:
+        body = client.get("/api/v1/settings").json()
+
+        assert {item["key"] for item in body["items"]} == set(body["settings"])
+        assert set(body["definitions"]) == set(body["settings"])
+        assert set(body["settings"]) == {setting.key for setting in RUNTIME_SETTINGS}
