@@ -5,6 +5,8 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
 [Semantic Versioning](https://semver.org/), pre-1.0 per
 packaging and release standards §3.
 
+## [Unreleased]
+
 ## [1.1.0] — 2026-09-06
 
 FreeWeight 1.1: **LA3** — GGUF weights served through a llama.cpp server FreeWeight supervises, an
