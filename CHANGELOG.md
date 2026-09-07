@@ -7,6 +7,12 @@ packaging and release standards §3.
 
 ## [Unreleased]
 
+### Added
+
+- A `## Compatibility` table in `README.md` listing every declared suite package range
+  from `pyproject.toml`, and `tests/unit/test_readme_compatibility.py` asserting the two
+  cannot drift (M9 audit Group 5, item R3).
+
 ## [1.1.0] — 2026-09-06
 
 FreeWeight 1.1: **LA3** — GGUF weights served through a llama.cpp server FreeWeight supervises, an

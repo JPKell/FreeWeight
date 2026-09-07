@@ -33,6 +33,20 @@ freeweight health --json     # same health data the API reports, from the CLI
 freeweight --help
 ```
 
+## Compatibility
+
+Declared version ranges from `pyproject.toml` — kept from drifting by
+`tests/unit/test_readme_compatibility.py`, which parses the file and fails if this table disagrees:
+
+| Package | Range |
+|---|---|
+| `baseaicore` | `>=0.4.2,<0.5` |
+| `weightsdb` | `>=0.2,<0.3` |
+| `mirrorwall` | `>=0.2,<0.3` |
+| `setspec` | `>=0.6,<0.7` |
+| `modelrack` | `>=0.7,<0.8` |
+| `sweatmeter` | `>=0.4,<0.5` |
+
 ## Documentation
 
 Project documentation lives under [`docs/`](docs/README.md). Start with [`docs/README.md`](docs/README.md).
