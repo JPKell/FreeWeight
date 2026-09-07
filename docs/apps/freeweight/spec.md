@@ -1,7 +1,8 @@
 # FreeWeight — Specification
 
 **Type:** Application · **Import/distribution name:** `freeweight` · **Default port:** 8765 · **Env prefix:** `FREEWEIGHT_`
-**Status:** Specified, not implemented. Corrected 2026-08-21 by the
+**Status:** Implemented through Phase 15. `freeweight 1.0.0` is published; `1.1.0` — the adapter
+arc's LA3 half — is committed and prepared. Corrected 2026-08-21 by the
 [final architecture audit](../../reviews/final_architecture_audit.md) (ADR-0022, ADR-0024, ADR-0026–0028).
 Extended 2026-08-26 with user-defined goal benchmarks ([ADR-0031](../../adr/0031-user-defined-goal-benchmarks.md),
 [ADR-0032](../../adr/0032-judge-validity-and-user-capability-namespace.md)).
