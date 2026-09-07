@@ -20,6 +20,12 @@ ollama serve
 ollama pull llama3.1:8b
 ```
 
+SQLite needs nothing further; PostgreSQL needs the optional extra — `pip install
+freeweight[postgres]`. Packaging standards §10 and the other three applications spell it
+`postgres`; that is the canonical name here too. `freeweight[postgresql]` still works (FreeWeight
+shipped it first, so it stays as an alias with identical contents), but new documentation and
+scripts should use `postgres`.
+
 ## Your first benchmark
 
 From the UI: open **Models**, click **Discover** (this asks Ollama what it has and records each

@@ -67,6 +67,12 @@ dependencies = [
 postgresql = [
     "psycopg[binary]>=3.2,<4",
 ]
+# Packaging standards §10 and the other three applications spell this extra `postgres`; kept as an
+# alias with identical contents rather than a rename, since `postgresql` is what FreeWeight has
+# shipped since 1.0. `docs/quickstart.md` documents `postgres` as the canonical spelling.
+postgres = [
+    "psycopg[binary]>=3.2,<4",
+]
 # Pinned to the majors this repository's gate is actually verified against. They were previously
 # a major behind on four of the seven, so CI installed a different toolchain than any developer
 # ran — and a mypy 1 / mypy 2 disagreement is exactly the kind of thing that turns up as a red

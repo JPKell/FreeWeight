@@ -206,3 +206,9 @@ jobs:
         with: { name: dist, path: dist/ }
       - run: pip install dist/*.whl
       - run: python -c "import freeweight"
+      - run: freeweight --version
+      - run: python -m freeweight --version
+      # Packaging standards §10: the optional postgres extra must resolve and install
+      # cleanly from the built wheel too, not only from an editable source checkout.
+      - run: pip install "$(ls dist/*.whl)[postgres]"
+      - run: pipx install dist/*.whl && freeweight --version
