@@ -9,6 +9,9 @@ packaging and release standards §3.
 
 ### Added
 
+- `.github/workflows/release.yml` now writes `SHA256SUMS` over `dist/*` and attaches it
+  alongside the wheel and sdist on the GitHub release (M9 audit Group 5, item R4).
+
 - A `## Compatibility` table in `README.md` listing every declared suite package range
   from `pyproject.toml`, and `tests/unit/test_readme_compatibility.py` asserting the two
   cannot drift (M9 audit Group 5, item R3).
