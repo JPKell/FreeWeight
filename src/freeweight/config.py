@@ -56,6 +56,7 @@ __all__ = [
     "TelemetrySettings",
     "config_dir",
     "data_dir",
+    "env_var_for",
     "prompt_override_dir",
     "load_settings",
     "resolve_config_path",
@@ -1186,6 +1187,30 @@ def _validate_security(settings: Settings) -> None:
             )
 
 
+def env_var_for(path: str) -> str:
+    """The environment variable that sets the leaf at dotted ``path``.
+
+    One spelling, shared by the loader's source tracking, the generated configuration reference
+    and :attr:`freeweight.services.settings.RuntimeSetting.env_var`, so no two of them can
+    disagree about which variable pins a key — the name is what an operator reads in a refusal.
+
+    Args:
+        path: A dotted ``section.field`` path, as :attr:`LoadedSettings.sources` keys them.
+
+    Returns:
+        The full variable name, prefix included — ``telemetry.interval_ms`` is
+        ``FREEWEIGHT_TELEMETRY__INTERVAL_MS``.
+
+    Raises:
+        ValueError: ``path`` names no field (no ``.`` in it).
+    """
+    section, _, field_name = path.partition(".")
+    if not field_name:
+        message = f"{path!r} is not a section.field path"
+        raise ValueError(message)
+    return f"{ENV_PREFIX}{section.upper()}__{field_name.upper().replace('.', '__')}"
+
+
 def _track_sources(
     file_data: dict[str, Any], env_data: dict[str, Any], cli_data: dict[str, Any]
 ) -> dict[str, str]:
@@ -1200,8 +1225,7 @@ def _track_sources(
             if section_name in cli_data and field_name in cli_data[section_name]:
                 sources[path] = "cli"
             elif section_name in env_data and field_name in env_data[section_name]:
-                env_key = f"{ENV_PREFIX}{section_name.upper()}__{field_name.upper()}"
-                sources[path] = f"env {env_key}"
+                sources[path] = f"env {env_var_for(path)}"
             elif section_name in file_data and field_name in file_data[section_name]:
                 sources[path] = "file"
             else:

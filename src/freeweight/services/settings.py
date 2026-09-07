@@ -27,7 +27,7 @@ from typing import TYPE_CHECKING, Any, ClassVar
 
 from baseaicore import SuiteError, ValidationError, utc_now
 
-from freeweight.config import ENV_PREFIX, Settings
+from freeweight.config import Settings, env_var_for
 
 if TYPE_CHECKING:
     from datetime import datetime
@@ -105,7 +105,7 @@ class RuntimeSetting:
     @property
     def env_var(self) -> str:
         """The environment variable that overrides this setting."""
-        return f"{ENV_PREFIX}{self.section.upper()}__{self.field.upper()}"
+        return env_var_for(self.key)
 
 
 RUNTIME_SETTINGS: tuple[RuntimeSetting, ...] = (

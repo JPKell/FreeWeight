@@ -34,7 +34,7 @@ sys.path.insert(0, str(REPO_ROOT / "src"))
 from pydantic import BaseModel  # noqa: E402
 from pydantic_core import PydanticUndefined  # noqa: E402
 
-from freeweight.config import ENV_PREFIX, Settings  # noqa: E402
+from freeweight.config import Settings, env_var_for  # noqa: E402
 from freeweight.services.settings import CONFIG_ONLY_KEYS, RUNTIME_SETTINGS  # noqa: E402
 
 _RUNTIME_KEYS = frozenset(setting.key for setting in RUNTIME_SETTINGS)
@@ -157,7 +157,7 @@ def _rows(section_name: str, model: type[BaseModel]) -> list[str]:
             raise SystemExit(f"{key} has no description; add one to the settings model.")
         if not field.examples:
             raise SystemExit(f"{key} has no example; add one to the settings model.")
-        env = f"`{ENV_PREFIX}{section_name.upper()}__{field_name.upper()}`"
+        env = f"`{env_var_for(f'{section_name}.{field_name}')}`"
         description = field.description.replace("|", "\\|")
         rows.append(
             f"| `{key}` | {env} | {_type_name(field.annotation)} | {_default(field)} | "
