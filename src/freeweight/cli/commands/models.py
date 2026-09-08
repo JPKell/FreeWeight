@@ -13,74 +13,19 @@ httpx (CLI Standards §12).
 from __future__ import annotations
 
 import json
-from collections.abc import Iterator
-from contextlib import contextmanager
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Annotated
 
 import typer
 
-if TYPE_CHECKING:
-    from modelrack.provider import Provider
+from freeweight.cli._backend import build_provider_or_exit, open_database
 
-    from freeweight.services.database import Database
+if TYPE_CHECKING:
+    pass
 
 __all__ = ["app"]
 
 app = typer.Typer(help="Model discovery and inspection.")
-
-
-@contextmanager
-def _open_database(config: str | None) -> Iterator[Database]:
-    """Resolve configuration and open one database handle for this command, or exit 3."""
-    from freeweight.config import ConfigurationError, load_settings
-    from freeweight.services.database import Database
-
-    try:
-        loaded = load_settings(config_path=config)
-    except ConfigurationError as exc:
-        typer.echo(f"Error: {exc.message} ({exc.code})", err=True)
-        raise typer.Exit(3) from exc
-    storage = loaded.settings.storage
-    if storage.database_url is None:  # pragma: no cover — StorageSettings always fills this in
-        typer.echo("Error: no database_url configured (CONFIGURATION_ERROR)", err=True)
-        raise typer.Exit(3)
-    with Database.from_url(
-        storage.database_url, statement_timeout_ms=storage.statement_timeout_ms
-    ) as database:
-        yield database
-
-
-@contextmanager
-def _open_backend(config: str | None) -> Iterator[tuple[Database, Provider]]:
-    """Resolve configuration, open the database and build the provider, or exit 3.
-
-    For the two commands that reach the provider (``show``'s fallback resolve, and ``refresh``).
-    ``list`` uses :func:`_open_database` alone — it never touches the provider, matching
-    :mod:`freeweight.services.models`'s own no-live-probe design for reading the model list.
-    """
-    from freeweight.config import ConfigurationError, load_settings
-    from freeweight.infrastructure.providers.factory import build_provider
-    from freeweight.services.database import Database
-
-    try:
-        loaded = load_settings(config_path=config)
-    except ConfigurationError as exc:
-        typer.echo(f"Error: {exc.message} ({exc.code})", err=True)
-        raise typer.Exit(3) from exc
-    storage = loaded.settings.storage
-    if storage.database_url is None:  # pragma: no cover — StorageSettings always fills this in
-        typer.echo("Error: no database_url configured (CONFIGURATION_ERROR)", err=True)
-        raise typer.Exit(3)
-    try:
-        provider = build_provider(loaded.settings.provider, adapters=loaded.settings.adapters)
-    except ConfigurationError as exc:
-        typer.echo(f"Error: {exc.message} ({exc.code})", err=True)
-        raise typer.Exit(3) from exc
-    with Database.from_url(
-        storage.database_url, statement_timeout_ms=storage.statement_timeout_ms
-    ) as database:
-        yield database, provider
 
 
 _ConfigOption = Annotated[str | None, typer.Option("--config", help="Path to a config.toml file.")]
@@ -99,7 +44,7 @@ def list_models(config: _ConfigOption = None, json_output: _JsonOption = False) 
 
     from freeweight.services.models import get_last_discovery, list_models_with_latest_descriptor
 
-    with _open_database(config) as database:
+    with open_database(config) as (_settings, database):
         try:
             models = list_models_with_latest_descriptor(database)
             last_discovery = get_last_discovery(database)
@@ -182,7 +127,8 @@ def show(
 
     from freeweight.services.models import get_model_detail
 
-    with _open_backend(config) as (database, provider):
+    with open_database(config) as (settings, database):
+        provider = build_provider_or_exit(settings)
         try:
             detail = get_model_detail(database, provider, reference, now=datetime.now(UTC))
         except (ModelNotFound, ValidationError) as exc:
@@ -254,7 +200,8 @@ def refresh(config: _ConfigOption = None, json_output: _JsonOption = False) -> N
 
     from freeweight.services.models import discover_models
 
-    with _open_backend(config) as (database, provider):
+    with open_database(config) as (settings, database):
+        provider = build_provider_or_exit(settings)
         try:
             outcome = discover_models(database, provider, now=datetime.now(UTC))
         except ProviderError as exc:

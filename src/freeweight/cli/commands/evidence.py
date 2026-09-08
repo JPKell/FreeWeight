@@ -12,15 +12,14 @@ Every heavy import is inside a command body (CLI standards §12).
 from __future__ import annotations
 
 import json
-from collections.abc import Iterator
-from contextlib import contextmanager
 from typing import TYPE_CHECKING, Annotated, Any
 
 import typer
 
+from freeweight.cli._backend import open_database
+
 if TYPE_CHECKING:
-    from freeweight.config import Settings
-    from freeweight.services.database import Database
+    pass
 
 __all__ = ["app"]
 
@@ -44,27 +43,6 @@ _MinConfidenceOption = Annotated[
 _JsonOption = Annotated[bool, typer.Option("--json", help="Print JSON instead of text.")]
 
 _ID_PREFIX_CHARS = 8
-
-
-@contextmanager
-def _open(config: str | None) -> Iterator[tuple[Settings, Database]]:
-    """Resolve configuration and open the database, or exit 3."""
-    from freeweight.config import ConfigurationError, load_settings
-    from freeweight.services.database import Database
-
-    try:
-        loaded = load_settings(config_path=config)
-    except ConfigurationError as exc:
-        typer.echo(f"Error: {exc.message} ({exc.code})", err=True)
-        raise typer.Exit(3) from exc
-    storage = loaded.settings.storage
-    if storage.database_url is None:  # pragma: no cover — StorageSettings always fills this in
-        typer.echo("Error: no database_url configured (CONFIGURATION_ERROR)", err=True)
-        raise typer.Exit(3)
-    with Database.from_url(
-        storage.database_url, statement_timeout_ms=storage.statement_timeout_ms
-    ) as database:
-        yield loaded.settings, database
 
 
 def _exit_for(exc: Exception) -> typer.Exit:
@@ -144,7 +122,7 @@ def show(  # noqa: PLR0913 — the documented filter set, one option each
         staleness_of,
     )
 
-    with _open(config) as (settings, database):
+    with open_database(config) as (settings, database):
         try:
             if recompute:
                 _print_report(recompute_evidence(database, settings=settings.evidence))
@@ -278,7 +256,7 @@ def export(  # noqa: PLR0913 — the documented parameter set, one option each
         since=instant,
     )
     destination = Path(output) if output else None
-    with _open(config) as (_settings, database):
+    with open_database(config) as (_settings, database):
         try:
             stream = iter_evidence_export(database, query)
             if destination is None:

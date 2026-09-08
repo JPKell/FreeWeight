@@ -136,9 +136,8 @@ class ServerSettings(BaseModel):
 class StorageSettings(BaseModel):
     """Database and artifact locations.
 
-    Phase 2 is the first phase that opens the database this describes; the fields exist now so
-    ``config show``/``config init`` present the full, honest picture of what a fresh install would
-    use, per Configuration Standards §5.
+    ``config show``/``config init`` present the full picture of what a fresh install would use,
+    per Configuration Standards §5.
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -448,12 +447,9 @@ class ExecutionSettings(BaseModel):
     own ``effective_config`` and freezes that into the run record, so changing a default here
     never retroactively changes what an existing run says it did.
 
-    Phase 5 reads ``warmup_repetitions``, ``measured_repetitions``, ``test_timeout_seconds``,
-    ``run_timeout_seconds``, ``randomize_case_order`` and ``seed``. The idle-detection group and
-    ``cooldown_seconds`` are declared here because they belong to this section in the spec and
-    because a configuration key that appears one phase later is a configuration key users write
-    into a file and have silently rejected in the meantime (``extra="forbid"``); they take effect
-    at Phase 6, which is where the idle-detection outcome of spec §13 is implemented.
+    The scheduler reads ``warmup_repetitions``, ``measured_repetitions``, ``test_timeout_seconds``,
+    ``run_timeout_seconds``, ``randomize_case_order`` and ``seed``; the idle-detection group and
+    ``cooldown_seconds`` drive the idle-detection outcome of spec §13.
     """
 
     model_config = ConfigDict(extra="forbid")

@@ -25,15 +25,14 @@ reason (spec §15).
 from __future__ import annotations
 
 import json
-from collections.abc import Iterator
-from contextlib import contextmanager
 from typing import TYPE_CHECKING, Annotated, Any
 
 import typer
 
+from freeweight.cli._backend import open_database
+
 if TYPE_CHECKING:
     from freeweight.services.comparison import Comparison
-    from freeweight.services.database import Database
 
 __all__ = ["app"]
 
@@ -43,27 +42,6 @@ _ConfigOption = Annotated[str | None, typer.Option("--config", help="Path to a c
 
 _MINIMUM_SUBJECTS = 2
 _ID_PREFIX_CHARS = 8
-
-
-@contextmanager
-def _open_database(config: str | None) -> Iterator[Database]:
-    """Resolve configuration and open the database, or exit 3."""
-    from freeweight.config import ConfigurationError, load_settings
-    from freeweight.services.database import Database
-
-    try:
-        loaded = load_settings(config_path=config)
-    except ConfigurationError as exc:
-        typer.echo(f"Error: {exc.message} ({exc.code})", err=True)
-        raise typer.Exit(3) from exc
-    storage = loaded.settings.storage
-    if storage.database_url is None:  # pragma: no cover — StorageSettings always fills this in
-        typer.echo("Error: no database_url configured (CONFIGURATION_ERROR)", err=True)
-        raise typer.Exit(3)
-    with Database.from_url(
-        storage.database_url, statement_timeout_ms=storage.statement_timeout_ms
-    ) as database:
-        yield database
 
 
 def _short(run_id: str) -> str:
@@ -219,7 +197,7 @@ def compare(
         )
         raise typer.Exit(2)
 
-    with _open_database(config) as database:
+    with open_database(config) as (_settings, database):
         try:
             comparison = compare_runs(database, resolve_subject_runs(database, runs, suite=suite))
             enforce_suite(comparison, suite)
@@ -302,7 +280,7 @@ def list_results(  # noqa: PLR0913 — the documented filter set, one option eac
         status=None if status == "any" else status,
         limit=limit,
     )
-    with _open_database(config) as database:
+    with open_database(config) as (_settings, database):
         try:
             page = query_results(database, query)
         except DatabaseError as exc:
@@ -357,7 +335,7 @@ def show(
 
     from freeweight.services.runs import get_run
 
-    with _open_database(config) as database:
+    with open_database(config) as (_settings, database):
         try:
             detail = get_run(database, run)
         except DatabaseError as exc:
@@ -526,7 +504,7 @@ def export(  # noqa: PLR0913 — the documented parameter set, one option each
         if value is None:
             return None
         try:
-            return datetime.fromisoformat(value.replace("Z", "+00:00"))
+            return datetime.fromisoformat(value)
         except ValueError as exc:
             typer.echo(
                 f"Error: {flag} must be an RFC 3339 instant, e.g. 2026-01-01T00:00:00Z. ({exc})",
@@ -557,7 +535,7 @@ def export(  # noqa: PLR0913 — the documented parameter set, one option each
         raise typer.Exit(2) from exc
 
     destination = Path(output) if output else None
-    with _open_database(config) as database:
+    with open_database(config) as (_settings, database):
         try:
             stream = iter_export(database, selection)
             if destination is None:

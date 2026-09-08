@@ -2,8 +2,9 @@
 
 Six tables, per [Data Model §2](../../../../../../docs/apps/freeweight/data-model.md): ``machines``,
 ``models``, ``model_descriptors``, ``runtime_profiles``, ``settings`` and ``api_tokens``. The
-run/sample/benchmark tables are deferred to Phase 5 and live in
-:mod:`freeweight.infrastructure.db.models_runs`, which stays an unimplemented stub until then.
+run/sample/benchmark tables live in :mod:`freeweight.infrastructure.db.models_runs`, the goal
+tables in :mod:`freeweight.infrastructure.db.models_goals` and capability evidence in
+:mod:`freeweight.infrastructure.db.models_evidence`; all share this module's ``Base``.
 
 These are ORM models only — mapping, constraints and indexes. They never leave the repository
 layer (coding standards §4); a service or route that needs one of these rows gets a plain value

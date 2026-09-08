@@ -1,8 +1,7 @@
 """freeweight.web.routes.system — health, version and the live telemetry surface.
 
 ``GET /version`` is never authenticated (ADR-0026 §5): version negotiation must work before a
-client can know whether its credential is valid. Authentication itself does not exist until a
-later phase, so today that is simply the router's default.
+client can know whether its credential is valid.
 
 ``GET /system/status`` and ``GET /system/telemetry/stream`` (Phase 4) read through
 ``request.app.state.telemetry`` — the one sampler the web lifespan starts for as long as the
@@ -151,13 +150,13 @@ def _queue_snapshot(scheduler: RunScheduler | None) -> tuple[str | None, int | N
 async def system_status(request: Request) -> dict[str, object]:
     """Return the live operational numbers the System page renders (Observability Standards §5).
 
-    ``active_run`` and ``queue_depth`` come from the run scheduler (Phase 5). Both are ``None``
+    ``active_run`` and ``queue_depth`` come from the run scheduler. Both are ``None``
     when the queue cannot be read at all — no scheduler, or a database that is behind head — and
     ``queue_depth`` is ``None`` rather than ``0`` in that case, because "no runs are waiting" and
     "I cannot see the queue" are different facts and only one of them is reassuring. The reason is
     already reported, component by component, at ``/health``. ``threadpool_saturation`` stays
-    honestly ``None``: there is no application-owned threadpool before Phase 12 adopts MirrorWall,
-    and a fabricated ``0`` would claim a measurement this build does not take.
+    honestly ``None``: this application owns no threadpool it can measure, and a fabricated ``0``
+    would claim a measurement this build does not take.
 
     Raises:
         DependencyUnavailableError: The telemetry sampler is not running — never true of a request

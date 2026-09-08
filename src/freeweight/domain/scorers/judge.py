@@ -298,7 +298,7 @@ def _transitivity(
     """
     groups = _grouped(trials)
     winners = {name: _winner(group) for name, group in groups.items()}
-    evidence["chain"] = {name: winner for name, winner in sorted(winners.items())}
+    evidence["chain"] = dict(sorted(winners.items()))
     best, middle, worst = expectation.ordering
     ab, bc, ac = winners.get("ab"), winners.get("bc"), winners.get("ac")
     if ab is None or bc is None or ac is None:

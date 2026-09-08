@@ -6,8 +6,7 @@ terminal executes in that terminal — which is what makes ``freeweight run star
 native.echo`` a complete demonstration of the engine on a machine where nothing else is running.
 
 CLI standards §6 says a command that mutates state a running server also owns is *client* mode
-when a server is up. That rule matters and is not yet implementable: FreeWeight has no HTTP client
-layer before Phase 10's tokens and no way to detect a peer. Until then ``start`` protects the
+when a server is up. FreeWeight has no way to detect a peer, so ``start`` protects the
 invariant the rule exists to protect — one GPU workload at a time — through the claim itself:
 :meth:`~freeweight.infrastructure.db.repositories.runs.RunRepository.claim_next_queued` refuses
 while any run is in flight, whichever process holds it, so this command queues the run and reports
@@ -28,14 +27,13 @@ from __future__ import annotations
 
 import json
 import time
-from collections.abc import Iterator
-from contextlib import contextmanager
 from typing import TYPE_CHECKING, Annotated, Any
 
 import typer
 
+from freeweight.cli._backend import build_provider_or_exit, open_database
+
 if TYPE_CHECKING:
-    from modelrack.provider import Provider
     from sweatmeter import TelemetryCollector
 
     from freeweight.config import Settings
@@ -47,29 +45,6 @@ app = typer.Typer(help="Start, inspect and cancel benchmark runs.")
 
 _TERMINAL_STATUSES = frozenset({"completed", "failed", "cancelled", "interrupted"})
 _SUCCESS_STATUSES = frozenset({"completed"})
-
-
-@contextmanager
-def _open_backend(config: str | None) -> Iterator[tuple[Settings, Database, Provider]]:
-    """Resolve configuration, open the database and build the provider, or exit 3."""
-    from freeweight.config import ConfigurationError, load_settings
-    from freeweight.infrastructure.providers.factory import build_provider
-    from freeweight.services.database import Database
-
-    try:
-        loaded = load_settings(config_path=config)
-        provider = build_provider(loaded.settings.provider, adapters=loaded.settings.adapters)
-    except ConfigurationError as exc:
-        typer.echo(f"Error: {exc.message} ({exc.code})", err=True)
-        raise typer.Exit(3) from exc
-    storage = loaded.settings.storage
-    if storage.database_url is None:  # pragma: no cover — StorageSettings always fills this in
-        typer.echo("Error: no database_url configured (CONFIGURATION_ERROR)", err=True)
-        raise typer.Exit(3)
-    with Database.from_url(
-        storage.database_url, statement_timeout_ms=storage.statement_timeout_ms
-    ) as database:
-        yield loaded.settings, database, provider
 
 
 def _collector() -> TelemetryCollector:
@@ -244,7 +219,8 @@ def start(  # noqa: PLR0913 — every parameter is a documented run option, not 
         )
         raise typer.Exit(2)
 
-    with _open_backend(config) as (settings, database, provider):
+    with open_database(config) as (settings, database):
+        provider = build_provider_or_exit(settings)
         registry = build_registry_for(settings)
         # One collector for the whole command: the run is created against the machine it profiles
         # and executed with telemetry sampled from the same instrument.
@@ -492,7 +468,7 @@ def list_command(
 
     from freeweight.services.runs import list_runs
 
-    with _open_backend(config) as (_settings, database, _provider):
+    with open_database(config) as (_settings, database):
         try:
             runs = list_runs(database, status=status_filter, limit=limit)
         except DatabaseError as exc:
@@ -527,7 +503,7 @@ def show(
 
     from freeweight.services.runs import get_run
 
-    with _open_backend(config) as (_settings, database, _provider):
+    with open_database(config) as (_settings, database):
         try:
             detail = get_run(database, run_id)
         except SuiteError as exc:
@@ -636,7 +612,8 @@ def repeat(  # noqa: PLR0913 — every parameter is a documented option, not inc
     from freeweight.services.runs import build_registry_for, get_run, repeat_run
     from freeweight.services.scheduler import RunScheduler
 
-    with _open_backend(config) as (settings, database, provider):
+    with open_database(config) as (settings, database):
+        provider = build_provider_or_exit(settings)
         registry = build_registry_for(settings)
         collector = _collector()
         try:
@@ -751,7 +728,7 @@ def cancel(
     from freeweight.services.events import RunEventPublisher
     from freeweight.services.runs import cancel_run
 
-    with _open_backend(config) as (_settings, database, _provider):
+    with open_database(config) as (_settings, database):
         try:
             summary = cancel_run(database, RunEventPublisher(database), run_id)
         except SuiteError as exc:
@@ -791,7 +768,7 @@ def wait(
     from freeweight.services.events import RunEventPublisher
     from freeweight.services.runs import cancel_run, get_run
 
-    with _open_backend(config) as (_settings, database, _provider):
+    with open_database(config) as (_settings, database):
         try:
             summary = get_run(database, run_id).run
         except SuiteError as exc:

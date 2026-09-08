@@ -262,12 +262,11 @@ class JuryService:
         """Poll every juror for one criterion, every repetition."""
         if not self.jurors:
             return combine_verdicts(criterion, ())
-        verdicts: list[JurorVerdict] = []
-        for ordinal, juror in enumerate(self.jurors):
-            for repetition in range(1, self.repetitions + 1):
-                verdicts.append(
-                    self._poll(criterion, response_text, case, juror, ordinal, repetition)
-                )
+        verdicts = [
+            self._poll(criterion, response_text, case, juror, ordinal, repetition)
+            for ordinal, juror in enumerate(self.jurors)
+            for repetition in range(1, self.repetitions + 1)
+        ]
         return combine_verdicts(criterion, verdicts)
 
     def _poll(  # noqa: PLR0913 — one verdict needs its whole context

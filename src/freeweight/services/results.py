@@ -341,12 +341,12 @@ def _base_statement(session: Session, query: ResultsQuery) -> Any:  # noqa: ANN4
     if query.until is not None:
         statement = statement.where(Run.created_at < query.until)
     if query.model:
-        model_id = _resolve_model_id(session, query.model)
+        model_id = resolve_model_id(session, query.model)
         statement = statement.where(Run.model_id == model_id)
     return statement
 
 
-def _resolve_model_id(session: Session, reference: str) -> str:
+def resolve_model_id(session: Session, reference: str) -> str:
     """Resolve a model reference to a ``models.id``, or refuse by name.
 
     Accepts the same four forms every other surface does — canonical ID, ULID, unambiguous ULID
@@ -493,7 +493,7 @@ def latest_completed_run(database: Database, *, model_reference: str, suite_key:
     from freeweight.infrastructure.db.models_runs import BenchmarkSuite, Run
 
     with _translated(), database.read() as session:
-        model_id = _resolve_model_id(session, model_reference)
+        model_id = resolve_model_id(session, model_reference)
         return session.scalars(
             select(Run.id)
             .join(BenchmarkSuite, BenchmarkSuite.id == Run.suite_id)
@@ -558,7 +558,7 @@ def resolve_subject_runs(
 
 def _model_subject(database: Database, session: Session, reference: str, suite: str | None) -> str:
     """Resolve one subject that is not a run: it must be a model, and it needs a suite."""
-    _resolve_model_id(session, reference)
+    resolve_model_id(session, reference)
     if not suite:
         raise ValidationError(
             f"{reference!r} names a model, so the comparison needs a suite: add "
@@ -954,7 +954,7 @@ def _summary_cards(session: Session, filter_: DashboardFilter) -> SummaryCards:
     if filter_.machine:
         runs = runs.where(Machine.machine_fingerprint == filter_.machine)
     if filter_.model:
-        runs = runs.where(Run.model_id == _resolve_model_id(session, filter_.model))
+        runs = runs.where(Run.model_id == resolve_model_id(session, filter_.model))
     run_ids = runs.subquery()
 
     completed = session.execute(select(func.count()).select_from(run_ids)).scalar_one()

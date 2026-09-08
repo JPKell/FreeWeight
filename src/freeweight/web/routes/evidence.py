@@ -20,10 +20,9 @@ function, and render.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime
 from typing import TYPE_CHECKING, Annotated, Any
 
-from baseaicore import SuiteError, ValidationError, from_rfc3339, utc_now
+from baseaicore import SuiteError, utc_now
 from fastapi import APIRouter, Query, Request, Response
 from fastapi.responses import HTMLResponse
 from weightsdb import DatabaseError
@@ -40,6 +39,7 @@ from freeweight.services.evidence import (
     query_evidence,
     staleness_of,
 )
+from freeweight.web.query import parse_instant
 from freeweight.web.rendering import render
 
 if TYPE_CHECKING:
@@ -82,23 +82,6 @@ class _Row:
 
     record: EvidenceRecord
     staleness: Staleness
-
-
-def _instant(value: str | None, *, field: str) -> datetime | None:
-    """Parse an RFC 3339 query parameter, or refuse it by name.
-
-    Raises:
-        ValidationError: The value is not RFC 3339.
-    """
-    if not value:
-        return None
-    try:
-        return from_rfc3339(value)
-    except Exception as exc:  # noqa: BLE001 — every parse failure is one validation error
-        raise ValidationError(
-            f"{field} must be an RFC 3339 instant, such as 2026-08-28T00:00:00Z; got {value!r}.",
-            details={"field": field, "value": value},
-        ) from exc
 
 
 @api_router.get("/evidence", summary="List capability evidence")
@@ -194,7 +177,7 @@ def export_evidence(  # noqa: PLR0913 — every argument is a documented query p
             machine=machine,
             runtime_profile=runtime_profile,
             min_confidence=min_confidence,
-            since=_instant(since, field="since"),
+            since=parse_instant(since, field="since"),
         ),
     )
     return Response(

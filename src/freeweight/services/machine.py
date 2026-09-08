@@ -8,12 +8,12 @@ enumerating GPUs — for nothing.
 
 from __future__ import annotations
 
-import json
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any
 
-from baseaicore import canonical_json, is_supported, utc_now
+from baseaicore import is_supported, utc_now
 
 from freeweight.infrastructure.db.repositories.machines import MachineRepository
+from freeweight.services._json import canonical_dict
 
 if TYPE_CHECKING:
     from baseaicore import GpuProfile, MachineProfile, Measurement, StorageDevice
@@ -35,18 +35,9 @@ def _optional_int(value: Measurement) -> int | None:
     return int(value) if is_supported(value) else None
 
 
-def _canonical_dict(value: object) -> dict[str, Any]:
-    """Round-trip a structure through canonical JSON into a plain, JSON-safe ``dict``.
-
-    ``json.loads`` is typed to return ``Any``; the cast is safe because :func:`canonical_json`
-    only ever produces a JSON object at the top level for the mapping inputs this module passes it.
-    """
-    return cast("dict[str, Any]", json.loads(canonical_json(value)))
-
-
 def _gpu_json(gpu: GpuProfile) -> dict[str, Any]:
     """Render one GPU's static identity as JSON, ``UNSUPPORTED`` fields included honestly."""
-    return _canonical_dict(
+    return canonical_dict(
         {
             "index": gpu.index,
             "name": gpu.name,
@@ -62,7 +53,7 @@ def _gpu_json(gpu: GpuProfile) -> dict[str, Any]:
 
 def _storage_json(device: StorageDevice) -> dict[str, Any]:
     """Render one storage device as JSON, ``UNSUPPORTED`` fields included honestly."""
-    return _canonical_dict(
+    return canonical_dict(
         {
             "name": device.name,
             "size_bytes": device.size_bytes,

@@ -16,16 +16,16 @@ against the event store).
 
 from __future__ import annotations
 
-import json
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any
 
-from baseaicore import UnsupportedPlatformError, canonical_json, new_id, utc_now
+from baseaicore import UnsupportedPlatformError, new_id, utc_now
 from baseaicore.timeutil import to_rfc3339
 from setspec.envelope import GeneratorInfo, SchemaVersion, dump_envelope
 from sweatmeter import TelemetryCollector, TelemetrySampler
 from sweatmeter.platform import NullHostReader, create_host_reader
 
 from freeweight.__about__ import __version__
+from freeweight.services._json import canonical_dict
 
 if TYPE_CHECKING:
     from baseaicore import MachineProfile
@@ -63,18 +63,9 @@ def build_collector() -> TelemetryCollector:
     return TelemetryCollector(host=host)
 
 
-def _canonical_dict(value: object) -> dict[str, Any]:
-    """Round-trip a structure through canonical JSON into a plain, JSON-safe ``dict``.
-
-    ``json.loads`` is typed to return ``Any``; the cast is safe because :func:`canonical_json`
-    only ever produces a JSON object at the top level for the mapping inputs this module passes it.
-    """
-    return cast("dict[str, Any]", json.loads(canonical_json(value)))
-
-
 def _gpu_json(gpu: GpuSample) -> dict[str, Any]:
     """Render one live GPU sample as JSON, ``UNSUPPORTED`` fields included honestly."""
-    return _canonical_dict(
+    return canonical_dict(
         {
             "index": gpu.index,
             "uuid": gpu.uuid,
@@ -109,7 +100,7 @@ def snapshot_to_json(snapshot: TelemetrySnapshot) -> dict[str, Any]:
         A JSON-safe mapping: every host field, the ``gpus`` list, and ``unavailable_reasons`` for
         the fields that could not be read this sample.
     """
-    return _canonical_dict(
+    return canonical_dict(
         {
             "timestamp": snapshot.timestamp,
             "cpu_percent": snapshot.cpu_percent,

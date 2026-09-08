@@ -15,11 +15,11 @@ in SQLAlchemy or ModelRack (CLI Standards §12).
 from __future__ import annotations
 
 import json
-from collections.abc import Iterator
-from contextlib import contextmanager
 from typing import TYPE_CHECKING, Annotated, Any
 
 import typer
+
+from freeweight.cli._backend import open_database
 
 if TYPE_CHECKING:
     from freeweight.infrastructure.adapters import AdapterEntry
@@ -31,27 +31,6 @@ app = typer.Typer(help="Inspect the LoRA adapters this installation can measure 
 
 _ConfigOption = Annotated[str | None, typer.Option("--config", help="Configuration file path.")]
 _JsonOption = Annotated[bool, typer.Option("--json", help="Emit JSON instead of text.")]
-
-
-@contextmanager
-def _open(config: str | None) -> Iterator[tuple[Database, object]]:
-    """Resolve configuration and open one database handle, or exit 3."""
-    from freeweight.config import ConfigurationError, load_settings
-    from freeweight.services.database import Database
-
-    try:
-        loaded = load_settings(config_path=config)
-    except ConfigurationError as exc:
-        typer.echo(f"Error: {exc.message} ({exc.code})", err=True)
-        raise typer.Exit(3) from exc
-    storage = loaded.settings.storage
-    if storage.database_url is None:  # pragma: no cover — StorageSettings always fills this in
-        typer.echo("Error: no database_url configured (CONFIGURATION_ERROR)", err=True)
-        raise typer.Exit(3)
-    with Database.from_url(
-        storage.database_url, statement_timeout_ms=storage.statement_timeout_ms
-    ) as database:
-        yield database, loaded.settings.adapters
 
 
 @app.command("list")
@@ -70,9 +49,10 @@ def list_command(config: _ConfigOption = None, json_output: _JsonOption = False)
 
     from freeweight.services.adapters import adapter_overview
 
-    with _open(config) as (database, adapters):
+    with open_database(config) as (settings, database):
+        adapters = settings.adapters
         try:
-            overview = adapter_overview(database, adapters)  # type: ignore[arg-type]  # AdapterSettings
+            overview = adapter_overview(database, adapters)
         except SuiteError as exc:
             typer.echo(f"Error: {exc.message} ({exc.code})", err=True)
             raise typer.Exit(3) from exc
@@ -134,9 +114,10 @@ def show(
 
     from freeweight.services.adapters import adapter_overview
 
-    with _open(config) as (database, adapters):
+    with open_database(config) as (settings, database):
+        adapters = settings.adapters
         try:
-            overview = adapter_overview(database, adapters)  # type: ignore[arg-type]  # AdapterSettings
+            overview = adapter_overview(database, adapters)
         except SuiteError as exc:
             typer.echo(f"Error: {exc.message} ({exc.code})", err=True)
             raise typer.Exit(3) from exc
@@ -157,7 +138,7 @@ def show(
     }
     panel = None
     if model is not None:
-        with _open(config) as (database, _adapters):
+        with open_database(config) as (_settings, database):
             panel = _panel_for(database, model, entry)
         payload["subject"] = panel.as_json()
 

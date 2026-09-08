@@ -15,6 +15,8 @@ from typing import Annotated, Any
 
 import typer
 
+from freeweight.cli._backend import load_settings_or_exit
+
 __all__ = ["app"]
 
 app = typer.Typer(help="Inspect the models eligible to judge, and dry-run a jury.")
@@ -27,19 +29,6 @@ _ConfigOption = Annotated[
 _EXIT_CONFIGURATION = 3
 _EXIT_DEPENDENCY = 4
 _EXIT_OPERATION_FAILED = 5
-
-
-def _settings(config: str | None) -> Any:  # noqa: ANN401 — freeweight.config.Settings
-    """Resolve configuration, or exit 3."""
-    from baseaicore import ConfigurationError
-
-    from freeweight.config import load_settings
-
-    try:
-        return load_settings(config_path=config).settings
-    except ConfigurationError as exc:
-        typer.echo(f"Error: {exc.message} ({exc.code})", err=True)
-        raise typer.Exit(_EXIT_CONFIGURATION) from exc
 
 
 def _installed(settings: Any) -> list[str]:  # noqa: ANN401 — freeweight.config.Settings
@@ -77,7 +66,7 @@ def list_judges(
     """
     from freeweight.domain.judging import JUDGE_SUITE_KEY, eligible_jurors
 
-    settings = _settings(config)
+    settings = load_settings_or_exit(config)
     available = _installed(settings)
     verdicts = eligible_jurors(
         available,
@@ -140,7 +129,7 @@ def validate(
     from freeweight.domain.jury import assemble_jury
     from freeweight.services.goals import get_goal
 
-    settings = _settings(config)
+    settings = load_settings_or_exit(config)
     available = _installed(settings)
     jury_size = settings.judge.jury_size
     requested = list(settings.judge.models)

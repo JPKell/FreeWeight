@@ -238,13 +238,12 @@ class Criterion:
                 details={"criterion": key, "weight": weight},
             )
         rule = body.get("rule")
-        if rule is not None:
-            if not isinstance(rule, dict) or not str(rule.get("type", "")):
-                raise GoalPackInvalid(
-                    f"Criterion {key!r} declares a 'rule' with no 'type'; a deterministic "
-                    "criterion is defined by the check it runs.",
-                    details={"criterion": key},
-                )
+        if rule is not None and (not isinstance(rule, dict) or not str(rule.get("type", ""))):
+            raise GoalPackInvalid(
+                f"Criterion {key!r} declares a 'rule' with no 'type'; a deterministic "
+                "criterion is defined by the check it runs.",
+                details={"criterion": key},
+            )
         scale_body = body.get("scale")
         scale = (
             ScaleSpec.from_json(scale_body, criterion_key=key)

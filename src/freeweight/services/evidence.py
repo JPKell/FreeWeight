@@ -83,6 +83,7 @@ from freeweight.domain.confidence import (
 )
 from freeweight.infrastructure.db.repositories.evidence import EvidenceRepository
 from freeweight.services.export import model_identity_payload
+from freeweight.services.results import resolve_model_id
 
 if TYPE_CHECKING:
     from baseaicore import Clock
@@ -1901,29 +1902,6 @@ def _text_mapping(value: object) -> dict[str, str]:
     return {str(k): str(v) for k, v in dict(value).items()} if isinstance(value, dict) else {}
 
 
-def _resolve_model_id(session: Session, reference: str) -> str:
-    """Resolve a model reference to a ``models.id``, or refuse by name."""
-    from freeweight.infrastructure.db.repositories.models import ModelRepository
-
-    repository = ModelRepository()
-    candidates = repository.get_by_id_prefix(session, reference)
-    if len(candidates) == 1:
-        return str(candidates[0].id)
-    if len(candidates) > 1:
-        raise ValidationError(
-            f"{reference!r} matches {len(candidates)} models; use more characters.",
-            details={"model": reference, "candidates": [row.id for row in candidates]},
-        )
-    row = (
-        repository.get_by_canonical_id(session, reference)
-        or repository.get_by_id(session, reference)
-        or repository.get_by_provider_model_name(session, reference)
-    )
-    if row is not None:
-        return str(row.id)
-    raise NotFoundError(f"No model matches {reference!r}.", details={"model": reference})
-
-
 def _encode_cursor(record: EvidenceRecord) -> str:
     """Encode a record's sort key as an opaque cursor."""
     raw = json.dumps({"capability_id": record.capability_id, "id": record.id}).encode("utf-8")
@@ -1947,7 +1925,7 @@ def _matching_records(session: Session, query: EvidenceQuery) -> list[EvidenceRe
     from freeweight.infrastructure.db.models import RuntimeProfile
     from freeweight.infrastructure.db.repositories.machines import MachineRepository
 
-    model_id = _resolve_model_id(session, query.model) if query.model else None
+    model_id = resolve_model_id(session, query.model) if query.model else None
     machine_id: str | None = None
     if query.machine:
         machine = MachineRepository().get_by_fingerprint(session, query.machine)

@@ -537,20 +537,14 @@ def _resolve_model_id(session: Session, selector: str) -> str | None:
     A selection that matches no model deletes nothing rather than raising: a preview of "nothing"
     is a legitimate, informative answer, and the UI shows it as such.
     """
-    from freeweight.infrastructure.db.repositories.models import ModelRepository
+    from baseaicore import ValidationError
 
-    repository = ModelRepository()
-    candidates = repository.get_by_id_prefix(session, selector)
-    if len(candidates) == 1:
-        return str(candidates[0].id)
-    if len(candidates) > 1:
+    from freeweight.services.results import ModelNotFound, resolve_model_id
+
+    try:
+        return resolve_model_id(session, selector)
+    except (ModelNotFound, ValidationError):
         return None
-    row = (
-        repository.get_by_canonical_id(session, selector)
-        or repository.get_by_id(session, selector)
-        or repository.get_by_provider_model_name(session, selector)
-    )
-    return str(row.id) if row is not None else None
 
 
 def _removal_counts(session: Session, run_ids: Sequence[str]) -> dict[str, int]:

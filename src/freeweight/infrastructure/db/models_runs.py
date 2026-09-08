@@ -122,11 +122,9 @@ class BenchmarkSuite(Base):
     results rather than invalidating them (spec §19), which only works if both versions can be
     present at once and a run points at the exact one it executed.
 
-    ``goal_id``, ``goal_hash``, ``prompt_subset_hash`` and ``prompt_refs_json`` are declared here
-    and left ``NULL`` by Phase 5 — the prompt library arrives at Phase 6 (ADR-0028) and goal suites
-    at Phase 8A (ADR-0031). ``goal_id`` deliberately carries no foreign key yet: ``goals`` does not
-    exist as a table until Phase 8A, and a constraint cannot reference a table that has not been
-    created. It becomes a real ``FK → goals`` in that phase's migration.
+    ``goal_id``, ``goal_hash``, ``prompt_subset_hash`` and ``prompt_refs_json`` are ``NULL`` for a
+    native suite; a goal suite fills them (ADR-0028, ADR-0031). ``goal_id`` carries no foreign
+    key: a goal's rows may be pruned while the suite version that measured it stays referenced.
     """
 
     __tablename__ = "benchmark_suites"

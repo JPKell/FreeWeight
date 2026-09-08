@@ -126,9 +126,9 @@ ENERGY_METRIC_PREFIXES: tuple[str, ...] = (
 """Metric keys derived from power samples. Hardware-bound, and therefore machine-separated."""
 
 METRIC_KINDS: Mapping[str, MetricKind] = {
-    **{key: MetricKind.PERFORMANCE for key in PERFORMANCE_METRIC_PREFIXES},
-    **{key: MetricKind.MEMORY for key in MEMORY_METRIC_PREFIXES},
-    **{key: MetricKind.ENERGY for key in ENERGY_METRIC_PREFIXES},
+    **dict.fromkeys(PERFORMANCE_METRIC_PREFIXES, MetricKind.PERFORMANCE),
+    **dict.fromkeys(MEMORY_METRIC_PREFIXES, MetricKind.MEMORY),
+    **dict.fromkeys(ENERGY_METRIC_PREFIXES, MetricKind.ENERGY),
 }
 """The declared kind of every metric whose kind is not ``quality``.
 
@@ -408,10 +408,11 @@ def group_subjects(
         different groups is the thing a person actually needs to read, and a UI that showed only
         the partition would show a separation with no explanation for it.
     """
-    verdicts: list[PairVerdict] = []
-    for index, left in enumerate(subjects):
-        for right in subjects[index + 1 :]:
-            verdicts.append(verdict_for_pair(left, right, metric_kind=metric_kind))
+    verdicts = [
+        verdict_for_pair(left, right, metric_kind=metric_kind)
+        for index, left in enumerate(subjects)
+        for right in subjects[index + 1 :]
+    ]
     by_pair = {(verdict.left, verdict.right): verdict for verdict in verdicts}
 
     def mergeable(left_id: str, right_id: str) -> PairVerdict | None:

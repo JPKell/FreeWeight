@@ -29,7 +29,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import TYPE_CHECKING, Annotated, Any
 
-from baseaicore import NotFoundError, SuiteError, ValidationError, from_rfc3339
+from baseaicore import NotFoundError, SuiteError, ValidationError
 from fastapi import APIRouter, Query, Request
 from fastapi.responses import HTMLResponse, StreamingResponse
 from weightsdb import DatabaseError
@@ -48,6 +48,7 @@ from freeweight.services.results import (
     inspect_case,
     query_results,
 )
+from freeweight.web.query import parse_instant
 from freeweight.web.rendering import render
 
 if TYPE_CHECKING:
@@ -75,23 +76,6 @@ _LimitQuery = Annotated[int, Query(ge=1, le=500, description="Page size; clamped
 _CursorQuery = Annotated[str | None, Query(description="Opaque cursor from a previous page.")]
 
 
-def _instant(value: str | None, *, field: str) -> datetime | None:
-    """Parse an RFC 3339 query parameter, or refuse it by name.
-
-    Raises:
-        ValidationError: The value is not RFC 3339.
-    """
-    if not value:
-        return None
-    try:
-        return from_rfc3339(value)
-    except Exception as exc:  # noqa: BLE001 — every parse failure is one validation error
-        raise ValidationError(
-            f"{field} must be an RFC 3339 instant, such as 2026-08-28T00:00:00Z; got {value!r}.",
-            details={"field": field, "value": value},
-        ) from exc
-
-
 def _query_from(  # noqa: PLR0913 — this *is* the documented filter set
     *,
     model: str | None,
@@ -112,8 +96,8 @@ def _query_from(  # noqa: PLR0913 — this *is* the documented filter set
         metric_key=metric_key,
         machine=machine,
         runtime_profile=runtime_profile,
-        since=_instant(since, field="since"),
-        until=_instant(until, field="until"),
+        since=parse_instant(since, field="since"),
+        until=parse_instant(until, field="until"),
         status=None if status == "any" else (status or "completed"),
         limit=limit,
         cursor=cursor,

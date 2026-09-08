@@ -9,51 +9,19 @@ module level, so registering this subgroup (which ``freeweight.cli.main`` does e
 from __future__ import annotations
 
 import json
-from collections.abc import Iterator
-from contextlib import contextmanager
 from pathlib import Path
 from typing import TYPE_CHECKING, Annotated
 
 import typer
 
+from freeweight.cli._backend import open_database
+
 if TYPE_CHECKING:
-    from freeweight.config import StorageSettings
-    from freeweight.services.database import Database
+    pass
 
 __all__ = ["app"]
 
 app = typer.Typer(help="Database migration and maintenance.")
-
-
-@contextmanager
-def _open_database(config: str | None) -> Iterator[tuple[Database, StorageSettings]]:
-    """Resolve configuration and open one database handle for this command, or exit 3.
-
-    One handle per command, closed on the way out — the CLI is one-shot, so it neither needs nor
-    wants the server's application-lifetime engine. Opening it here rather than inside each
-    service function is what lets the same service code serve both: the caller decides how long
-    the connection lives, and a one-shot command decides "this command".
-
-    Configuration is read exactly once. Reading it twice in one command is how the URL used to
-    open the database and the retention used to rotate its backups end up disagreeing after an
-    operator edits the file mid-run.
-    """
-    from freeweight.config import ConfigurationError, load_settings
-    from freeweight.services.database import Database
-
-    try:
-        loaded = load_settings(config_path=config)
-    except ConfigurationError as exc:
-        typer.echo(f"Error: {exc.message} ({exc.code})", err=True)
-        raise typer.Exit(3) from exc
-    storage = loaded.settings.storage
-    if storage.database_url is None:  # pragma: no cover — StorageSettings always fills this in
-        typer.echo("Error: no database_url configured (CONFIGURATION_ERROR)", err=True)
-        raise typer.Exit(3)
-    with Database.from_url(
-        storage.database_url, statement_timeout_ms=storage.statement_timeout_ms
-    ) as database:
-        yield database, storage
 
 
 def _human_bytes(value: int) -> str:
@@ -99,7 +67,8 @@ def upgrade(
 
     from freeweight.services.database import upgrade as upgrade_database
 
-    with _open_database(config) as (database, storage):
+    with open_database(config) as (settings, database):
+        storage = settings.storage
         try:
             outcome = upgrade_database(
                 database, revision=revision, backup_retention=storage.backup_retention
@@ -146,7 +115,7 @@ def status(
 
     from freeweight.services.database import get_status
 
-    with _open_database(config) as (database, _):
+    with open_database(config) as (_settings, database):
         try:
             report = get_status(database)
         except DatabaseError as exc:
@@ -200,7 +169,8 @@ def backup(
 
     from freeweight.services.database_admin import backup_database
 
-    with _open_database(config) as (database, storage):
+    with open_database(config) as (settings, database):
+        storage = settings.storage
         try:
             result = backup_database(database, output=output, keep=storage.backup_retention)
         except DatabaseError as exc:
@@ -250,7 +220,7 @@ def restore(
         typer.echo("Error: --yes is required to confirm this destructive operation.", err=True)
         raise typer.Exit(2)
 
-    with _open_database(config) as (database, _):
+    with open_database(config) as (_settings, database):
         try:
             result = restore_database(database, source=source, confirm=True)
         except DatabaseError as exc:
@@ -278,7 +248,7 @@ def vacuum(
 
     from freeweight.services.database_admin import vacuum_database
 
-    with _open_database(config) as (database, _):
+    with open_database(config) as (_settings, database):
         try:
             outcome = vacuum_database(database)
         except DatabaseError as exc:

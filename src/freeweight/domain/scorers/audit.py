@@ -311,10 +311,7 @@ def audit_metrics(
                 if finding.function.casefold() == defect.function.casefold()
             ) / len(with_function)
 
-    if expectation.is_clean:
-        score = 0.0 if findings else 1.0
-    else:
-        score = metrics.get("f1", 0.0)
+    score = (0.0 if findings else 1.0) if expectation.is_clean else metrics.get("f1", 0.0)
 
     evidence: dict[str, Any] = {
         "injected_defects": injected,

@@ -47,12 +47,7 @@ class MachineRepository:
         return session.get(Machine, machine_id)
 
     def list_all(self, session: Session) -> list[Machine]:
-        """Return every known machine, ordered by first sighting.
-
-        Phase 2 has no callers of this beyond tests — the machines page is Phase 4's — but the
-        method exists now because Phase 4's telemetry service needs it on day one and the query
-        has no dependency on anything Phase 4 introduces.
-        """
+        """Return every known machine, ordered by first sighting."""
         return list(session.scalars(select(Machine).order_by(Machine.first_seen_at.asc())).all())
 
     def upsert(

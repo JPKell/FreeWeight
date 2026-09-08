@@ -16,6 +16,22 @@ packaging and release standards §3.
   line equals `__about__.__version__`, so a release cannot leave the README stale (M9 re-audit,
   row L7).
 
+### Changed
+
+- One `freeweight.cli._backend` (`load_settings_or_exit`, `open_database`,
+  `build_provider_or_exit`) replaces the seven copies of "resolve configuration and open the
+  database, or exit 3" the CLI command modules each carried. Exit codes and messages unchanged.
+- One model-reference resolver: `services.results.resolve_model_id` is shared by results,
+  evidence and database admin. The evidence surface now refuses an unknown model with
+  `MODEL_NOT_FOUND` (still a 404) rather than the generic `NOT_FOUND`.
+- `services._json` (`json_safe`, `canonical_dict`) and `web.query.parse_instant` replace the
+  duplicate copies in machine/telemetry/runs and the results/evidence routes.
+- Docstrings describe the shipped application, not the phase plan that built it (models,
+  repositories, runs/system routes, configuration, CLI runs). `docs/openapi.json` regenerated
+  for the reworded route descriptions.
+- Small tightenings ruff's SIM/PERF/C4 families flagged: `dict.fromkeys`, `contextlib.suppress`,
+  comprehensions. No behaviour change.
+
 ### Fixed
 
 - README's `Status:` line still read `1.1.0`, on PyPI; it now states `1.1.2` in the repository,

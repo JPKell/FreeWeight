@@ -390,7 +390,7 @@ class JsonSchemaScorer:
                 error_text=str(exc),
             )
         conformance = 1.0 if not violations else 0.0
-        counts = {kind: 0 for kind in ViolationKind}
+        counts = dict.fromkeys(ViolationKind, 0)
         for violation in violations:
             counts[violation.kind] += 1
         return ScoreResult(

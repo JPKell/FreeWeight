@@ -1,11 +1,11 @@
 """freeweight.infrastructure.db.repositories.settings — the ``settings`` table's only writer.
 
-The table exists since Phase 2 but has had no reader or writer until now: it is the runtime
-key-value store for small, non-secret facts the application records about its own operation —
-security-relevant configuration stays in ``config.toml``/environment variables only (configuration
-standards §7; :class:`~freeweight.infrastructure.db.models.Setting`'s own docstring). Its first
-consumer is Phase 3's "last discovery attempt" record, read by the models page and CLI so they can
-say the data is stale without probing the provider on every read (data model §2, ``settings``).
+The table is the runtime key-value store for small, non-secret facts the application records
+about its own operation — security-relevant configuration stays in ``config.toml``/environment
+variables only (configuration standards §7;
+:class:`~freeweight.infrastructure.db.models.Setting`'s own docstring). The "last discovery
+attempt" record is the archetype: read by the models page and CLI so they can say the data is
+stale without probing the provider on every read (data model §2, ``settings``).
 """
 
 from __future__ import annotations

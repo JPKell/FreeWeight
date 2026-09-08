@@ -175,8 +175,8 @@ def create_run_endpoint(request: Request, body: dict[str, Any]) -> JSONResponse:
         request: The incoming request; carries the application's database, provider and telemetry
             collector.
         body: ``{"model": …, "suites": [key], "execution": {...}, "runtime": {...}, "label": …}``.
-            ``suites`` takes a list for forward compatibility with multi-suite runs; Phase 5 runs
-            the first entry and refuses more than one rather than silently dropping the rest.
+            ``suites`` takes a list for forward compatibility with multi-suite runs; a run
+            executes exactly one suite and more than one is refused rather than silently dropped.
             ``runtime`` overrides ``[runtime]`` for this run (ADR-0023) — ``context_size`` in
             particular, which is how one model is measured at two contexts.
 
@@ -201,7 +201,7 @@ def create_run_endpoint(request: Request, body: dict[str, Any]) -> JSONResponse:
         )
     if len(suites) > 1:
         raise ValidationError(
-            "Phase 5 executes one suite per run; name one suite, or start one run per suite. "
+            "A run executes one suite; name one suite, or start one run per suite. "
             "Refusing rather than silently running only the first.",
             details={"suites": list(suites)},
         )
@@ -739,12 +739,12 @@ def cancel_run_form(request: Request, run_id: str) -> RedirectResponse:
     to, which shows the real status. A banner saying "too late" would tell the user nothing the
     status does not.
     """
+    from contextlib import suppress
+
     from baseaicore import SuiteError
 
-    try:
+    with suppress(SuiteError):
         cancel_run(request.app.state.database, _publisher(request), run_id)
-    except SuiteError:
-        pass
     return RedirectResponse(f"/runs/{run_id}", status_code=303)
 
 

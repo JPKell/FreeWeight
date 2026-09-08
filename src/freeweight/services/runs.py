@@ -44,7 +44,6 @@ rows it produced.
 from __future__ import annotations
 
 import dataclasses
-import json
 import logging
 import math
 import random
@@ -65,7 +64,6 @@ from baseaicore import (
     RuntimeProfile,
     SuiteError,
     ValidationError,
-    canonical_json,
     elapsed_ms,
     is_supported,
     monotonic_ns,
@@ -148,7 +146,9 @@ from freeweight.infrastructure.db.repositories.runs import (
     ToolCallRepository,
 )
 from freeweight.infrastructure.db.repositories.telemetry import TelemetryRepository
+from freeweight.services._json import json_safe
 from freeweight.services.adapters import adapter_row_for, resolve_subject
+from freeweight.services.database import Database
 from freeweight.services.events import RunEventPublisher
 from freeweight.services.goals import LoadedGoal
 from freeweight.services.machine import profile_machine
@@ -172,7 +172,6 @@ if TYPE_CHECKING:
 
     from freeweight.config import ExecutionSettings, TelemetrySettings
     from freeweight.infrastructure.adapters import AdapterEntry
-    from freeweight.services.database import Database
 
 __all__ = [
     "RUN_PROVENANCE_METRICS",
@@ -746,11 +745,6 @@ def _check_declared_capabilities(registry: BenchmarkRegistry) -> None:
         )
 
 
-def _json_safe(value: object) -> Any:  # noqa: ANN401 — a JSON value has no narrower type
-    """Round-trip a structure through canonical JSON into plain, JSON-safe Python."""
-    return json.loads(canonical_json(value))
-
-
 def _resolve_run(session: Session, run_ref: str) -> Any:  # noqa: ANN401 — an ORM row, kept internal
     """Resolve a full ULID or an unambiguous prefix to one run row.
 
@@ -853,14 +847,14 @@ def _install_benchmark(
         category=manifest.category,
         runner=manifest.runner,
         manifest_hash=manifest.manifest_hash,
-        manifest_json=_json_safe(manifest.body),
-        dataset_hashes_json=_json_safe(dict(manifest.dataset_hashes)),
+        manifest_json=json_safe(manifest.body),
+        dataset_hashes_json=json_safe(dict(manifest.dataset_hashes)),
         license=manifest.license,
         now=now,
         goal_id=goal_id,
         goal_hash=manifest.body.get("goal_hash"),
         prompt_subset_hash=manifest.prompt_subset_hash,
-        prompt_refs_json=_json_safe([dict(entry) for entry in manifest.prompt_ids]),
+        prompt_refs_json=json_safe([dict(entry) for entry in manifest.prompt_ids]),
     )
     test_ids: dict[str, str] = {}
     for test in benchmark.tests:
@@ -872,7 +866,7 @@ def _install_benchmark(
             category=test.category,
             scorer=test.scorer.key,
             config_json=None,
-            metric_definitions_json=_json_safe(
+            metric_definitions_json=json_safe(
                 [
                     {
                         "metric_key": metric.metric_key,
@@ -884,7 +878,7 @@ def _install_benchmark(
                     for metric in test.metrics
                 ]
             ),
-            requires_json=_json_safe(dict(test.requires)),
+            requires_json=json_safe(dict(test.requires)),
         )
         test_ids[test.key] = row.id
     return suite.id, test_ids
@@ -1053,7 +1047,7 @@ def create_run(
             threads=runtime_profile.threads,
             batch_size=runtime_profile.batch_size,
             keep_alive=runtime_profile.keep_alive,
-            provider_options_json=_json_safe(dict(runtime_profile.provider_options)),
+            provider_options_json=json_safe(dict(runtime_profile.provider_options)),
             now=now,
         )
         suite_id, _ = _install_benchmark(session, benchmark, now=now)
@@ -1100,9 +1094,9 @@ def create_run(
             runtime_profile_id=profile_row.id,
             suite_id=suite_id,
             status=RunStatus.QUEUED.value,
-            effective_config_json=_json_safe(execution.to_json()),
+            effective_config_json=json_safe(execution.to_json()),
             reproducibility_fingerprint=compute_fingerprint(document),
-            fingerprint_document_json=_json_safe(document),
+            fingerprint_document_json=json_safe(document),
             provider_kind=model.provider_kind,
             provider_version=document["provider"]["version"],
             application_version=__version__,
@@ -2330,7 +2324,7 @@ def _judge_pending(  # noqa: PLR0913 — the judging phase needs the run's whole
             sample.score = None if verdict is None else verdict.score
             if verdict is not None:
                 sample.score_method = verdict.method.value
-                sample.result_json = _json_safe(dict(verdict.detail))
+                sample.result_json = json_safe(dict(verdict.detail))
             sample.error_code = error[0] if error else (verdict.error_code if verdict else None)
             sample.error_text = error[1] if error else (verdict.error_text if verdict else None)
             _store_criterion_scores(session, sample.id, verdict, context, now=now)
@@ -3382,7 +3376,7 @@ def _store_criterion_scores(
             "gated": bool(entry.get("gated", False)),
             "status": str(entry["status"]),
             "skip_reason": entry.get("skip_reason"),
-            "detail_json": _json_safe(entry.get("detail") or {}),
+            "detail_json": json_safe(entry.get("detail") or {}),
             "created_at": now,
         }
         for entry in declared
@@ -3461,7 +3455,7 @@ def _tool_call_rows(
                 "turn_index": call.step,
                 "call_index": call_index,
                 "tool_name": call.name,
-                "arguments_json": _json_safe(dict(call.arguments)),
+                "arguments_json": json_safe(dict(call.arguments)),
                 "schema_valid": call.arguments_parsed and call.arguments_valid,
                 "expected_tool": verdict.expected_tool,
                 "correct_tool": verdict.correct_tool,
@@ -3605,7 +3599,7 @@ def _sample_values(  # noqa: PLR0913 — this *is* the column set
         "client_ttft_ms": None,
         "score": score.score if (score is not None and status == "completed") else None,
         "score_method": score.method.value if score is not None else None,
-        "result_json": _json_safe(detail) if detail else None,
+        "result_json": json_safe(detail) if detail else None,
         "error_code": error_code,
         "error_text": error_text,
         "started_at": started_at,
@@ -4278,7 +4272,7 @@ def _observed_document(  # noqa: PLR0913 — mirrors the inputs create_run resol
                 UNSUPPORTED if descriptor.max_context is None else float(descriptor.max_context)
             ),
         )
-        document: dict[str, Any] = _json_safe(
+        document: dict[str, Any] = json_safe(
             _fingerprint_document(
                 model=model,
                 descriptor=descriptor,

@@ -16,6 +16,7 @@ second starter:
 
 from __future__ import annotations
 
+import contextlib
 import os
 import selectors
 import signal
@@ -95,10 +96,8 @@ def _kill_group(process: subprocess.Popen[bytes]) -> None:
         if process.poll() is not None:
             return
         time.sleep(0.05)
-    try:
+    with contextlib.suppress(ProcessLookupError):
         os.killpg(process.pid, signal.SIGKILL)
-    except ProcessLookupError:
-        pass
 
 
 def run_invocation(invocation: Invocation) -> InvocationResult:
