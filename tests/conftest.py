@@ -98,7 +98,12 @@ def run_environment(tmp_path: Path) -> Iterator[Callable[..., RunEnvironment]]:
     handles: list[Any] = []
 
     def build(
-        *, script: Any = None, seed: int = 7, registry: Any = None, name: str = "run.sqlite3"
+        *,
+        script: Any = None,
+        seed: int = 7,
+        registry: Any = None,
+        name: str = "run.sqlite3",
+        database: Any = None,
     ) -> RunEnvironment:
         url = f"sqlite:///{tmp_path / name}"
         engine = create_engine_for(url)
@@ -106,7 +111,11 @@ def run_environment(tmp_path: Path) -> Iterator[Callable[..., RunEnvironment]]:
             MigrationRunner(engine, script_location=MIGRATIONS_LOCATION).upgrade(backup=False)
         finally:
             engine.dispose()
-        database = Database.from_url(url)
+        # A caller that wants to inject a failing engine (a disk-full simulation, say) migrates
+        # normally above, then hands back its own `Database` wrapping a second engine over the
+        # same file with a fault attached — the migrated schema is real, only the fault is fake.
+        if database is None:
+            database = Database.from_url(url)
         handles.append(database)
         provider = FakeProvider(script if script is not None else FakeScript(), seed=seed)
         collector = TelemetryCollector(host=NullHostReader(), gpu=NullGpuReader())
