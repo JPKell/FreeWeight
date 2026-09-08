@@ -81,6 +81,12 @@ jobs:
       # the developer's environment, which would delete these before the fixture could read them.
       FWTEST_REQUIRE_POSTGRES: "1"
       FWTEST_POSTGRES_URL: postgresql+psycopg://freeweight:freeweight@localhost:5432/freeweight_test
+      # `test_backup_round_trips_or_refuses_restore_on_both_dialects` reaches PostgreSQL through
+      # `weightsdb.testing.temporary_postgres`, which reads these two variables, not the FWTEST_
+      # ones above — without them that test's PostgreSQL leg skipped silently in this job even
+      # though the service container above was already running (M9 re-audit, row L7, item 6).
+      WEIGHTSDB_REQUIRE_POSTGRES: "1"
+      WEIGHTSDB_POSTGRES_URL: postgresql+psycopg://freeweight:freeweight@localhost:5432/freeweight_test
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5

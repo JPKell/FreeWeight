@@ -33,6 +33,8 @@ itself on first startup.
 
 | Version | Migration | What it adds |
 |---|---|---|
+| 1.1.2 | none | No schema change — a release-plumbing version bump only; nothing behaves differently for an operator. |
+| 1.1.1 | none | No schema change — a `mirrorwall` dependency-floor fix (so the declared lowest range resolves) plus test and documentation additions; nothing behaves differently for an operator. |
 | 1.1.0 | `0008` | The `adapters` table, `runs.adapter_id`, and `capability_evidence`'s `adapter_id` + `subject_canonical_id`. Every existing row is a **base subject** — `adapter_id` is `NULL` and `subject_canonical_id` is backfilled from `models.canonical_id`. Additive throughout; no existing value changes |
 | 1.0.0 | — | The 1.0 schema this document's baseline assumes |
 
