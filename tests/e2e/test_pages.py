@@ -172,7 +172,7 @@ def test_pages_report_the_error_state_when_the_database_is_unreadable(
 
 def test_every_page_carries_navigation_and_a_skip_link(client: TestClient) -> None:
     """UI standards §7: a skip-to-content link on every page."""
-    for path in ("/", "/machines", "/models"):
+    for path in ("/", "/machines", "/models", "/system"):
         response = client.get(path)
         assert response.status_code == 200, path
         assert 'class="skip-link"' in response.text, path

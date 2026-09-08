@@ -1,0 +1,29 @@
+{# The system page: the suite's help/about page (UI/UX standards §12). Rows are built in the
+   route, not here (UI standards keep computation out of templates); this template only renders
+   what the route already assembled. #}
+{% extends "base.html" %}
+{% from "mirrorwall/components.html" import badge, kv_list, table %}
+{% block title %}System — FreeWeight{% endblock %}
+{% block content %}
+<h2>System</h2>
+{{ kv_list([
+  {"label": "Application", "value": "freeweight"},
+  {"label": "Version", "value": version},
+  {"label": "Health", "value": health.status},
+]) }}
+
+<h3>Health components</h3>
+{% set columns = [{"label": "Component"}, {"label": "Status"}, {"label": "Detail"}] %}
+{% set rows = [] %}
+{% for component in health.components %}
+{% set _ = rows.append([component.name, badge(component.status, tone="success" if component.status in ("ok", "not_configured") else "danger" if component.status == "unavailable" else "warning"), component.detail]) %}
+{% endfor %}
+{{ table(columns, rows, table_id="health", complete=true, row_count=health.components | length) }}
+
+<h3>Documentation</h3>
+<p>
+  <a href="docs/quickstart.md">Quickstart</a> ·
+  <a href="docs/troubleshooting.md">Troubleshooting</a> ·
+  <a href="docs/apps/freeweight/api.md">API reference</a>
+</p>
+{% endblock %}

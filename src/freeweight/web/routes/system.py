@@ -20,7 +20,7 @@ from typing import TYPE_CHECKING, Protocol
 
 from baseaicore import DependencyUnavailableError
 from fastapi import APIRouter, Request
-from fastapi.responses import JSONResponse, StreamingResponse
+from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
 from weightsdb import DatabaseError
 
 from freeweight.__about__ import __version__
@@ -28,6 +28,7 @@ from freeweight.config import data_dir
 from freeweight.services.export import EMITTED_SCHEMAS
 from freeweight.services.health import get_health_report
 from freeweight.services.telemetry import format_heartbeat, format_sample_event, snapshot_to_json
+from freeweight.web.rendering import render
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
@@ -38,9 +39,10 @@ if TYPE_CHECKING:
     from freeweight.services.scheduler import RunScheduler
     from freeweight.services.telemetry import TelemetryService
 
-__all__ = ["router"]
+__all__ = ["router", "ui_router"]
 
 router = APIRouter(tags=["system"])
+ui_router = APIRouter(include_in_schema=False)
 
 
 class _Disconnectable(Protocol):
@@ -84,6 +86,32 @@ async def version() -> dict[str, object]:
         "api": {"current": "v1", "supported": ["v1"], "deprecated": []},
         "schemas": dict(EMITTED_SCHEMAS),
     }
+
+
+@ui_router.get("/system", summary="System page", response_class=HTMLResponse)
+async def system_page(request: Request) -> HTMLResponse:
+    """Render the System page: version, and the same health components ``/health`` reports.
+
+    The suite's help/about page (UI/UX standards §12): every other application has one and, until
+    now, FreeWeight did not. Holds no business logic of its own — :func:`get_health_report` is the
+    identical call ``GET /health`` and ``freeweight doctor`` make, reporting on the handle the
+    server is serving from.
+    """
+    telemetry: TelemetryService | None = request.app.state.telemetry
+    report = get_health_report(
+        database=request.app.state.database,
+        provider=request.app.state.provider,
+        telemetry=telemetry.collector if telemetry is not None else None,
+        settings=request.app.state.settings,
+    )
+    return HTMLResponse(
+        render(
+            "system/index.html",
+            page="system",
+            version=__version__,
+            health=report,
+        )
+    )
 
 
 def _disk_headroom_bytes(settings: Settings) -> int | None:

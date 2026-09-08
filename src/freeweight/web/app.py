@@ -169,7 +169,7 @@ def create_app(settings: Settings, *, goals: Sequence[LoadedGoal] = ()) -> FastA
     the request body size limit, the standard error envelope handlers, the ``/api/v1`` system,
     run, comparison, results, evidence, database and settings routes, static assets, and the HTML
     pages (the shell, dashboard, machines, models, runs, results, compare, evidence, grading,
-    database and settings).
+    database, system and settings).
 
     Still a pure function of its arguments — it opens nothing. The database handle is created by
     the lifespan, which runs only when the application is actually served (or when a test enters
@@ -240,6 +240,7 @@ def create_app(settings: Settings, *, goals: Sequence[LoadedGoal] = ()) -> FastA
     app.include_router(evidence_routes.router)
     app.include_router(grading_routes.router)
     app.include_router(sources_routes.router)
+    app.include_router(system_routes.ui_router)
 
     # MirrorWall's own assets (tokens, layout and component CSS, theme/table/SSE/telemetry JS),
     # served from the installed package: no CDN, no network request at page load. Passing the

@@ -7,6 +7,27 @@ packaging and release standards §3.
 
 ## [Unreleased]
 
+### Added
+
+- `GET /system`: the System page, the suite's help/about page (UI/UX standards §12) — version,
+  the same health components `/api/v1/health` and `freeweight doctor` report, and links to the
+  quickstart, troubleshooting and API documentation. `NAV_ITEMS` gains a `system` entry.
+- `tests/unit/test_readme_version.py` — asserts the version README.md states after its `Status:`
+  line equals `__about__.__version__`, so a release cannot leave the README stale (M9 re-audit,
+  row L7).
+
+### Fixed
+
+- README's `Status:` line still read `1.1.0`, on PyPI; it now states `1.1.2` in the repository,
+  tagged locally as `v1.1.2` (not yet pushed), with PyPI still serving `1.1.1`.
+- `docs/upgrading.md`'s migration-notes table stopped at `1.1.0`; it now covers `1.1.1` and
+  `1.1.2` (both dependency-only, no operator behaviour change).
+- `.github/workflows/ci.yml`'s `postgresql-tests` job set only `FWTEST_*`, so
+  `test_backup_round_trips_or_refuses_restore_on_both_dialects` (which reads
+  `weightsdb.testing.temporary_postgres`, not the `FWTEST_*` fixtures) skipped its PostgreSQL leg
+  silently even though the service container was already running; it now also sets
+  `WEIGHTSDB_REQUIRE_POSTGRES=1` and `WEIGHTSDB_POSTGRES_URL` (M9 re-audit, row L7, item 6).
+
 ## [1.1.2] — 2026-09-07
 
 ## [1.1.1] — 2026-09-07

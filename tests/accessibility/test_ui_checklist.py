@@ -44,6 +44,7 @@ PAGES = (
     "/compare",
     "/evidence",
     "/database",
+    "/system",
     "/settings",
 )
 

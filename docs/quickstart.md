@@ -52,7 +52,8 @@ freeweight version
 ```
 
 If anything is wrong, `freeweight doctor` names the component and points at
-[troubleshooting](troubleshooting.md).
+[troubleshooting](troubleshooting.md). The web UI's **System** page (`/system`) shows the same
+version and health components live, with links to this guide and the API reference.
 
 ## Where things live
 
