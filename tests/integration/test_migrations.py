@@ -390,6 +390,45 @@ def test_1_1_0_database_migrates_to_head_and_keeps_its_rows(tmp_path: Path) -> N
         engine.dispose()
 
 
+def test_1_0_0_database_migrates_to_0008_and_keeps_its_rows(tmp_path: Path) -> None:
+    """The earliest-published-release companion to the fixtures above (row L8, M9_REAUDIT O1).
+
+    ``1.1.0``'s own fixture test above is a documented no-op — its head and this build's head
+    are the same revision, so it never actually drove an upgrade. ``1.0.0`` is FreeWeight's
+    earliest PyPI release with a schema at all, and it sits at ``0007``, one behind head exactly
+    like the ``rc1`` fixture above — so this one exercises the real ``0007 -> 0008`` migration
+    (the same ``runs`` rebuild the `rc1` test's cascade-count guard covers), on rows written by an
+    independent, real ``1.0.0`` install rather than by the pre-adoption in-application runner the
+    `rc1` fixture came from.
+    """
+    fixture = Path(__file__).parent.parent / "fixtures" / "databases" / "freeweight-1.0.0.sqlite3"
+    working_copy = tmp_path / "freeweight-1.0.0.sqlite3"
+    shutil.copyfile(fixture, working_copy)
+
+    engine = create_engine_for(f"sqlite:///{working_copy}")
+    try:
+        runner = MigrationRunner(engine, script_location=MIGRATIONS_LOCATION)
+        current_before = runner.current()
+        assert current_before is not None, "the 1.0.0 fixture must carry a recorded revision"
+        assert current_before == "0007", (
+            f"the 1.0.0 fixture must sit one revision behind head; found {current_before!r}"
+        )
+
+        outcome = ensure_ready(Database(engine), auto_migrate=True)
+
+        assert outcome is not None, "0008 must apply to a 1.0.0 database; nothing ran"
+        assert (outcome.from_revision, outcome.to_revision) == ("0007", "0008")
+        assert runner.is_at_head()
+
+        database = Database(engine)
+        repository = SettingsRepository()
+        with database.read() as session:
+            assert repository.get(session, "fixture.marker") == "freeweight-1.0.0-fixture"
+            assert repository.get(session, "fixture.count") == 2
+    finally:
+        engine.dispose()
+
+
 def _cascading_child_counts(engine: Engine) -> dict[str, int]:
     """Count the rows a cascading rebuild of ``runs`` would take with it."""
     tables = ("runs", "run_tests", "samples", "metric_values", "run_events", "artifacts")
