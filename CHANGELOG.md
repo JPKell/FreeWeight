@@ -7,6 +7,8 @@ packaging and release standards §3.
 
 ## [Unreleased]
 
+## [1.1.2] — 2026-09-07
+
 ## [1.1.1] — 2026-09-07
 
 ### Changed
