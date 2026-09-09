@@ -38,6 +38,7 @@
       <th scope="col">Context</th>
       <th scope="col">First seen</th>
       <th scope="col">Last seen</th>
+      <th scope="col">Use</th>
     </tr>
   </thead>
   <tbody>
@@ -53,6 +54,14 @@
       <td class="numeric">{{ model.max_context if model.max_context is not none else "—" }}</td>
       <td>{{ model.first_seen_at | timestamp }}</td>
       <td>{{ model.last_seen_at | timestamp }}</td>
+      <td>
+        <form method="post" action="/models/{{ model.id }}/enabled">
+          {% include "partials/_csrf.html" %}
+          <input type="hidden" name="enabled" value="{{ "false" if model.enabled else "true" }}">
+          <button type="submit">{{ "Disable" if model.enabled else "Enable" }}</button>
+        </form>
+        {% if not model.enabled %}<span class="muted">disabled</span>{% endif %}
+      </td>
     </tr>
     {% endfor %}
   </tbody>

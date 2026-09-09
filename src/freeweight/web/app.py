@@ -24,10 +24,11 @@ from mirrorwall import (
 )
 
 from freeweight.__about__ import __version__
-from freeweight.config import LOOPBACK_HOSTS, Settings
+from freeweight.config import LOOPBACK_HOSTS, Settings, resolve_config_path
 from freeweight.infrastructure.providers.factory import build_provider
 from freeweight.services.database import Database
 from freeweight.services.goals import LoadedGoal
+from freeweight.services.providers import close_provider
 from freeweight.services.runs import build_registry, build_registry_for
 from freeweight.services.scheduler import RunScheduler
 from freeweight.services.settings import apply_stored
@@ -46,6 +47,7 @@ from freeweight.web.routes import goals as goals_routes
 from freeweight.web.routes import grading as grading_routes
 from freeweight.web.routes import machines as machines_routes
 from freeweight.web.routes import models as models_routes
+from freeweight.web.routes import providers as providers_routes
 from freeweight.web.routes import results as results_routes
 from freeweight.web.routes import runs as runs_routes
 from freeweight.web.routes import settings as settings_routes
@@ -155,6 +157,9 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
     finally:
         scheduler.stop()
         telemetry.stop()
+        # A supervising provider owns an operating-system process, and a served `llama-server`
+        # left running holds the whole card — the next run is then refused for want of VRAM.
+        close_provider(app.state.provider)
         database.close()
         app.state.database = None
         app.state.provider = None
@@ -162,7 +167,9 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
         app.state.scheduler = None
 
 
-def create_app(settings: Settings, *, goals: Sequence[LoadedGoal] = ()) -> FastAPI:
+def create_app(
+    settings: Settings, *, goals: Sequence[LoadedGoal] = (), config_path: Path | None = None
+) -> FastAPI:
     """Build the FastAPI application for the given settings.
 
     Registers, from outermost to innermost: the request-ID middleware, Host-header validation,
@@ -189,6 +196,9 @@ def create_app(settings: Settings, *, goals: Sequence[LoadedGoal] = ()) -> FastA
         lifespan=_lifespan,
     )
     app.state.settings = settings
+    # The file the Providers page writes (ADR-0117). Resolved when the caller did not say, which
+    # is what a test that builds an app without a file gets.
+    app.state.config_path = config_path if config_path is not None else resolve_config_path()
     app.state.database = None
     app.state.provider = None
     app.state.telemetry = None
@@ -226,10 +236,12 @@ def create_app(settings: Settings, *, goals: Sequence[LoadedGoal] = ()) -> FastA
     app.include_router(settings_routes.api_router, prefix="/api/v1")
     app.include_router(machines_routes.api_router, prefix="/api/v1")
     app.include_router(models_routes.api_router, prefix="/api/v1")
+    app.include_router(providers_routes.api_router, prefix="/api/v1")
     app.include_router(benchmarks_routes.api_router, prefix="/api/v1")
     app.include_router(evidence_routes.api_router, prefix="/api/v1")
     app.include_router(machines_routes.router)
     app.include_router(models_routes.router)
+    app.include_router(providers_routes.router)
     app.include_router(runs_routes.router)
     app.include_router(compare_routes.router)
     app.include_router(dashboard_routes.router)

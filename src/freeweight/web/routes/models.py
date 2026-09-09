@@ -30,6 +30,7 @@ from freeweight.services.models import (
     get_last_discovery,
     get_model_detail,
     list_models_with_latest_descriptor,
+    set_model_enabled,
 )
 from freeweight.services.results import ResultsQuery, query_results
 from freeweight.web.rendering import render
@@ -93,6 +94,23 @@ def discover(request: Request) -> RedirectResponse:
         )
     except ProviderError as exc:
         logger.warning("models.discover.failed", extra={"code": exc.code})
+    return RedirectResponse("/models", status_code=303)
+
+
+@router.post("/models/{model_ref}/enabled")
+async def set_enabled(request: Request, model_ref: str) -> RedirectResponse:
+    """Permit or refuse one model, from the models page (ADR-0118).
+
+    A disabled model keeps its row and every result measured under it; what changes is that a new
+    run naming it is refused rather than measured. Discovery never writes the flag, so a refresh
+    does not undo the decision.
+    """
+    form = await request.form()
+    set_model_enabled(
+        request.app.state.database,
+        model_ref=model_ref,
+        enabled=str(form.get("enabled", "false")) == "true",
+    )
     return RedirectResponse("/models", status_code=303)
 
 

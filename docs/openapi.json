@@ -251,6 +251,91 @@
         "title": "JuryValidationBody",
         "type": "object"
       },
+      "ProviderBody": {
+        "additionalProperties": false,
+        "description": "``PUT /provider``'s body: any of the provider block's writable keys.",
+        "properties": {
+          "base_digest": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Base Digest"
+          },
+          "base_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Base Url"
+          },
+          "kind": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Kind"
+          },
+          "model_directory": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model Directory"
+          },
+          "server_path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Server Path"
+          },
+          "state_dir": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "State Dir"
+          },
+          "timeout_seconds": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Timeout Seconds"
+          }
+        },
+        "title": "ProviderBody",
+        "type": "object"
+      },
       "SampleBody": {
         "additionalProperties": false,
         "description": "One candidate output to be graded.",
@@ -2166,6 +2251,64 @@
         "summary": "One model's stored results",
         "tags": [
           "models"
+        ]
+      }
+    },
+    "/api/v1/provider": {
+      "get": {
+        "description": "The configured provider, the file it lives in, and what shadows it.",
+        "operationId": "get_provider_api_v1_provider_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Get Provider",
+        "tags": [
+          "provider"
+        ]
+      },
+      "put": {
+        "description": "Write the ``[provider]`` block into the configuration file and re-open the provider.\n\n``400 VALIDATION_ERROR`` names a value the provider model rejects; ``409 CONFLICT`` means the\nfile changed since ``base_digest`` was read, and nothing was written.",
+        "operationId": "put_provider_api_v1_provider_put",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProviderBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Put Provider",
+        "tags": [
+          "provider"
         ]
       }
     },

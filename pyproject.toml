@@ -52,6 +52,9 @@ dependencies = [
     "modelrack>=0.7,<0.8",
     "sweatmeter>=0.4,<0.5",
     "fastapi>=0.115,<1",
+    # ADR-0117: the Provider page edits `config.toml` in place, and an operator's comments and
+    # formatting must survive the write. `tomllib` reads TOML; nothing in the stdlib writes it.
+    "tomlkit>=0.13,<1",
     "uvicorn[standard]>=0.30,<1",
     "pydantic>=2.9,<3",
     "sqlalchemy>=2.0.30,<3",

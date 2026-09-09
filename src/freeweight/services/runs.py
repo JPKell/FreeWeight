@@ -1009,6 +1009,14 @@ def create_run(
                 "installation has none for that model.",
                 details={"model": model_ref},
             )
+        if not model.enabled:
+            # ADR-0118: an operator disabled this model, so the refusal names that decision
+            # rather than pretending the model is missing or quietly measuring something else.
+            raise ValidationError(
+                f"Model {model.canonical_id!r} is disabled here: an operator turned it off on "
+                "the Models page, and a disabled model is not measured. Enable it there first.",
+                details={"model": model_ref, "canonical_id": model.canonical_id},
+            )
         descriptor = ModelDescriptorRepository().latest_for_model(session, model.id)
         if descriptor is None:
             raise ValidationError(

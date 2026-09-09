@@ -133,6 +133,7 @@ GET    /api/v1/evidence/export               GET    /api/v1/database/stats
 POST   /api/v1/database/delete-preview       DELETE /api/v1/database/results
 POST   /api/v1/database/backup               POST   /api/v1/database/vacuum
 GET    /api/v1/settings                      PUT    /api/v1/settings
+GET    /api/v1/provider                      PUT    /api/v1/provider
 
 GET    /api/v1/goals                         POST   /api/v1/goals
 GET    /api/v1/goals/{slug}                  PUT    /api/v1/goals/{slug}
@@ -145,6 +146,13 @@ GET    /api/v1/goals/{slug}/export           POST   /api/v1/goals/import
 GET    /api/v1/goals/starters                POST   /api/v1/goals/starters/{key}/fork
 GET    /api/v1/judges                        POST   /api/v1/judges/validate
 ```
+
+`GET`/`PUT /provider` read and write the `[provider]` block in the configuration file itself, in
+place and with the operator's comments intact
+([ADR-0117](../../adr/0117-provider-registrations-are-edited-in-place-in-the-config-file.md)); the
+file stays the source of truth, and every other key in it stays config-only. The Models page's
+Disable button records an operator's decision that a discovered model may not be measured, which a
+run then refuses by name ([ADR-0118](../../adr/0118-a-discovered-model-can-be-disabled.md)).
 
 **Every path above is routable, and a test asserts it.**
 `tests/contract/test_declared_surface.py` reads this section out of this document — not a list

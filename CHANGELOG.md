@@ -9,6 +9,25 @@ packaging and release standards §3.
 
 ### Added
 
+- A **Provider** page and `GET`/`PUT /api/v1/provider`: the `[provider]` block is now editable from
+  the web admin, and the configuration file stays the source of truth (ADR-0117). A write edits only
+  that block — comments, key order and formatting everywhere else survive it — is validated by
+  loading the candidate document through the ordinary precedence chain, keeps the previous file as
+  `config.toml.bak`, and re-opens the provider handle so the change applies to work started from now
+  on. A file that changed since the page was rendered is a `409 CONFLICT`, not an overwrite.
+- A discovered model can be **disabled** from the Models page (ADR-0118). A disabled model is not
+  measured: a run naming one is refused by name, saying an operator turned it off. The row, its
+  descriptors and every result measured under it stay, and discovery never writes the flag, so a
+  refresh does not undo the decision.
+
+### Fixed
+
+- The provider handle is released when the server stops. `LlamaCppProvider` terminates its server
+  in `close()` and otherwise only in a finalizer, so a stopped `freeweight serve` left a
+  `llama-server` holding the card and the next run was refused for want of VRAM — a cleanup defect
+  that reads as a measurement defect. LoadCoach closed its registrations at shutdown already; this
+  is the same fix on this side, and the provider edit above closes the handle it replaces for the
+  same reason.
 - `GET /system`: the System page, the suite's help/about page (UI/UX standards §12) — version,
   the same health components `/api/v1/health` and `freeweight doctor` report, and links to the
   quickstart, troubleshooting and API documentation. `NAV_ITEMS` gains a `system` entry.

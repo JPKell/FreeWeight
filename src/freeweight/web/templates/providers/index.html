@@ -1,0 +1,53 @@
+{% extends "base.html" %}
+{% block title %}Provider — FreeWeight{% endblock %}
+{% block content %}
+<h2>Provider</h2>
+<p class="muted">This is the <span class="mono">[provider]</span> block in
+<span class="mono">{{ document.config_path }}</span>. Saving edits that file in place — comments and
+everything outside the provider block are left exactly as they are — and re-opens the provider
+handle this server measures with. Every other value read at startup keeps what it read (ADR-0117).</p>
+{% if document.provider.shadowed_by %}
+<p class="notice" role="status">Shadowed by <span class="mono">{{ document.provider.shadowed_by }}</span>:
+the file is written, and the environment keeps winning until that variable is unset.</p>
+{% endif %}
+{% if notice %}<p class="notice" role="status">{{ notice }}</p>{% endif %}
+{% if error %}<p class="error" role="alert">{{ error }}</p>{% endif %}
+<form method="post" action="/provider">
+  {% include "partials/_csrf.html" %}
+  <input type="hidden" name="base_digest" value="{{ document.config_digest }}">
+  <div class="field">
+    <label for="provider-kind">kind</label>
+    <input type="text" id="provider-kind" name="kind" value="{{ document.provider.kind }}"
+           aria-describedby="provider-kind-hint">
+    <p class="field-hint" id="provider-kind-hint">ollama, llamacpp, or fake for tests.</p>
+  </div>
+  <div class="field">
+    <label for="provider-base_url">base_url</label>
+    <input type="text" id="provider-base_url" name="base_url" value="{{ document.provider.base_url }}"
+           aria-describedby="provider-base_url-hint">
+    <p class="field-hint" id="provider-base_url-hint">The endpoint. Ignored by kind='llamacpp', which launches its own server.</p>
+  </div>
+  <div class="field">
+    <label for="provider-timeout_seconds">timeout_seconds</label>
+    <input type="number" step="0.1" min="0.1" id="provider-timeout_seconds" name="timeout_seconds"
+           value="{{ document.provider.timeout_seconds }}">
+  </div>
+  <div class="field">
+    <label for="provider-model_directory">model_directory</label>
+    <input type="text" id="provider-model_directory" name="model_directory"
+           value="{{ document.provider.model_directory }}" aria-describedby="provider-model_directory-hint">
+    <p class="field-hint" id="provider-model_directory-hint">For llamacpp: the directory of GGUF weights it serves. Required for that kind.</p>
+  </div>
+  <div class="field">
+    <label for="provider-state_dir">state_dir</label>
+    <input type="text" id="provider-state_dir" name="state_dir" value="{{ document.provider.state_dir }}">
+  </div>
+  <div class="field">
+    <label for="provider-server_path">server_path</label>
+    <input type="text" id="provider-server_path" name="server_path" value="{{ document.provider.server_path }}">
+  </div>
+  <button type="submit" data-variant="primary">Save provider</button>
+</form>
+<p class="muted">Models this provider serves are on the <a href="/models">Models</a> page, where
+<strong>Rescan</strong> asks it what it has now and a model can be disabled so no run measures it.</p>
+{% endblock %}

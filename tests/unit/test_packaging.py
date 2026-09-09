@@ -43,6 +43,7 @@ APPROVED_NON_SUITE_DEPENDENCIES: frozenset[str] = frozenset(
         "pydantic",
         "python-multipart",
         "sqlalchemy",
+        "tomlkit",
         "typer",
         "uvicorn",
     }

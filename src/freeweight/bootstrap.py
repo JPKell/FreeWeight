@@ -102,7 +102,10 @@ def bootstrap() -> Application:
             # short-lived collector: the long-lived one the telemetry bar samples from belongs to
             # the web lifespan, for the same reason the database handle above does.
             profile_machine(database, build_collector())
-    return Application(loaded_settings=loaded, app=create_app(loaded.settings, goals=goals))
+    return Application(
+        loaded_settings=loaded,
+        app=create_app(loaded.settings, goals=goals, config_path=loaded.config_path),
+    )
 
 
 def create_app_from_environment() -> FastAPI:

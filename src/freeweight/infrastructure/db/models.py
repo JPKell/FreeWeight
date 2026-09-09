@@ -24,6 +24,7 @@ from sqlalchemy import (
     Integer,
     String,
     text,
+    true,
 )
 from sqlalchemy.orm import Mapped, mapped_column
 from weightsdb import PortableJSON, UtcDateTime, ulid_primary_key
@@ -143,6 +144,11 @@ class Model(Base):
     first_seen_at: Mapped[datetime] = mapped_column(UtcDateTime, nullable=False, default=utcnow)
     last_seen_at: Mapped[datetime] = mapped_column(UtcDateTime, nullable=False, default=utcnow)
     aliases_json: Mapped[object | None] = mapped_column(PortableJSON)
+    # ADR-0118: the operator's decision. Discovery never writes it, so a model disabled here
+    # stays disabled across rescans, and a run that names it is refused rather than measured.
+    enabled: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=True, server_default=true()
+    )
 
 
 class Adapter(Base):

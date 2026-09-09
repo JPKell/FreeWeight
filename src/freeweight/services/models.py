@@ -63,6 +63,7 @@ __all__ = [
     "get_last_discovery",
     "get_model_detail",
     "list_models_with_latest_descriptor",
+    "set_model_enabled",
 ]
 
 _LAST_DISCOVERY_SETTING_KEY = "models.last_discovery"
@@ -161,6 +162,48 @@ class ModelListRow:
     quantization: str | None
     parameter_count: int | None
     max_context: int | None
+    enabled: bool = True
+    """Whether an operator permits this model to be measured (ADR-0118). Discovery never writes
+    it, so a model disabled here stays disabled across rescans."""
+
+
+def set_model_enabled(database: Database, *, model_ref: str, enabled: bool) -> str:
+    """Permit or refuse this model, and nothing else (ADR-0118).
+
+    A disabled model keeps its row, its descriptors and every result measured under it; what
+    changes is that no new run may name it. Discovery never writes this flag, so a rescan does not
+    undo the decision.
+
+    Args:
+        database: The application's database handle.
+        model_ref: A stored ULID or an unambiguous prefix of one.
+        enabled: Whether runs may measure this model.
+
+    Returns:
+        The canonical ID of the model that was changed, for the message the page shows.
+
+    Raises:
+        ModelNotFound: No stored model matches ``model_ref``.
+        ValidationError: ``model_ref`` is an ambiguous prefix.
+        DatabaseUnavailable: The database could not be written.
+    """
+    repository = ModelRepository()
+    with _translated(), database.write() as session:
+        from baseaicore import ValidationError
+
+        matches = repository.get_by_id_prefix(session, model_ref)
+        if len(matches) > 1:
+            raise ValidationError(
+                f"{model_ref!r} matches {len(matches)} models; use a longer prefix.",
+                details={"model": model_ref, "candidates": [row.id for row in matches]},
+            )
+        if not matches:
+            raise ModelNotFound(
+                f"No stored model matches {model_ref!r}.", details={"model": model_ref}
+            )
+        model = matches[0]
+        model.enabled = enabled
+        return str(model.canonical_id)
 
 
 def list_models_with_latest_descriptor(database: Database) -> tuple[ModelListRow, ...]:
@@ -189,6 +232,7 @@ def list_models_with_latest_descriptor(database: Database) -> tuple[ModelListRow
                     quantization=latest.quantization if latest is not None else None,
                     parameter_count=latest.parameter_count if latest is not None else None,
                     max_context=latest.max_context if latest is not None else None,
+                    enabled=model.enabled,
                 )
             )
     return tuple(rows)

@@ -23,6 +23,7 @@ Everything here is additive within v1. The committed OpenAPI snapshot is diff-ch
 | `GET /machines` · `GET /machines/{id}` | Static profiles; the current machine is flagged. **Never writes** — machines are recorded when a run is created, so polling this cannot make one look freshly used, and the list is legitimately empty before anything has been measured |
 | `GET /models` | Filter by `provider_kind`, `family`, `quantization`, `has_results`; sort by `last_seen_at`, `canonical_id` |
 | `POST /models/discover` | Re-discovers through ModelRack; returns added/updated/unchanged/total counts. The counts, not the models: a client that wants the list asks for it, and a discovery that returned every model would bury *what changed* |
+| `POST /models/{model_ref}/enabled` | The Models page's Disable/Enable button. Form field `enabled` is `true` or `false` — an operator's decision that this model may not be measured ([ADR-0118](../../adr/0118-a-discovered-model-can-be-disabled.md)). The row, its descriptors and every result measured under it stay; a new run naming a disabled model is refused by name, and discovery never writes the flag, so a rescan does not undo it |
 | `GET /models/{model_ref}` | Identity, latest descriptor, descriptor history, evidence summary |
 | `GET /models/{model_ref}/results` | Paginated results for this model, filterable by suite and runtime profile |
 | `GET /models?canonical_id=…` | Lookup by identity; `?provider_kind=&provider_model_name=&artifact_digest=` is the exact-triple form |
@@ -275,6 +276,24 @@ That is the safe direction to be wrong in: changing a measurement's conditions w
 measured is worse than a setting that takes effect later. A run's effective configuration is frozen
 at creation and recorded, so a reader can always see which values a given run was measured under —
 including the sampler interval.
+
+## 8a. Provider
+
+`GET /provider`, `PUT /provider` — the `[provider]` block, read from and written to the
+configuration file itself
+([ADR-0117](../../adr/0117-provider-registrations-are-edited-in-place-in-the-config-file.md)).
+FreeWeight has one provider, not a registry (spec §12), so there is one block and nothing to name.
+
+`GET` returns the block, the file it lives in, that file's digest, and `shadowed_by` — the
+`FREEWEIGHT_PROVIDER__*` variable, if any, that beats the file. A write edits **only** that block:
+the file is round-tripped with comments, key order and formatting intact, the candidate document is
+validated by loading it through the ordinary precedence chain, the previous file is kept as
+`config.toml.bak`, and the provider handle is re-opened so the change applies to work started from
+now on. Nothing else this process read at startup is re-read.
+
+Refusals: `400 VALIDATION_ERROR` names a key outside the provider block or a value the provider
+model rejects; `409 CONFLICT` means the file changed since `base_digest` was read, and nothing was
+written.
 
 ## 9. Authentication
 
