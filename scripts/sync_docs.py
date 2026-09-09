@@ -1,6 +1,7 @@
 """Mirror the canonical FreeWeight documents into this repository's ``docs/``.
 
-The suite's documentation lives in one place — ``AiSuite/docs/`` in the workspace — and each
+The suite's documentation lives in one place — ``WeightRoom/docs/`` in the workspace (the
+documentation repository became the WeightRoom repository at row W0, 2026-09-09) — and each
 component repository carries a copy of the documents that concern it so it can be worked on
 standalone. A copy maintained by hand drifts, and did: the mirror once held four of the seven
 documents, with the links to the missing three quietly stripped out of the four that were there.
@@ -28,7 +29,7 @@ import sys
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-CANONICAL = REPO_ROOT.parent / "docs"
+CANONICAL = REPO_ROOT.parent / "WeightRoom" / "docs"
 MIRROR = REPO_ROOT / "docs"
 SUBDIR = Path("apps/freeweight")
 
