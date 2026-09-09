@@ -842,9 +842,9 @@ mirrorwall==0.2.2 \
     # via
     #   freeweight
     #   freeweight (pyproject.toml)
-modelrack==0.7.1 \
-    --hash=sha256:46a1692ad4b490f996bb9c507481edd610e831bef8e3f65303fc08107284325b \
-    --hash=sha256:78d51e1cd65a059ea0c9709b11189516a95497751637df704726e3f02d5fbeee
+modelrack==0.8.0 \
+    --hash=sha256:278637a12d7db057234c3e3f60bb4b2e41f9501c82aa9c4660c5ca579a81aba7 \
+    --hash=sha256:98f9164346cb13ea638bb0f3764e214a041f74db274b151345eda1d5a1f1f6ec
     # via
     #   freeweight
     #   freeweight (pyproject.toml)
