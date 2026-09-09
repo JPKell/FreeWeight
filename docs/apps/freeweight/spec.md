@@ -95,7 +95,7 @@ particular — can consume without touching FreeWeight's internals.
 `LlamaCppProvider` and adapter registration —
 [ADR-0062](../../adr/0062-llamacpp-serves-adapters-through-a-supervised-process.md)), `sweatmeter`,
 `weightsdb` (adopted at Phase 12), `mirrorwall` (adopted at Phase 12).
-**Third party:** `fastapi`, `uvicorn[standard]`, `typer`, `pydantic`, `pydantic-settings`,
+**Third party:** `fastapi`, `uvicorn[standard]`, `typer`, `pydantic`,
 `sqlalchemy`, `alembic`, `jinja2`.
 **External services:** a model provider (Ollama by default; `llama-server` when
 `provider.kind = "llamacpp"`, which FreeWeight launches and supervises itself). Optional: a
