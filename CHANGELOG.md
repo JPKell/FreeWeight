@@ -7,6 +7,21 @@ packaging and release standards §3.
 
 ## [Unreleased]
 
+## [1.2.1] — 2026-09-09
+
+### Added
+
+- **`config schema --json`**: prints the settings-schema document ADR-0127 defines — pydantic's
+  `Settings.model_json_schema()`, the `runtime_changeable` registry, the `security_keys` refused
+  with `FORBIDDEN`, every other `config_only` key, and the same per-leaf `sources` `config show`
+  reports (database overlay included). Built for WeightRoomGym's settings form, which reads this
+  document instead of hardcoding a fifth copy of FreeWeight's configuration surface. An unknown key
+  in the file is named under `problems` rather than failing the whole document. Never carries a
+  configured value, secret or otherwise — only key paths, types and layers.
+- **`config validate --file <path>`**: validates an arbitrary candidate file through the same
+  parse, validation and security refusals as startup, without touching this installation's own
+  `config.toml`. Without `--file` the verb keeps its present meaning (ADR-0127 rule 2).
+
 ## [1.2.0] — 2026-09-09
 
 ### Added

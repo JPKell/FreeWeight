@@ -171,7 +171,7 @@ against its build rather than reading both and comparing them by eye.
 
 ```text
 freeweight serve | health | doctor | version
-freeweight config show|validate|init|path
+freeweight config show|validate|schema|init|path
 freeweight db upgrade|status|backup|restore|vacuum
 freeweight models list|show|refresh
 freeweight adapters list|show                                        (Phase 15)
@@ -187,6 +187,17 @@ freeweight judges list|validate
 freeweight prompts list|show|build
 freeweight token create|list|revoke                                  (waits on ADR-0014)
 ```
+
+`config schema --json` prints the settings-schema document
+([ADR-0127](../../adr/0127-every-application-publishes-its-settings-schema-and-weightroom-generates-the-form.md)
+rule 1): `Settings.model_json_schema()`, the `runtime_changeable` registry, the `security_keys`
+`PUT /api/v1/settings` refuses with `FORBIDDEN`, every other `config_only` key, and the same
+per-leaf `sources` `config show` reports. WeightRoomGym renders its FreeWeight settings form from
+this document and hardcodes none of the surface it describes. `config validate --file <path>`
+validates an arbitrary candidate file through the same parse, validation and security refusals as
+startup, without touching this installation's own `config.toml` — the check WeightRoomGym runs
+before it writes a form edit back to disk (ADR-0127 rule 2); without `--file` the verb keeps its
+present meaning.
 
 `run start` takes `--context-size` to override `[runtime]` for one run
 ([ADR-0023](../../adr/0023-runtime-profile-resolution.md) §3), `--adapter <name>` to measure an
