@@ -2,7 +2,7 @@
 
 Measures local open-weight models across capability, efficiency, reliability and resource use, with reproducible provenance and exportable capability evidence.
 
-**Status:** `1.1.2` in the repository (tagged `v1.1.2`; `pip index versions freeweight` says what PyPI serves). Phases 1–15 built, through the adapter arc's LA3 checkpoint. Every
+**Status:** `1.2.0` in the repository (release prepared, untagged; `pip index versions freeweight` says what PyPI serves). Phases 1–15 built, through the adapter arc's LA3 checkpoint. Every
 native suite runs and measures, subjective goals are authored, calibrated and scored from the UI,
 and the application exports **capability evidence** — one `capability.evidence` record per model,
 runtime profile, machine and capability, with ADR-0017's confidence beside the score — as a

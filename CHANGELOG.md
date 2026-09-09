@@ -7,6 +7,8 @@ packaging and release standards §3.
 
 ## [Unreleased]
 
+## [1.2.0] — 2026-09-09
+
 ### Added
 
 - **`[runtime] flash_attention` and `kv_cache_precision`** (`f16` | `q8_0` | `q4_0`), honoured per
