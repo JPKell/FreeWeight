@@ -2,7 +2,7 @@
 
 P14 asks for upgrade testing from every released version with real data preserved. The v1.0.0rc1
 fixture is the oldest real database available, and until Phase 15 there was no forward migration to
-apply — Phase 12's acceptance criterion forbade adding one. ``0008`` is the first since, so this
+apply — Phase 12's acceptance criterion forbade adding one. ``0008`` was the first since, so this
 now proves the *upgrade*, not merely that the schema already matched.
 
 This test goes past the migration check in ``test_migrations.py`` and boots the whole application
@@ -39,12 +39,12 @@ def rc1_database(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
 
 
 def test_this_version_migrates_an_rc1_database_to_head(rc1_database: Path) -> None:
-    """The upgrade applies exactly ``0008``, and a second open applies nothing."""
+    """The upgrade brings an rc1 database to head, and a second open applies nothing."""
     with Database.from_url(f"sqlite:///{rc1_database}") as database:
         outcome = ensure_ready(database, auto_migrate=True)
 
-    assert outcome is not None, "0008 must apply to an rc1 database on this version"
-    assert (outcome.from_revision, outcome.to_revision) == ("0007", "0008")
+    assert outcome is not None, "the pending revisions must apply to an rc1 database"
+    assert outcome.from_revision == "0007"
 
     with Database.from_url(f"sqlite:///{rc1_database}") as database:
         again = ensure_ready(database, auto_migrate=True)

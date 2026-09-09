@@ -293,13 +293,13 @@ def test_migration_outcome_states_the_dialect_restore_difference(runner: Migrati
     assert fresh.backed_up is False
 
 
-def test_rc1_database_migrates_to_0008_and_keeps_its_rows(tmp_path: Path) -> None:
+def test_rc1_database_migrates_to_head_and_keeps_its_rows(tmp_path: Path) -> None:
     """P12's named failure mode, and Phase 15's upgrade path, on one real database.
 
     The fixture is a database file created by a real ``1.0.0rc1`` install (commit ``0a6bc40``,
     migrated by the pre-adoption in-application runner) — not one this test created — with real
-    rows in it. WeightsDB's runner must find that history's ``alembic_version`` rows, apply
-    ``0008`` and nothing else, and leave every row readable.
+    rows in it. WeightsDB's runner must find that history's ``alembic_version`` rows, apply every
+    revision since, and leave every row readable.
 
     Until Phase 15 this asserted that **no** revision applied, because P12's acceptance criterion
     forbade adding one. ``0008`` is the first revision since, and it is the one that most has to be
@@ -327,8 +327,8 @@ def test_rc1_database_migrates_to_0008_and_keeps_its_rows(tmp_path: Path) -> Non
 
         outcome = ensure_ready(Database(engine), auto_migrate=True)
 
-        assert outcome is not None, "0008 must apply to an rc1 database; nothing ran"
-        assert (outcome.from_revision, outcome.to_revision) == ("0007", "0008")
+        assert outcome is not None, "the pending revisions must apply to an rc1 database"
+        assert (outcome.from_revision, outcome.to_revision) == ("0007", runner.heads()[0])
         assert runner.is_at_head()
         assert _cascading_child_counts(engine) == counts_before, (
             "rebuilding `runs` cascaded and deleted rows: the foreign-key pragma guard in env.py "
@@ -359,10 +359,9 @@ def test_1_1_0_database_migrates_to_head_and_keeps_its_rows(tmp_path: Path) -> N
     The fixture is a real ``freeweight==1.1.0`` install (from PyPI, in a scratch venv) migrated by
     its own ``freeweight db upgrade``, with two rows written through
     :class:`~freeweight.infrastructure.db.repositories.settings.SettingsRepository` — the same
-    repository layer a real CLI write would go through. ``1.1.0``'s head is this build's head too
-    (``0008`` — no revision has landed since that release), so today this asserts the upgrade is
-    the documented no-op (CLI standards §11) and the rows are untouched; it starts asserting a real
-    migration the day ``0009`` lands, which is the point of capturing it now rather than later.
+    repository layer a real CLI write would go through. ``1.1.0`` shipped ``0008``, so this
+    asserts the documented no-op (CLI standards §11) while that is head, and the real migration
+    once a later revision lands — the point of capturing the fixture before it was needed.
     """
     fixture = Path(__file__).parent.parent / "fixtures" / "databases" / "freeweight-1.1.0.sqlite3"
     working_copy = tmp_path / "freeweight-1.1.0.sqlite3"
@@ -390,13 +389,13 @@ def test_1_1_0_database_migrates_to_head_and_keeps_its_rows(tmp_path: Path) -> N
         engine.dispose()
 
 
-def test_1_0_0_database_migrates_to_0008_and_keeps_its_rows(tmp_path: Path) -> None:
+def test_1_0_0_database_migrates_to_head_and_keeps_its_rows(tmp_path: Path) -> None:
     """The earliest-published-release companion to the fixtures above (row L8, M9_REAUDIT O1).
 
     ``1.1.0``'s own fixture test above is a documented no-op — its head and this build's head
     are the same revision, so it never actually drove an upgrade. ``1.0.0`` is FreeWeight's
-    earliest PyPI release with a schema at all, and it sits at ``0007``, one behind head exactly
-    like the ``rc1`` fixture above — so this one exercises the real ``0007 -> 0008`` migration
+    earliest PyPI release with a schema at all, and it sits at ``0007``, behind head exactly
+    like the ``rc1`` fixture above — so this one exercises the real ``0007 -> head`` migration
     (the same ``runs`` rebuild the `rc1` test's cascade-count guard covers), on rows written by an
     independent, real ``1.0.0`` install rather than by the pre-adoption in-application runner the
     `rc1` fixture came from.
@@ -411,13 +410,13 @@ def test_1_0_0_database_migrates_to_0008_and_keeps_its_rows(tmp_path: Path) -> N
         current_before = runner.current()
         assert current_before is not None, "the 1.0.0 fixture must carry a recorded revision"
         assert current_before == "0007", (
-            f"the 1.0.0 fixture must sit one revision behind head; found {current_before!r}"
+            f"the 1.0.0 fixture must sit at the revision 1.0.0 shipped; found {current_before!r}"
         )
 
         outcome = ensure_ready(Database(engine), auto_migrate=True)
 
-        assert outcome is not None, "0008 must apply to a 1.0.0 database; nothing ran"
-        assert (outcome.from_revision, outcome.to_revision) == ("0007", "0008")
+        assert outcome is not None, "the pending revisions must apply to a 1.0.0 database"
+        assert (outcome.from_revision, outcome.to_revision) == ("0007", runner.heads()[0])
         assert runner.is_at_head()
 
         database = Database(engine)
