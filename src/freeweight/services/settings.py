@@ -23,11 +23,12 @@ import logging
 import os
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
+from pathlib import Path
 from typing import TYPE_CHECKING, Any, ClassVar
 
 from baseaicore import SuiteError, ValidationError, utc_now
 
-from freeweight.config import Settings, env_var_for
+from freeweight.config import Settings, env_var_for, leaf_keys, load_settings_tolerant
 
 if TYPE_CHECKING:
     from datetime import datetime
@@ -37,10 +38,13 @@ if TYPE_CHECKING:
 __all__ = [
     "CONFIG_ONLY_KEYS",
     "RUNTIME_SETTINGS",
+    "SCHEMA_VERSION",
     "RuntimeSetting",
     "SettingConfigOnly",
     "SettingUnknown",
     "SettingView",
+    "config_schema_document",
+    "database_overlay",
     "read_settings",
     "runtime_settings_document",
     "shadowing_source",
@@ -602,3 +606,119 @@ def runtime_settings_document(
 def config_only_keys() -> Sequence[str]:
     """The security-relevant keys, sorted, for the settings page's "config only" list."""
     return sorted(CONFIG_ONLY_KEYS)
+
+
+def database_overlay(settings: Settings) -> dict[str, tuple[Any, str]]:
+    """The runtime-changeable values the ``settings`` table decides, and how to label them.
+
+    Configuration standards §7 asks ``config show`` to mark database-sourced values
+    ``(database)``. This opens the configured database read-only to find them, and **never
+    raises**: an absent, unmigrated or unreadable database is not a failure of the caller —
+    printing the configured values is exactly the right answer when there is no database to
+    consult, and a command or document that needed one would be unusable on a fresh install.
+
+    Args:
+        settings: The loaded :class:`Settings` — the file/environment layers as resolved, before
+            :func:`apply_stored` has touched them, which is why the stored value rather than the
+            effective one is what a database-sourced row reports here.
+
+    Returns:
+        ``path -> (value, source)`` for the keys the database decides, plus the keys whose stored
+        row is beaten by an environment variable — those keep their configured value and say that
+        a row exists and does nothing. Empty when no database can be read.
+    """
+    from sqlalchemy.engine import make_url
+    from sqlalchemy.exc import SQLAlchemyError
+
+    from freeweight.services.database import Database
+
+    database_url = settings.storage.database_url
+    if database_url is None:  # pragma: no cover — StorageSettings always fills this in
+        return {}
+    url = make_url(database_url)
+    if url.drivername.startswith("sqlite") and url.database not in (None, ":memory:"):
+        # Connecting would create the file. A read-only inspection must not leave a database
+        # behind that `db status` would then report as unmigrated.
+        if not Path(str(url.database)).is_file():
+            return {}
+    try:
+        with Database.from_url(database_url) as database:
+            views = read_settings(database, settings)
+    except (SQLAlchemyError, SuiteError, OSError):
+        return {}
+    overlay: dict[str, tuple[Any, str]] = {}
+    for view in views:
+        if view.source == "database":
+            overlay[view.setting.key] = (view.stored_value, "database")
+        elif view.overridden_by_env:
+            overlay[view.setting.key] = (
+                view.effective_value,
+                f"env {view.setting.env_var}; database row {view.stored_value} shadowed",
+            )
+    return overlay
+
+
+SCHEMA_VERSION = "1.0"
+"""The version of the settings-schema document :func:`config_schema_document` emits (ADR-0127)."""
+
+
+def config_schema_document(config_path: str | Path | None = None) -> dict[str, Any]:
+    """Build the ADR-0127 rule 1 settings-schema document.
+
+    Everything comes from objects that already exist and are already tested: pydantic's own
+    ``Settings.model_json_schema()``, :data:`RUNTIME_SETTINGS`, :data:`CONFIG_ONLY_KEYS` and the
+    per-leaf sources :func:`~freeweight.config.load_settings` and :func:`database_overlay` already
+    compute for ``config show``. Nothing here is a second copy of a key list.
+
+    Args:
+        config_path: As :func:`~freeweight.config.load_settings`; the file WeightRoomGym (or an
+            operator) wants described. Defaults to the resolved installation config.
+
+    Returns:
+        ``schema_version``, ``application``, ``version``, ``env_prefix``, ``config_path``,
+        ``json_schema``, ``runtime_changeable`` (one entry per :data:`RUNTIME_SETTINGS` key, as
+        ``key``/``kind``/``minimum``/``maximum``/``description``), ``security_keys`` (sorted
+        :data:`CONFIG_ONLY_KEYS`), ``config_only`` (every other leaf), ``sources`` (the same
+        per-leaf layer ``config show`` prints, database overlay included) and ``problems`` (an
+        unknown key in the file, never dropped — see
+        :func:`~freeweight.config.load_settings_tolerant`).
+
+    Raises:
+        ConfigurationError: A *known* key in the file fails validation, or an unsafe bind/auth
+            combination is configured — the same refusals ``config show`` and ``config validate``
+            give.
+    """
+    from freeweight import __about__
+
+    loaded, problems = load_settings_tolerant(config_path)
+
+    sources = dict(loaded.sources)
+    for path, (_value, source) in database_overlay(loaded.settings).items():
+        sources[path] = source
+
+    runtime_keys = {setting.key for setting in RUNTIME_SETTINGS}
+    security_keys = set(CONFIG_ONLY_KEYS)
+    config_only = sorted(set(leaf_keys()) - runtime_keys - security_keys)
+
+    return {
+        "schema_version": SCHEMA_VERSION,
+        "application": "freeweight",
+        "version": __about__.__version__,
+        "env_prefix": "FREEWEIGHT_",
+        "config_path": str(loaded.config_path),
+        "json_schema": Settings.model_json_schema(),
+        "runtime_changeable": [
+            {
+                "key": setting.key,
+                "kind": setting.kind,
+                "minimum": setting.minimum,
+                "maximum": setting.maximum,
+                "description": setting.description,
+            }
+            for setting in RUNTIME_SETTINGS
+        ],
+        "security_keys": sorted(security_keys),
+        "config_only": config_only,
+        "sources": sources,
+        "problems": list(problems),
+    }

@@ -301,6 +301,106 @@ def test_config_validate_fails_on_unsafe_binding(monkeypatch: pytest.MonkeyPatch
     assert result.exit_code == 3
 
 
+def test_config_validate_file_succeeds_on_a_valid_candidate(tmp_path: Path) -> None:
+    candidate = tmp_path / "candidate.toml"
+    candidate.write_text("[server]\nport = 8790\n", encoding="utf-8")
+
+    result = runner.invoke(app, ["config", "validate", "--file", str(candidate)])
+
+    assert result.exit_code == 0, result.output
+
+
+def test_config_validate_file_names_an_unknown_key(tmp_path: Path) -> None:
+    candidate = tmp_path / "candidate.toml"
+    candidate.write_text('[server]\nhostt = "127.0.0.1"\n', encoding="utf-8")
+
+    result = runner.invoke(app, ["config", "validate", "--file", str(candidate)])
+
+    assert result.exit_code == 3
+    assert "server.hostt" in result.output
+
+
+def test_config_validate_file_refuses_an_insecure_bind(tmp_path: Path) -> None:
+    candidate = tmp_path / "candidate.toml"
+    candidate.write_text('[server]\nhost = "0.0.0.0"\n', encoding="utf-8")  # noqa: S104
+
+    result = runner.invoke(app, ["config", "validate", "--file", str(candidate)])
+
+    assert result.exit_code == 3
+    assert "INSECURE_BINDING" in result.output
+
+
+def test_config_validate_file_reports_a_missing_file_cleanly(tmp_path: Path) -> None:
+    result = runner.invoke(app, ["config", "validate", "--file", str(tmp_path / "absent.toml")])
+
+    assert result.exit_code == 0, result.output  # a missing file is not an error (defaults apply)
+
+
+def test_config_validate_file_never_touches_this_installations_own_config(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    own_config = tmp_path / "own" / "config.toml"
+    own_config.parent.mkdir(parents=True)
+    own_bytes = b"[server]\nport = 8765\n"
+    own_config.write_bytes(own_bytes)
+    monkeypatch.setenv("FREEWEIGHT_CONFIG", str(own_config))
+
+    candidate = tmp_path / "candidate.toml"
+    candidate.write_text('[server]\nhostt = "nope"\n', encoding="utf-8")
+
+    result = runner.invoke(app, ["config", "validate", "--file", str(candidate)])
+
+    assert result.exit_code == 3
+    assert own_config.read_bytes() == own_bytes
+
+
+def test_config_schema_prints_canonical_json() -> None:
+    result = runner.invoke(app, ["config", "schema", "--json"])
+
+    assert result.exit_code == 0, result.output
+    assert result.output == result.output.strip() + "\n"  # one line, no pretty-printing
+    document = json.loads(result.output)
+    assert document["schema_version"] == "1.0"
+    assert document["application"] == "freeweight"
+    assert document["env_prefix"] == "FREEWEIGHT_"
+    assert "json_schema" in document
+    assert any(entry["key"] == "telemetry.interval_ms" for entry in document["runtime_changeable"])
+    assert "server.host" in document["security_keys"]
+    assert document["problems"] == []
+
+
+def test_config_schema_redacts_a_configured_secret(tmp_path: Path) -> None:
+    config_file = tmp_path / "config.toml"
+    config_file.write_text('[auth]\ntokens = ["super-secret-value"]\n', encoding="utf-8")
+
+    result = runner.invoke(app, ["config", "schema", "--json", "--config", str(config_file)])
+
+    assert result.exit_code == 0, result.output
+    assert "super-secret-value" not in result.output
+
+
+def test_config_schema_reports_an_unknown_key_under_problems(tmp_path: Path) -> None:
+    config_file = tmp_path / "config.toml"
+    config_file.write_text('[server]\nhostt = "127.0.0.1"\n', encoding="utf-8")
+
+    result = runner.invoke(app, ["config", "schema", "--json", "--config", str(config_file)])
+
+    assert result.exit_code == 0, result.output
+    document = json.loads(result.output)
+    assert document["problems"] == ["unknown configuration key 'server.hostt'"]
+
+
+def test_config_schema_fails_like_validate_on_a_genuine_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("FREEWEIGHT_SERVER__HOST", "0.0.0.0")  # noqa: S104 — testing the refusal
+
+    result = runner.invoke(app, ["config", "schema"])
+
+    assert result.exit_code == 3
+    assert "INSECURE_BINDING" in result.output
+
+
 def test_config_path_prints_a_path() -> None:
     result = runner.invoke(app, ["config", "path"])
 

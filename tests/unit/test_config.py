@@ -11,7 +11,9 @@ from freeweight.config import (
     ConfigurationError,
     InsecureBindingError,
     StorageSettings,
+    leaf_keys,
     load_settings,
+    load_settings_tolerant,
     resolve_config_path,
 )
 
@@ -280,3 +282,55 @@ def test_a_memory_throttle_without_a_cap_is_refused_by_key(tmp_path: Path) -> No
     config_file.write_text('[provider]\nkind = "llamacpp"\nmemory_high_bytes = 1024\n')
     with pytest.raises(ConfigurationError, match="memory_high_bytes"):
         load_settings(config_path=config_file)
+
+
+def test_leaf_keys_includes_every_section_field() -> None:
+    keys = leaf_keys()
+    assert "server.host" in keys
+    assert "telemetry.interval_ms" in keys
+    assert "server" not in keys  # bare section names are not leaves
+
+
+def test_load_settings_tolerant_reports_an_unknown_key_instead_of_raising(
+    tmp_path: Path,
+) -> None:
+    config_file = tmp_path / "config.toml"
+    config_file.write_text('[server]\nhostt = "127.0.0.1"\nport = 8790\n', encoding="utf-8")
+
+    loaded, problems = load_settings_tolerant(config_file)
+
+    assert problems == ("unknown configuration key 'server.hostt'",)
+    assert loaded.settings.server.port == 8790
+    assert loaded.settings.server.host == "127.0.0.1"  # the unknown key, not a sibling, is dropped
+
+
+def test_load_settings_tolerant_reports_an_unknown_section(tmp_path: Path) -> None:
+    config_file = tmp_path / "config.toml"
+    config_file.write_text("[not_a_real_section]\nx = 1\n", encoding="utf-8")
+
+    loaded, problems = load_settings_tolerant(config_file)
+
+    assert problems == ("unknown configuration key 'not_a_real_section'",)
+    assert loaded.settings.server.host == "127.0.0.1"
+
+
+def test_load_settings_tolerant_still_raises_on_a_genuine_validation_error(
+    tmp_path: Path,
+) -> None:
+    config_file = tmp_path / "config.toml"
+    config_file.write_text("[server]\nport = 999999\n", encoding="utf-8")
+
+    with pytest.raises(ConfigurationError):
+        load_settings_tolerant(config_file)
+
+
+def test_load_settings_tolerant_matches_load_settings_on_a_clean_file(tmp_path: Path) -> None:
+    config_file = tmp_path / "config.toml"
+    config_file.write_text("[server]\nport = 8790\n", encoding="utf-8")
+
+    loaded, problems = load_settings_tolerant(config_file)
+    strict = load_settings(config_path=config_file)
+
+    assert problems == ()
+    assert loaded.settings == strict.settings
+    assert loaded.sources == strict.sources

@@ -1,0 +1,1407 @@
+{
+  "application": "freeweight",
+  "config_only": [
+    "adapters.directory",
+    "benchmarks.long_context_max_tokens",
+    "benchmarks.max_fit_context_tokens",
+    "calibration.holdout_fraction",
+    "calibration.min_agreement",
+    "calibration.min_samples",
+    "calibration.n_holdout_target",
+    "calibration.partition_seed",
+    "calibration.target_samples",
+    "evidence.capability_weights_path",
+    "evidence.freshness_floor",
+    "evidence.goal_contribution_weight",
+    "evidence.n_target",
+    "evidence.name_only_identity_factor",
+    "evidence.performance_drift_factor",
+    "evidence.performance_half_life_days",
+    "evidence.quality_drift_factor",
+    "evidence.quality_half_life_days",
+    "evidence.stale_below",
+    "execution.gpu_index",
+    "execution.idle_required_samples",
+    "execution.idle_wait_timeout_seconds",
+    "execution.run_timeout_seconds",
+    "execution.store_responses",
+    "execution.test_timeout_seconds",
+    "external.download_cap_bytes",
+    "external.install_timeout_seconds",
+    "goals.max_pack_bytes",
+    "goals.rule_timeout_ms",
+    "judge.blind_candidate_identity",
+    "judge.jury_size",
+    "judge.models",
+    "judge.randomize_order",
+    "judge.refuse_self_judging",
+    "judge.repetitions",
+    "judge.temperature",
+    "logging.format",
+    "provider.kind",
+    "provider.memory_high_bytes",
+    "provider.memory_max_bytes",
+    "provider.model_directory",
+    "provider.server_path",
+    "provider.state_dir",
+    "provider.timeout_seconds",
+    "runtime.batch_size",
+    "runtime.context_size",
+    "runtime.fit_to_device",
+    "runtime.flash_attention",
+    "runtime.gpu_layers",
+    "runtime.keep_alive",
+    "runtime.kv_cache_precision",
+    "runtime.threads",
+    "sandbox.cpu_limit",
+    "sandbox.memory_limit_mb",
+    "sandbox.timeout_seconds",
+    "server.request_timeout_seconds",
+    "storage.auto_migrate",
+    "storage.statement_timeout_ms"
+  ],
+  "env_prefix": "FREEWEIGHT_",
+  "json_schema": {
+    "$defs": {
+      "AdapterSettings": {
+        "additionalProperties": false,
+        "description": "The operator's LoRA adapter directory (ADR-0061).\n\n**Empty means off**, deliberately (rule 2): adapters are opt-in, and a default configuration\nbehaves exactly as it did before adapters existed. The directory holds the served artifacts and\none reviewed ``model.adapter_manifest`` per adapter; FreeWeight reads it and never writes it.\n\nThe word \"adapter\" here is the **LoRA** sense, not the benchmark-harness sense ``[external]``\nconfigures (spec \u00a77.5).",
+        "properties": {
+          "directory": {
+            "default": "",
+            "description": "Directory holding LoRA artifacts and their reviewed manifests. Empty disables adapters entirely.",
+            "examples": [
+              ""
+            ],
+            "title": "Directory",
+            "type": "string"
+          }
+        },
+        "title": "AdapterSettings",
+        "type": "object"
+      },
+      "AuthSettings": {
+        "additionalProperties": false,
+        "description": "Bearer tokens. Empty is the loopback-default, unauthenticated posture (ADR-0014).",
+        "properties": {
+          "tokens": {
+            "default": [],
+            "description": "Bearer tokens accepted on a non-loopback bind. Secret: never logged, always redacted by config show. Comma-separated in the environment.",
+            "examples": [
+              [
+                "********"
+              ]
+            ],
+            "items": {
+              "type": "string"
+            },
+            "title": "Tokens",
+            "type": "array"
+          }
+        },
+        "title": "AuthSettings",
+        "type": "object"
+      },
+      "BenchmarkSettings": {
+        "additionalProperties": false,
+        "description": "The ``[benchmarks]`` section: limits a machine, not a suite author, decides.\n\nA shipped suite's content is fixed and hashed \u2014 that is what makes two runs of it comparable.\nWhat is *not* fixed is how far a sweep can go before the machine running it cannot serve the\ncontext any more, and that is a property of the hardware rather than of the benchmark.\n\nAttributes:\n    long_context_max_tokens: The ceiling of ``native.long_context``'s depth sweep. The shipped\n        ladder doubles \u2014 2 000, 4 000, 8 000, 16 000, 32 000 \u2014 and is truncated to, or extended\n        by doubling up to, this value. Raising it on a machine that can serve more turns\n        ``effective_context_tokens`` from a floor into a measurement; lowering it on a small\n        card keeps the suite runnable instead of failing every rung.\n\n        **It separates results.** The effective ladder is hashed into the suite's\n        ``dataset_hashes``, so a 32 000-token sweep and a 128 000-token sweep are two different\n        measurements and are never averaged \u2014 a sweep that stopped earlier reports a smaller\n        effective context for reasons that have nothing to do with the model.\n    max_fit_context_tokens: The ceiling of ``native.memory_kv``'s maximum-context-fit ladder,\n        ``8 192 \u2026 131 072``, fitted the same way and hashed the same way (ADR-0121 \u00a71). The\n        test climbs \"until something refuses\"; on a provider that spills to host RAM instead\n        of refusing, this ceiling is what stops the climb before the machine does.",
+        "properties": {
+          "long_context_max_tokens": {
+            "default": 32000,
+            "description": "Ceiling of native.long_context's depth sweep. Hashed into that suite's dataset_hashes, so two ceilings are two measurements.",
+            "examples": [
+              32000
+            ],
+            "maximum": 2000000,
+            "minimum": 1000,
+            "title": "Long Context Max Tokens",
+            "type": "integer"
+          },
+          "max_fit_context_tokens": {
+            "default": 131072,
+            "description": "Ceiling of native.memory_kv's maximum-context-fit ladder (8192 doubling to 131072). Hashed into that suite's dataset_hashes, so two ceilings are two measurements (ADR-0121). Lower it on a provider that spills to host RAM instead of refusing.",
+            "examples": [
+              131072
+            ],
+            "maximum": 2000000,
+            "minimum": 8192,
+            "title": "Max Fit Context Tokens",
+            "type": "integer"
+          }
+        },
+        "title": "BenchmarkSettings",
+        "type": "object"
+      },
+      "CalibrationSettings": {
+        "additionalProperties": false,
+        "description": "How judged criteria are calibrated against the author's grades (spec \u00a712).\n\n``n_holdout_target`` is the shrinkage denominator of\n[ADR-0032 \u00a72](../../docs/adr/0032-judge-validity-and-user-capability-namespace.md): six\nholdout samples at ``kappa_w`` 0.71 yield a validity factor of 0.55, not 0.71. It is\nconfiguration and it is recorded on every calibration report with the policy version, exactly\nas ADR-0017's own parameters are.",
+        "properties": {
+          "holdout_fraction": {
+            "default": 0.4,
+            "description": "Share of graded samples withheld from the jury \u2014 the only honest estimate of agreement.",
+            "examples": [
+              0.4
+            ],
+            "exclusiveMaximum": 1.0,
+            "exclusiveMinimum": 0.0,
+            "title": "Holdout Fraction",
+            "type": "number"
+          },
+          "min_agreement": {
+            "default": 0.4,
+            "description": "Weighted kappa_w below which a goal emits no evidence at all (ADR-0032 \u00a73).",
+            "examples": [
+              0.4
+            ],
+            "maximum": 1.0,
+            "minimum": -1.0,
+            "title": "Min Agreement",
+            "type": "number"
+          },
+          "min_samples": {
+            "default": 8,
+            "description": "Below this many graded samples: CALIBRATION_INSUFFICIENT, not a failed gate.",
+            "examples": [
+              8
+            ],
+            "minimum": 1,
+            "title": "Min Samples",
+            "type": "integer"
+          },
+          "n_holdout_target": {
+            "default": 10,
+            "description": "Shrinkage denominator for judge_validity_factor (ADR-0032 \u00a72).",
+            "examples": [
+              10
+            ],
+            "minimum": 1,
+            "title": "N Holdout Target",
+            "type": "integer"
+          },
+          "partition_seed": {
+            "default": 0,
+            "description": "Seed of the anchor/holdout split, recorded so the split is reproducible.",
+            "examples": [
+              0
+            ],
+            "title": "Partition Seed",
+            "type": "integer"
+          },
+          "target_samples": {
+            "default": 12,
+            "description": "How many samples the wizard asks the author to grade.",
+            "examples": [
+              12
+            ],
+            "minimum": 1,
+            "title": "Target Samples",
+            "type": "integer"
+          }
+        },
+        "title": "CalibrationSettings",
+        "type": "object"
+      },
+      "EvidenceSettings": {
+        "additionalProperties": false,
+        "description": "``[evidence]`` \u2014 the confidence policy and where the capability weights come from.\n\nEvery parameter of ADR-0017's confidence formula, made configuration as that ADR requires, and\nrecorded on every evidence record beside its ``policy_version`` \u2014 so a number computed under one\nset of parameters is never silently compared with one computed under another. A customised\nparameter produces a *derived* policy version (``1.0+<hash>``), never the shipped one.\n\n``capability_weights_path`` points at a user's own copy of the shipped\n``capability_weights.toml`` (benchmark catalog \u00a76). Unset means the shipped file; a custom file\nlikewise derives its own policy version from its content.",
+        "properties": {
+          "capability_weights_path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "A custom capability_weights.toml. Unset uses the shipped mapping; a custom file derives its own policy version from its content.",
+            "examples": [
+              "/home/me/.config/freeweight/capability_weights.toml"
+            ],
+            "title": "Capability Weights Path"
+          },
+          "freshness_floor": {
+            "default": 0.3,
+            "description": "The lowest the freshness factor can fall. Old evidence degrades rather than vanishes.",
+            "examples": [
+              0.3
+            ],
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Freshness Floor",
+            "type": "number"
+          },
+          "goal_contribution_weight": {
+            "default": 1.0,
+            "description": "Weight a goal's composite carries as one source among the shipped ones inside the capability it declares contributes_to (ADR-0032 \u00a71).",
+            "examples": [
+              1.0
+            ],
+            "exclusiveMinimum": 0,
+            "title": "Goal Contribution Weight",
+            "type": "number"
+          },
+          "n_target": {
+            "default": 30,
+            "description": "Sample count at which the sample factor reaches 1.0 (ADR-0017): three samples are worth about 0.32, thirty about 1.0.",
+            "examples": [
+              30
+            ],
+            "minimum": 1,
+            "title": "N Target",
+            "type": "integer"
+          },
+          "name_only_identity_factor": {
+            "default": 0.6,
+            "description": "Identity factor for a name-only model identity, whose weights may have changed under the name.",
+            "examples": [
+              0.6
+            ],
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Name Only Identity Factor",
+            "type": "number"
+          },
+          "performance_drift_factor": {
+            "default": 0.7,
+            "description": "Environment factor for performance-class evidence after a provider minor change or a driver/CUDA change.",
+            "examples": [
+              0.7
+            ],
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Performance Drift Factor",
+            "type": "number"
+          },
+          "performance_half_life_days": {
+            "default": 30.0,
+            "description": "Freshness half-life for performance, memory and energy evidence, in days. Speed follows the environment.",
+            "examples": [
+              30.0
+            ],
+            "exclusiveMinimum": 0,
+            "title": "Performance Half Life Days",
+            "type": "number"
+          },
+          "quality_drift_factor": {
+            "default": 0.5,
+            "description": "Environment factor for quality evidence after a provider change with template or sampling implications.",
+            "examples": [
+              0.5
+            ],
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Quality Drift Factor",
+            "type": "number"
+          },
+          "quality_half_life_days": {
+            "default": 90.0,
+            "description": "Freshness half-life for quality evidence, in days. Quality is stable while the weights are.",
+            "examples": [
+              90.0
+            ],
+            "exclusiveMinimum": 0,
+            "title": "Quality Half Life Days",
+            "type": "number"
+          },
+          "stale_below": {
+            "default": 0.5,
+            "description": "Freshness below which evidence is badged stale and offered a re-run \u2014 about one half-life.",
+            "examples": [
+              0.5
+            ],
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Stale Below",
+            "type": "number"
+          }
+        },
+        "title": "EvidenceSettings",
+        "type": "object"
+      },
+      "ExecutionSettings": {
+        "additionalProperties": false,
+        "description": "Default benchmark execution parameters (spec \u00a712, ``[execution]``).\n\nThese are the *application* layer of the second precedence chain spec \u00a712 describes\n(application \u2192 suite \u2192 test \u2192 saved settings \u2192 run overrides). A run resolves them into its\nown ``effective_config`` and freezes that into the run record, so changing a default here\nnever retroactively changes what an existing run says it did.\n\nThe scheduler reads ``warmup_repetitions``, ``measured_repetitions``, ``test_timeout_seconds``,\n``run_timeout_seconds``, ``randomize_case_order`` and ``seed``; the idle-detection group and\n``cooldown_seconds`` drive the idle-detection outcome of spec \u00a713.",
+        "properties": {
+          "cooldown_seconds": {
+            "default": 5.0,
+            "description": "Idle gap between tests.",
+            "examples": [
+              5.0
+            ],
+            "minimum": 0,
+            "title": "Cooldown Seconds",
+            "type": "number"
+          },
+          "gpu_index": {
+            "default": 0,
+            "description": "The device a run's metrics are attributed to (ADR-0027).",
+            "examples": [
+              0
+            ],
+            "minimum": 0,
+            "title": "Gpu Index",
+            "type": "integer"
+          },
+          "idle_gpu_threshold_percent": {
+            "default": 10.0,
+            "description": "GPU utilization the machine must be below before measuring; 0 disables the check and records that it was disabled.",
+            "examples": [
+              10.0
+            ],
+            "maximum": 100,
+            "minimum": 0,
+            "title": "Idle Gpu Threshold Percent",
+            "type": "number"
+          },
+          "idle_required_samples": {
+            "default": 3,
+            "description": "Consecutive quiet observations required before measuring.",
+            "examples": [
+              3
+            ],
+            "minimum": 1,
+            "title": "Idle Required Samples",
+            "type": "integer"
+          },
+          "idle_wait_timeout_seconds": {
+            "default": 120.0,
+            "description": "How long to wait for the machine to go quiet.",
+            "examples": [
+              120.0
+            ],
+            "minimum": 0,
+            "title": "Idle Wait Timeout Seconds",
+            "type": "number"
+          },
+          "measured_repetitions": {
+            "default": 3,
+            "description": "How many times each case runs.",
+            "examples": [
+              3
+            ],
+            "minimum": 1,
+            "title": "Measured Repetitions",
+            "type": "integer"
+          },
+          "on_idle_timeout": {
+            "default": "warn",
+            "description": "What to do when it never does: warn (measure anyway and record measured_while_busy) or refuse.",
+            "enum": [
+              "warn",
+              "refuse"
+            ],
+            "examples": [
+              "warn"
+            ],
+            "title": "On Idle Timeout",
+            "type": "string"
+          },
+          "randomize_case_order": {
+            "default": true,
+            "description": "Shuffle case order within a test.",
+            "examples": [
+              true
+            ],
+            "title": "Randomize Case Order",
+            "type": "boolean"
+          },
+          "run_timeout_seconds": {
+            "default": 86400.0,
+            "description": "Total budget for one run.",
+            "examples": [
+              86400.0
+            ],
+            "exclusiveMinimum": 0,
+            "title": "Run Timeout Seconds",
+            "type": "number"
+          },
+          "seed": {
+            "default": 0,
+            "description": "The seed every randomized decision derives from; recorded on every run.",
+            "examples": [
+              0
+            ],
+            "title": "Seed",
+            "type": "integer"
+          },
+          "store_responses": {
+            "default": false,
+            "description": "Store full response text beside its hash. Off by default (spec \u00a714); goal runs force it on.",
+            "examples": [
+              false
+            ],
+            "title": "Store Responses",
+            "type": "boolean"
+          },
+          "test_timeout_seconds": {
+            "default": 600.0,
+            "description": "Per-provider-call timeout.",
+            "examples": [
+              600.0
+            ],
+            "exclusiveMinimum": 0,
+            "title": "Test Timeout Seconds",
+            "type": "number"
+          },
+          "warmup_repetitions": {
+            "default": 1,
+            "description": "Unmeasured generations before the measured ones.",
+            "examples": [
+              1
+            ],
+            "minimum": 0,
+            "title": "Warmup Repetitions",
+            "type": "integer"
+          }
+        },
+        "title": "ExecutionSettings",
+        "type": "object"
+      },
+      "ExternalSettings": {
+        "additionalProperties": false,
+        "description": "The ``[external]`` section: where external benchmark environments live (spec \u00a712, ADR-0018).\n\nEvery external benchmark gets its own environment under ``root`` \u2014 a venv, its datasets and\nits recorded install state \u2014 entirely separate from FreeWeight's own environment, which never\nimports an external benchmark package.\n\nAttributes:\n    root: The directory external environments are created under. Unset resolves to\n        ``<data>/external``.\n    install_timeout_seconds: Wall-clock budget for one environment-creation or\n        dataset-download step.\n    download_cap_bytes: The most a single dataset download may occupy, enforced while\n        streaming \u2014 a cap checked after the fact is a cap the disk already paid.",
+        "properties": {
+          "download_cap_bytes": {
+            "default": 2147483648,
+            "description": "Streaming size cap for a single dataset download, in bytes.",
+            "examples": [
+              2147483648
+            ],
+            "exclusiveMinimum": 0,
+            "title": "Download Cap Bytes",
+            "type": "integer"
+          },
+          "install_timeout_seconds": {
+            "default": 1800,
+            "description": "Budget for one install or download step, in seconds.",
+            "examples": [
+              1800
+            ],
+            "minimum": 1,
+            "title": "Install Timeout Seconds",
+            "type": "integer"
+          },
+          "root": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Where external benchmark environments live. Unset resolves to <data>/external.",
+            "examples": [
+              "/home/me/.local/share/freeweight/external"
+            ],
+            "title": "Root"
+          }
+        },
+        "title": "ExternalSettings",
+        "type": "object"
+      },
+      "GoalSettings": {
+        "additionalProperties": false,
+        "description": "Where user-authored goal packs live, and the bounds on what one may contain (spec \u00a712).\n\n``root`` is deliberately under the *config* directory rather than the data directory: a goal\npack is hand-editable, git-trackable JSON the user owns\n([ADR-0031 \u00a76](../../docs/adr/0031-user-defined-goal-benchmarks.md)), not application state.\n\n``max_pack_bytes`` and ``rule_timeout_ms`` are the two bounds spec \u00a714 names on user-authored\ncontent: an import is size-capped before a byte is written, and a criterion's rule runs under\na timeout so a catastrophic pattern fails the criterion rather than the process.",
+        "properties": {
+          "max_pack_bytes": {
+            "default": 5242880,
+            "description": "Import size cap, enforced before a byte is written.",
+            "examples": [
+              5242880
+            ],
+            "exclusiveMinimum": 0,
+            "title": "Max Pack Bytes",
+            "type": "integer"
+          },
+          "root": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Where goal packs live. Unset resolves to <config>/goals.",
+            "examples": [
+              "/home/me/.config/freeweight/goals"
+            ],
+            "title": "Root"
+          },
+          "rule_timeout_ms": {
+            "default": 250,
+            "description": "Per-criterion, per-sample budget for a rule.",
+            "examples": [
+              250
+            ],
+            "exclusiveMinimum": 0,
+            "title": "Rule Timeout Ms",
+            "type": "integer"
+          }
+        },
+        "title": "GoalSettings",
+        "type": "object"
+      },
+      "JudgeSettings": {
+        "additionalProperties": false,
+        "description": "The default jury a goal's judged criteria are scored by (spec \u00a712).\n\nEvery field here is a *default*; a goal pack's own ``judge`` block overrides it, and the\nresolved configuration is a ``goal_hash`` input because a different jury is a different\ninstrument (ADR-0032 \u00a74).\n\n``allow_remote`` is only half the remote opt-in: ``providers.allow_remote`` is the other half\nand both are required (ADR-0031 \u00a74). Neither can be satisfied by accident.",
+        "properties": {
+          "allow_remote": {
+            "default": false,
+            "description": "Permit a remote juror. Requires providers.allow_remote as well.",
+            "examples": [
+              false
+            ],
+            "title": "Allow Remote",
+            "type": "boolean"
+          },
+          "blind_candidate_identity": {
+            "default": true,
+            "description": "Hide the candidate's identity from the jury.",
+            "examples": [
+              true
+            ],
+            "title": "Blind Candidate Identity",
+            "type": "boolean"
+          },
+          "jury_size": {
+            "default": 3,
+            "description": "Distinct local models in a jury; 1 disables the jury and says so in the result.",
+            "examples": [
+              3
+            ],
+            "minimum": 1,
+            "title": "Jury Size",
+            "type": "integer"
+          },
+          "models": {
+            "default": [],
+            "description": "Juror canonical IDs. Empty selects from the installed models. Comma-separated in the environment.",
+            "examples": [
+              [
+                "ollama/qwen3.5:14b"
+              ]
+            ],
+            "items": {
+              "type": "string"
+            },
+            "title": "Models",
+            "type": "array"
+          },
+          "randomize_order": {
+            "default": true,
+            "description": "Randomize the order criteria are presented to a juror in.",
+            "examples": [
+              true
+            ],
+            "title": "Randomize Order",
+            "type": "boolean"
+          },
+          "refuse_self_judging": {
+            "default": true,
+            "description": "A juror never judges its own output.",
+            "examples": [
+              true
+            ],
+            "title": "Refuse Self Judging",
+            "type": "boolean"
+          },
+          "repetitions": {
+            "default": 3,
+            "description": "How many times each juror grades each criterion.",
+            "examples": [
+              3
+            ],
+            "minimum": 1,
+            "title": "Repetitions",
+            "type": "integer"
+          },
+          "temperature": {
+            "default": 0.0,
+            "description": "Sampling temperature every juror is polled at.",
+            "examples": [
+              0.0
+            ],
+            "maximum": 2.0,
+            "minimum": 0.0,
+            "title": "Temperature",
+            "type": "number"
+          }
+        },
+        "title": "JudgeSettings",
+        "type": "object"
+      },
+      "LoggingSettings": {
+        "additionalProperties": false,
+        "description": "Structured-logging behaviour.",
+        "properties": {
+          "format": {
+            "default": "auto",
+            "description": "text, json, or auto (text on a TTY, json otherwise).",
+            "enum": [
+              "text",
+              "json",
+              "auto"
+            ],
+            "examples": [
+              "auto"
+            ],
+            "title": "Format",
+            "type": "string"
+          },
+          "include_content": {
+            "default": false,
+            "description": "Log full prompts and responses. Off by default: only hashes and lengths are logged (observability standards \u00a73.2).",
+            "examples": [
+              false
+            ],
+            "title": "Include Content",
+            "type": "boolean"
+          },
+          "level": {
+            "default": "INFO",
+            "description": "Log verbosity.",
+            "examples": [
+              "INFO"
+            ],
+            "title": "Level",
+            "type": "string"
+          }
+        },
+        "title": "LoggingSettings",
+        "type": "object"
+      },
+      "ProviderSettings": {
+        "additionalProperties": false,
+        "description": "The default model provider FreeWeight talks to.\n\nOne provider, not a registry. FreeWeight measures one machine's models one run at a time: it\nhas no candidate pool and no scoring, so it has nothing to disambiguate between registrations\nand no use for LoadCoach's `[providers.<name>]` table\n(ADR-0077). That divergence is deliberate; a\nsecond provider here would be its own phase with its own evidence.\n\nThree keys serve ``kind = \"llamacpp\"`` and nothing else, because Ollama needs none of them:\nllama.cpp is a server FreeWeight launches and supervises over a directory of GGUF weights\n(ADR-0062), where Ollama is a\ndaemon that already knows where its models are.",
+        "properties": {
+          "base_url": {
+            "default": "http://127.0.0.1:11434",
+            "description": "The provider's API endpoint. Ignored by kind='llamacpp'.",
+            "examples": [
+              "http://127.0.0.1:11434"
+            ],
+            "title": "Base Url",
+            "type": "string"
+          },
+          "kind": {
+            "default": "ollama",
+            "description": "Which provider serves the models: ollama, llamacpp, or fake for tests.",
+            "examples": [
+              "ollama"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "memory_high_bytes": {
+            "anyOf": [
+              {
+                "minimum": 1,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "The throttle point below memory_max_bytes (MemoryHigh). Requires memory_max_bytes and must be below it.",
+            "examples": [
+              23622320128
+            ],
+            "title": "Memory High Bytes"
+          },
+          "memory_max_bytes": {
+            "anyOf": [
+              {
+                "minimum": 1,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Host-memory cap for every llama-server this application launches (ADR-0119): the launch runs in a systemd-run user scope with MemoryMax at this value and swap denied, so a server that does not fit is killed rather than swapping the host. llamacpp only; unset launches uncapped.",
+            "examples": [
+              25769803776
+            ],
+            "title": "Memory Max Bytes"
+          },
+          "model_directory": {
+            "default": "",
+            "description": "Directory of GGUF weights kind='llamacpp' serves. Required for that kind; there is no default worth guessing, because a wrong directory is a server serving weights nobody asked for.",
+            "examples": [
+              "~/ai/models/llm"
+            ],
+            "title": "Model Directory",
+            "type": "string"
+          },
+          "server_path": {
+            "default": "llama-server",
+            "description": "The llama-server executable, resolved on PATH unless absolute.",
+            "examples": [
+              "llama-server"
+            ],
+            "title": "Server Path",
+            "type": "string"
+          },
+          "state_dir": {
+            "default": "",
+            "description": "Where the llama.cpp supervisor keeps its pid files and digest cache. Empty means <data_dir>/llamacpp.",
+            "examples": [
+              ""
+            ],
+            "title": "State Dir",
+            "type": "string"
+          },
+          "timeout_seconds": {
+            "default": 300.0,
+            "description": "Per-call provider timeout.",
+            "examples": [
+              300.0
+            ],
+            "exclusiveMinimum": 0,
+            "title": "Timeout Seconds",
+            "type": "number"
+          }
+        },
+        "title": "ProviderSettings",
+        "type": "object"
+      },
+      "ProvidersSettings": {
+        "additionalProperties": false,
+        "description": "Cross-provider policy, distinct from the single default provider's own settings.",
+        "properties": {
+          "allow_remote": {
+            "default": false,
+            "description": "Permit a remote provider at all. One half of the remote-judging opt-in; judge.allow_remote is the other (ADR-0031 \u00a74).",
+            "examples": [
+              false
+            ],
+            "title": "Allow Remote",
+            "type": "boolean"
+          }
+        },
+        "title": "ProvidersSettings",
+        "type": "object"
+      },
+      "RuntimeSettings": {
+        "additionalProperties": false,
+        "description": "``[runtime]`` \u2014 how a model is loaded and served, as opposed to how a run is executed.\n\nADR-0023's runtime profile, made settable. It is a **separate section from ``[execution]``**\nbecause the two are separate axes and are separated everywhere else: an execution parameter\n(repetitions, seed, cooldown) is how a measurement is taken, while a runtime setting is what is\nbeing measured *under*. They hash into the fingerprint through different fields \u2014\n``execution.effective_parameters`` and ``runtime_profile_hash`` \u2014 and ADR-0017 makes a differing\nruntime profile a **hard separation**, not a discount: evidence measured at one context does not\ndescribe another.\n\nEvery field defaults to ``None``, which is the legal profile meaning \"provider defaults\"\n(ADR-0023 \u00a71). There is no \"no profile\" state; ``RuntimeProfile()`` has a stable hash and is\nstored like any other.\n\n**Only settings the configured provider can actually honour appear in a profile.** Flash\nattention and KV-cache precision are launch-time settings ``llama-server`` honours per model;\nOllama reads them once, daemon-wide (``OLLAMA_FLASH_ATTENTION``, ``OLLAMA_KV_CACHE_TYPE``),\nso under ``provider.kind = \"ollama\"`` either key is **refused by name** rather than recorded\nas a promise the run cannot keep \u2014 the dishonesty ADR-0007 rule 2 forbids of a capability\nflag, applied to a profile (ADR-0120).\n\nAttributes:\n    context_size: The context to serve, in tokens \u2014 Ollama's ``num_ctx``. Unset means the\n        provider decides, and the run records its served context as ``assumed`` rather than\n        ``configured``. **Setting it is what makes a context comparison possible**: two runs of\n        one model at two contexts are two subjects, and without this they are indistinguishable.\n    flash_attention: Whether the server is launched with flash attention. llama.cpp only.\n    kv_cache_precision: The KV cache's precision \u2014 ``f16``, ``q8_0`` or ``q4_0``. llama.cpp\n        only. A quantized cache **requires** ``flash_attention = true``: llama.cpp cannot\n        quantize the V cache without it and silently keeps f16 otherwise, which would record a\n        precision that was never served. A different precision is a different\n        ``runtime_profile_hash`` and therefore a different measurement subject (ADR-0017).\n    fit_to_device: Whether ``llama-server`` may adjust unset launch arguments to fit device\n        memory (its ``--fit on`` default). ``False`` \u2014 FreeWeight's default \u2014 launches with\n        ``--fit off``: a profile that does not fit fails at launch and is recorded as that\n        failure, rather than spilling layers to host RAM under a profile hash that says\n        nothing about the spill (ADR-0121). Travels as ``provider_options[\"--fit\"]`` and is\n        hashed like every other launch fact. Ignored under any other provider kind.\n    gpu_layers: Layers to offload to the GPU. Unset lets the provider fit it.\n    threads: CPU threads for the parts that stay on the host.\n    batch_size: Prompt-evaluation batch size.\n    keep_alive: How long the provider should hold the model resident after a call, in its own\n        duration syntax. A benchmark that reloads between every test measures loading.",
+        "properties": {
+          "batch_size": {
+            "anyOf": [
+              {
+                "exclusiveMinimum": 0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Prompt-evaluation batch size.",
+            "examples": [
+              512
+            ],
+            "title": "Batch Size"
+          },
+          "context_size": {
+            "anyOf": [
+              {
+                "exclusiveMinimum": 0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Context window to serve, in tokens (Ollama's num_ctx). Unset lets the provider decide and records the served context as assumed. A different value is a different measurement subject (ADR-0023).",
+            "examples": [
+              8192
+            ],
+            "title": "Context Size"
+          },
+          "fit_to_device": {
+            "default": false,
+            "description": "Let llama-server shrink unset launch arguments to fit device memory (--fit on). False launches with --fit off: no fit is a launch failure, never a host-RAM spill (ADR-0121). llamacpp only.",
+            "examples": [
+              false
+            ],
+            "title": "Fit To Device",
+            "type": "boolean"
+          },
+          "flash_attention": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Launch the server with flash attention. Honoured by provider.kind='llamacpp' only; refused by name under 'ollama', whose setting is daemon-wide (ADR-0120).",
+            "examples": [
+              true
+            ],
+            "title": "Flash Attention"
+          },
+          "gpu_layers": {
+            "anyOf": [
+              {
+                "minimum": 0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Layers offloaded to the GPU. Unset lets the provider fit them.",
+            "examples": [
+              32
+            ],
+            "title": "Gpu Layers"
+          },
+          "keep_alive": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "How long the provider holds the model resident after a call, in the provider's own duration syntax.",
+            "examples": [
+              "5m"
+            ],
+            "title": "Keep Alive"
+          },
+          "kv_cache_precision": {
+            "anyOf": [
+              {
+                "enum": [
+                  "f16",
+                  "q8_0",
+                  "q4_0"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "KV-cache precision: f16, q8_0 or q4_0. llamacpp only; q8_0 and q4_0 require flash_attention = true. A different precision is a different measurement subject.",
+            "examples": [
+              "q8_0"
+            ],
+            "title": "Kv Cache Precision"
+          },
+          "threads": {
+            "anyOf": [
+              {
+                "exclusiveMinimum": 0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "CPU threads for the parts that stay on the host.",
+            "examples": [
+              8
+            ],
+            "title": "Threads"
+          }
+        },
+        "title": "RuntimeSettings",
+        "type": "object"
+      },
+      "SandboxSettings": {
+        "additionalProperties": false,
+        "description": "The ``[sandbox]`` section: how model-generated code is contained (spec \u00a712, ADR-0018).\n\nThe tiers are container \u2192 bwrap \u2192 **refuse**, and there is no host tier and no flag to create\none. ``tier`` can only hold the selection *at or below* what the machine offers: naming a tier\nthat is unavailable is a refusal at run time, never a silent fall-through to a weaker one \u2014\na user who wrote ``container`` asked for a container's guarantees, and handing them bwrap's\ninstead would be a security decision made on their behalf.\n\nAttributes:\n    tier: ``auto`` (highest available), ``container``, ``bwrap``, or ``none``. ``none``\n        disables code execution entirely: every benchmark that needs a sandbox is skipped\n        with ``sandbox_unavailable``.\n    cpu_limit: CPU cores the sandboxed process may use (container ``--cpus`` /\n        bwrap-tier rlimit).\n    memory_limit_mb: Address-space cap for sandboxed execution.\n    timeout_seconds: Wall-clock budget per sandboxed invocation; the process is killed when\n        it is exceeded.",
+        "properties": {
+          "cpu_limit": {
+            "default": 2,
+            "description": "CPU cores a sandboxed process may use.",
+            "examples": [
+              2
+            ],
+            "maximum": 256,
+            "minimum": 1,
+            "title": "Cpu Limit",
+            "type": "integer"
+          },
+          "memory_limit_mb": {
+            "default": 2048,
+            "description": "Memory cap for sandboxed execution, in MiB.",
+            "examples": [
+              2048
+            ],
+            "minimum": 64,
+            "title": "Memory Limit Mb",
+            "type": "integer"
+          },
+          "tier": {
+            "default": "auto",
+            "description": "Sandbox tier for code-execution benchmarks: auto = highest available; container and bwrap select exactly that tier or refuse; none refuses all code execution.",
+            "enum": [
+              "auto",
+              "container",
+              "bwrap",
+              "none"
+            ],
+            "examples": [
+              "auto"
+            ],
+            "title": "Tier",
+            "type": "string"
+          },
+          "timeout_seconds": {
+            "default": 30,
+            "description": "Wall-clock budget per sandboxed invocation, in seconds.",
+            "examples": [
+              30
+            ],
+            "minimum": 1,
+            "title": "Timeout Seconds",
+            "type": "integer"
+          }
+        },
+        "title": "SandboxSettings",
+        "type": "object"
+      },
+      "ServerSettings": {
+        "additionalProperties": false,
+        "description": "Bind address and HTTP-level limits.",
+        "properties": {
+          "allow_lan_exposure": {
+            "default": false,
+            "description": "Acknowledges a deliberate bind to every interface (0.0.0.0). Without it such a bind refuses to start.",
+            "examples": [
+              false
+            ],
+            "title": "Allow Lan Exposure",
+            "type": "boolean"
+          },
+          "allowed_hosts": {
+            "default": [],
+            "description": "Host header values accepted on a non-loopback bind, against DNS rebinding. Comma-separated in the environment.",
+            "examples": [
+              [
+                "bench.local"
+              ]
+            ],
+            "items": {
+              "type": "string"
+            },
+            "title": "Allowed Hosts",
+            "type": "array"
+          },
+          "host": {
+            "default": "127.0.0.1",
+            "description": "Interface to bind. Loopback by default; anything else requires allowed_hosts and auth.tokens (ADR-0026).",
+            "examples": [
+              "127.0.0.1"
+            ],
+            "title": "Host",
+            "type": "string"
+          },
+          "port": {
+            "default": 8765,
+            "description": "TCP port for the web UI and the API.",
+            "examples": [
+              8765
+            ],
+            "maximum": 65535,
+            "minimum": 1,
+            "title": "Port",
+            "type": "integer"
+          },
+          "request_timeout_seconds": {
+            "default": 120.0,
+            "description": "Server-side request timeout.",
+            "examples": [
+              120.0
+            ],
+            "exclusiveMinimum": 0,
+            "title": "Request Timeout Seconds",
+            "type": "number"
+          }
+        },
+        "title": "ServerSettings",
+        "type": "object"
+      },
+      "StorageSettings": {
+        "additionalProperties": false,
+        "description": "Database and artifact locations.\n\n``config show``/``config init`` present the full picture of what a fresh install would use,\nper Configuration Standards \u00a75.",
+        "properties": {
+          "artifact_dir": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Where run artifacts (raw responses, generated code, exports) are written. Unset resolves under the XDG data directory.",
+            "examples": [
+              "/var/lib/freeweight/artifacts"
+            ],
+            "title": "Artifact Dir"
+          },
+          "auto_migrate": {
+            "default": true,
+            "description": "Migrate on startup. Unset means true on SQLite and false on PostgreSQL, where a failed migration cannot be rolled back automatically (database standards \u00a75.1).",
+            "examples": [
+              true
+            ],
+            "title": "Auto Migrate",
+            "type": "boolean"
+          },
+          "backup_retention": {
+            "default": 5,
+            "description": "Automatic pre-migration backups kept before the oldest is rotated away.",
+            "examples": [
+              5
+            ],
+            "minimum": 0,
+            "title": "Backup Retention",
+            "type": "integer"
+          },
+          "database_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "SQLAlchemy URL. Unset resolves to a SQLite file under the XDG data directory; PostgreSQL is the other supported dialect (ADR-0006).",
+            "examples": [
+              "sqlite:////var/lib/freeweight/freeweight.sqlite3"
+            ],
+            "title": "Database Url"
+          },
+          "statement_timeout_ms": {
+            "anyOf": [
+              {
+                "exclusiveMinimum": 0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "PostgreSQL statement (and lock) timeout. Unset leaves the server default; SQLite uses its own busy timeout, which the engine always sets.",
+            "examples": [
+              30000
+            ],
+            "title": "Statement Timeout Ms"
+          }
+        },
+        "title": "StorageSettings",
+        "type": "object"
+      },
+      "TelemetrySettings": {
+        "additionalProperties": false,
+        "description": "Sampling behaviour for the (Phase 4) telemetry bar and (Phase 6) run recording.",
+        "properties": {
+          "calibrate_overhead": {
+            "default": true,
+            "description": "Measure what sampling itself costs before a run, and record it on the run.",
+            "examples": [
+              true
+            ],
+            "title": "Calibrate Overhead",
+            "type": "boolean"
+          },
+          "interval_ms": {
+            "default": 1000,
+            "description": "How often the sampler reads the host and the GPUs. Recorded on every run as a measurement condition.",
+            "examples": [
+              1000
+            ],
+            "exclusiveMinimum": 0,
+            "title": "Interval Ms",
+            "type": "integer"
+          },
+          "persist_during_runs": {
+            "default": true,
+            "description": "Store the telemetry series beside a run so its charts survive a restart.",
+            "examples": [
+              true
+            ],
+            "title": "Persist During Runs",
+            "type": "boolean"
+          }
+        },
+        "title": "TelemetrySettings",
+        "type": "object"
+      }
+    },
+    "additionalProperties": false,
+    "description": "The complete, validated FreeWeight configuration.\n\nConstructed only by :func:`load_settings`, which resolves the precedence chain first \u2014 never\ncall ``Settings(**raw_dict)`` directly on unmerged input, or the file/env/CLI layering in\nConfiguration Standards \u00a71 is bypassed.",
+    "properties": {
+      "adapters": {
+        "$ref": "#/$defs/AdapterSettings"
+      },
+      "auth": {
+        "$ref": "#/$defs/AuthSettings"
+      },
+      "benchmarks": {
+        "$ref": "#/$defs/BenchmarkSettings"
+      },
+      "calibration": {
+        "$ref": "#/$defs/CalibrationSettings"
+      },
+      "evidence": {
+        "$ref": "#/$defs/EvidenceSettings"
+      },
+      "execution": {
+        "$ref": "#/$defs/ExecutionSettings"
+      },
+      "external": {
+        "$ref": "#/$defs/ExternalSettings"
+      },
+      "goals": {
+        "$ref": "#/$defs/GoalSettings"
+      },
+      "judge": {
+        "$ref": "#/$defs/JudgeSettings"
+      },
+      "logging": {
+        "$ref": "#/$defs/LoggingSettings"
+      },
+      "provider": {
+        "$ref": "#/$defs/ProviderSettings"
+      },
+      "providers": {
+        "$ref": "#/$defs/ProvidersSettings"
+      },
+      "runtime": {
+        "$ref": "#/$defs/RuntimeSettings"
+      },
+      "sandbox": {
+        "$ref": "#/$defs/SandboxSettings"
+      },
+      "server": {
+        "$ref": "#/$defs/ServerSettings"
+      },
+      "storage": {
+        "$ref": "#/$defs/StorageSettings"
+      },
+      "telemetry": {
+        "$ref": "#/$defs/TelemetrySettings"
+      }
+    },
+    "title": "Settings",
+    "type": "object"
+  },
+  "problems": [],
+  "runtime_changeable": [
+    {
+      "description": "How often the machine telemetry sampler reads the host and the GPUs. Lower is more detail and more overhead; the overhead is measured and recorded on every run.",
+      "key": "telemetry.interval_ms",
+      "kind": "int",
+      "maximum": 60000,
+      "minimum": 100
+    },
+    {
+      "description": "Store the telemetry series alongside a run, so its charts survive a restart.",
+      "key": "telemetry.persist_during_runs",
+      "kind": "bool",
+      "maximum": null,
+      "minimum": null
+    },
+    {
+      "description": "Measure what sampling itself costs before a run, and record it on the run. Turning this off does not make sampling free; it makes its cost unrecorded.",
+      "key": "telemetry.calibrate_overhead",
+      "kind": "bool",
+      "maximum": null,
+      "minimum": null
+    },
+    {
+      "description": "Unmeasured generations before the measured ones, to reach a warm state.",
+      "key": "execution.warmup_repetitions",
+      "kind": "int",
+      "maximum": 20,
+      "minimum": 0
+    },
+    {
+      "description": "How many times each case runs. More repetitions, tighter dispersion.",
+      "key": "execution.measured_repetitions",
+      "kind": "int",
+      "maximum": 50,
+      "minimum": 1
+    },
+    {
+      "description": "Idle gap between tests, so one test's heat is not the next test's result.",
+      "key": "execution.cooldown_seconds",
+      "kind": "float",
+      "maximum": 600.0,
+      "minimum": 0.0
+    },
+    {
+      "description": "Shuffle case order within a test, so position cannot become a result.",
+      "key": "execution.randomize_case_order",
+      "kind": "bool",
+      "maximum": null,
+      "minimum": null
+    },
+    {
+      "description": "The seed every randomized decision derives from. Recorded in every run.",
+      "key": "execution.seed",
+      "kind": "int",
+      "maximum": 2147483647,
+      "minimum": 0
+    },
+    {
+      "description": "Utilization the GPU must be below before a run is measured. 0 disables the check and records that it was disabled.",
+      "key": "execution.idle_gpu_threshold_percent",
+      "kind": "float",
+      "maximum": 100.0,
+      "minimum": 0.0
+    },
+    {
+      "description": "What to do when the GPU never goes idle: warn and measure anyway, recording measured_while_busy, or refuse to measure at all.",
+      "key": "execution.on_idle_timeout",
+      "kind": "choice",
+      "maximum": null,
+      "minimum": null
+    },
+    {
+      "description": "How many automatic backups to keep before rotating the oldest away.",
+      "key": "storage.backup_retention",
+      "kind": "int",
+      "maximum": 100,
+      "minimum": 0
+    },
+    {
+      "description": "Log verbosity for the running server.",
+      "key": "logging.level",
+      "kind": "choice",
+      "maximum": null,
+      "minimum": null
+    }
+  ],
+  "schema_version": "1.0",
+  "security_keys": [
+    "auth.tokens",
+    "external.root",
+    "goals.root",
+    "judge.allow_remote",
+    "logging.include_content",
+    "provider.base_url",
+    "providers.allow_remote",
+    "sandbox.tier",
+    "server.allow_lan_exposure",
+    "server.allowed_hosts",
+    "server.host",
+    "server.port",
+    "storage.artifact_dir",
+    "storage.database_url"
+  ],
+  "sources": {
+    "adapters.directory": "default",
+    "auth.tokens": "default",
+    "benchmarks.long_context_max_tokens": "default",
+    "benchmarks.max_fit_context_tokens": "default",
+    "calibration.holdout_fraction": "default",
+    "calibration.min_agreement": "default",
+    "calibration.min_samples": "default",
+    "calibration.n_holdout_target": "default",
+    "calibration.partition_seed": "default",
+    "calibration.target_samples": "default",
+    "evidence.capability_weights_path": "default",
+    "evidence.freshness_floor": "default",
+    "evidence.goal_contribution_weight": "default",
+    "evidence.n_target": "default",
+    "evidence.name_only_identity_factor": "default",
+    "evidence.performance_drift_factor": "default",
+    "evidence.performance_half_life_days": "default",
+    "evidence.quality_drift_factor": "default",
+    "evidence.quality_half_life_days": "default",
+    "evidence.stale_below": "default",
+    "execution.cooldown_seconds": "default",
+    "execution.gpu_index": "default",
+    "execution.idle_gpu_threshold_percent": "default",
+    "execution.idle_required_samples": "default",
+    "execution.idle_wait_timeout_seconds": "default",
+    "execution.measured_repetitions": "default",
+    "execution.on_idle_timeout": "default",
+    "execution.randomize_case_order": "default",
+    "execution.run_timeout_seconds": "default",
+    "execution.seed": "default",
+    "execution.store_responses": "default",
+    "execution.test_timeout_seconds": "default",
+    "execution.warmup_repetitions": "default",
+    "external.download_cap_bytes": "default",
+    "external.install_timeout_seconds": "default",
+    "external.root": "default",
+    "goals.max_pack_bytes": "default",
+    "goals.root": "default",
+    "goals.rule_timeout_ms": "default",
+    "judge.allow_remote": "default",
+    "judge.blind_candidate_identity": "default",
+    "judge.jury_size": "default",
+    "judge.models": "default",
+    "judge.randomize_order": "default",
+    "judge.refuse_self_judging": "default",
+    "judge.repetitions": "default",
+    "judge.temperature": "default",
+    "logging.format": "default",
+    "logging.include_content": "default",
+    "logging.level": "default",
+    "provider.base_url": "default",
+    "provider.kind": "default",
+    "provider.memory_high_bytes": "default",
+    "provider.memory_max_bytes": "default",
+    "provider.model_directory": "default",
+    "provider.server_path": "default",
+    "provider.state_dir": "default",
+    "provider.timeout_seconds": "default",
+    "providers.allow_remote": "default",
+    "runtime.batch_size": "default",
+    "runtime.context_size": "default",
+    "runtime.fit_to_device": "default",
+    "runtime.flash_attention": "default",
+    "runtime.gpu_layers": "default",
+    "runtime.keep_alive": "default",
+    "runtime.kv_cache_precision": "default",
+    "runtime.threads": "default",
+    "sandbox.cpu_limit": "default",
+    "sandbox.memory_limit_mb": "default",
+    "sandbox.tier": "default",
+    "sandbox.timeout_seconds": "default",
+    "server.allow_lan_exposure": "default",
+    "server.allowed_hosts": "default",
+    "server.host": "default",
+    "server.port": "default",
+    "server.request_timeout_seconds": "default",
+    "storage.artifact_dir": "default",
+    "storage.auto_migrate": "default",
+    "storage.backup_retention": "default",
+    "storage.database_url": "default",
+    "storage.statement_timeout_ms": "default",
+    "telemetry.calibrate_overhead": "default",
+    "telemetry.interval_ms": "default",
+    "telemetry.persist_during_runs": "default"
+  }
+}

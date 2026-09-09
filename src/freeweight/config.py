@@ -57,8 +57,10 @@ __all__ = [
     "config_dir",
     "data_dir",
     "env_var_for",
+    "leaf_keys",
     "prompt_override_dir",
     "load_settings",
+    "load_settings_tolerant",
     "resolve_config_path",
     "state_dir",
 ]
@@ -1302,15 +1304,7 @@ def _deep_merge(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any
 
 def _known_dotted_keys() -> list[str]:
     """Every ``section`` and ``section.field`` name Settings recognizes, for typo suggestions."""
-    known: list[str] = []
-    for section_name, section_field in Settings.model_fields.items():
-        known.append(section_name)
-        section_model = section_field.annotation
-        if isinstance(section_model, type) and issubclass(section_model, BaseModel):
-            known.extend(
-                f"{section_name}.{field_name}" for field_name in section_model.model_fields
-            )
-    return known
+    return [*Settings.model_fields, *leaf_keys()]
 
 
 def _translate_validation_error(
@@ -1406,6 +1400,30 @@ def _track_sources(
     return sources
 
 
+def _read_file(resolved_path: Path) -> tuple[dict[str, Any], bool]:
+    """Parse ``resolved_path`` as TOML, or return an empty mapping when it does not exist."""
+    if not resolved_path.is_file():
+        return {}, False
+    try:
+        with resolved_path.open("rb") as handle:
+            return tomllib.load(handle), True
+    except tomllib.TOMLDecodeError as exc:
+        raise ConfigurationError(
+            f"Configuration file {resolved_path} is not valid TOML: {exc}",
+            details={"file": str(resolved_path)},
+        ) from exc
+
+
+def _validate(merged: dict[str, Any], resolved_path: Path) -> Settings:
+    """Validate a merged, layered configuration dict into a :class:`Settings`."""
+    try:
+        settings = Settings.model_validate(merged)
+    except PydanticValidationError as exc:
+        raise _translate_validation_error(exc, resolved_path) from exc
+    _validate_security(settings)
+    return settings
+
+
 def load_settings(
     *,
     config_path: str | Path | None = None,
@@ -1428,34 +1446,78 @@ def load_settings(
             (:class:`InsecureBindingError`, a subclass).
     """
     resolved_path = resolve_config_path(config_path)
-    file_data: dict[str, Any] = {}
-    file_used = False
-    if resolved_path.is_file():
-        try:
-            with resolved_path.open("rb") as handle:
-                file_data = tomllib.load(handle)
-        except tomllib.TOMLDecodeError as exc:
-            raise ConfigurationError(
-                f"Configuration file {resolved_path} is not valid TOML: {exc}",
-                details={"file": str(resolved_path)},
-            ) from exc
-        file_used = True
-
+    file_data, file_used = _read_file(resolved_path)
     env_data = _read_env(ENV_PREFIX)
     cli_data = cli_overrides or {}
     merged = _deep_merge(_deep_merge(file_data, env_data), cli_data)
-
-    try:
-        settings = Settings.model_validate(merged)
-    except PydanticValidationError as exc:
-        raise _translate_validation_error(exc, resolved_path) from exc
-
-    _validate_security(settings)
-
+    settings = _validate(merged, resolved_path)
     sources = _track_sources(file_data, env_data, cli_data)
     return LoadedSettings(
         settings=settings, config_path=resolved_path, config_file_used=file_used, sources=sources
     )
+
+
+def leaf_keys() -> tuple[str, ...]:
+    """Every ``section.field`` dotted path :class:`Settings` recognizes."""
+    keys: list[str] = []
+    for section_name, section_field in Settings.model_fields.items():
+        section_model = section_field.annotation
+        if isinstance(section_model, type) and issubclass(section_model, BaseModel):
+            keys.extend(f"{section_name}.{field_name}" for field_name in section_model.model_fields)
+    return tuple(keys)
+
+
+def load_settings_tolerant(
+    config_path: str | Path | None = None,
+) -> tuple[LoadedSettings, tuple[str, ...]]:
+    """Like :func:`load_settings`, but an unknown key in the file is reported, never fatal.
+
+    Built for ``config schema`` (ADR-0127 rule 1): the tool that describes why a configuration
+    file doesn't load cannot itself refuse to load it. Every other kind of problem — a bad type, an
+    out-of-range value, an unsafe bind — still raises exactly as :func:`load_settings` does; only
+    an unrecognized key path is stripped and reported back rather than failing the whole document.
+
+    Args:
+        config_path: As :func:`load_settings`.
+
+    Returns:
+        The validated :class:`LoadedSettings` (built with unknown keys removed) and a tuple of
+        ``"unknown configuration key '…'"`` messages, empty when the file had none.
+
+    Raises:
+        ConfigurationError: The file is not valid TOML, a *known* key fails validation, or an
+            unsafe bind/auth combination is configured.
+    """
+    resolved_path = resolve_config_path(config_path)
+    file_data, file_used = _read_file(resolved_path)
+    known_sections = set(Settings.model_fields)
+    known_leaves = set(leaf_keys())
+    problems: list[str] = []
+    clean_file: dict[str, Any] = {}
+    for section, fields in file_data.items():
+        if section not in known_sections:
+            problems.append(f"unknown configuration key '{section}'")
+            continue
+        if not isinstance(fields, dict):
+            clean_file[section] = fields  # not a table; let validation raise its own type error
+            continue
+        clean_fields = {}
+        for field_name, value in fields.items():
+            path = f"{section}.{field_name}"
+            if path not in known_leaves:
+                problems.append(f"unknown configuration key '{path}'")
+                continue
+            clean_fields[field_name] = value
+        clean_file[section] = clean_fields
+
+    env_data = _read_env(ENV_PREFIX)
+    merged = _deep_merge(_deep_merge(clean_file, env_data), {})
+    settings = _validate(merged, resolved_path)
+    sources = _track_sources(clean_file, env_data, {})
+    loaded = LoadedSettings(
+        settings=settings, config_path=resolved_path, config_file_used=file_used, sources=sources
+    )
+    return loaded, tuple(problems)
 
 
 EXAMPLE_CONFIG_TOML = """\
