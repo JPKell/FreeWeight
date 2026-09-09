@@ -9,6 +9,23 @@ packaging and release standards §3.
 
 ### Added
 
+- **`[runtime] flash_attention` and `kv_cache_precision`** (`f16` | `q8_0` | `q4_0`), honoured per
+  run on `provider.kind = "llamacpp"` and hashed into `runtime_profile_hash`, so a model at `q8_0`
+  and the same model at `f16` are two measurement subjects (ADR-0120, row N5). A quantized cache
+  requires `flash_attention = true`; either key under `kind = "ollama"` is refused by name at load
+  and on the API's per-run `runtime` override, because Ollama's settings are daemon-wide. The
+  `runtime_profiles` columns already existed — no migration.
+- **`[runtime] fit_to_device`**, default `false`: every `llama-server` FreeWeight launches gets
+  `--fit off`, carried as `provider_options["--fit"]` and hashed, so a profile that does not fit
+  fails at launch and is recorded as that failure instead of spilling to host RAM (ADR-0121). Under
+  Ollama nothing is added, so every Ollama profile hash stored before this version is unchanged.
+- **`[benchmarks] max_fit_context_tokens`**, default `131072`: the ceiling of
+  `native.memory_kv`'s maximum-context-fit ladder, fitted and hashed into `dataset_hashes` exactly
+  as `long_context_max_tokens` is; `max_context_capped_by_configuration` now reads it. Lower it on
+  an Ollama installation, which spills instead of refusing (ADR-0121 §1).
+- **`[provider] memory_max_bytes` / `memory_high_bytes`**: the host-memory cap ModelRack 0.8.0
+  applies to every `llama-server` it launches (ADR-0119). Requires `modelrack>=0.8`.
+
 - A **Provider** page and `GET`/`PUT /api/v1/provider`: the `[provider]` block is now editable from
   the web admin, and the configuration file stays the source of truth (ADR-0117). A write edits only
   that block — comments, key order and formatting everywhere else survive it — is validated by

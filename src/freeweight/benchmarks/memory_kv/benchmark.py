@@ -34,11 +34,11 @@ approximation, it is a fabricated number that reads as "context is free".
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from baseaicore import UNSUPPORTED, Measurement, is_supported
+from baseaicore import UNSUPPORTED, Measurement, canonical_json, is_supported, sha256_of
 
 from freeweight.benchmarks.memory_kv.kv import (
     ContextObservation,
@@ -104,7 +104,34 @@ FIT_CONTEXT_TOKENS: tuple[int, ...] = (1024, 2048, 4096, 8192, 16384, 32768, 655
 """The context lengths the observed slope is fitted over — catalog §3.2's "1K…64K"."""
 
 MAX_FIT_CONTEXT_TOKENS: tuple[int, ...] = (8192, 16384, 32768, 65536, 131072)
-"""The ladder the maximum-context-fit test climbs until something refuses."""
+"""The ladder the maximum-context-fit test climbs until something refuses — as shipped. The
+ladder a run climbs is this one fitted to ``benchmarks.max_fit_context_tokens`` (ADR-0121 §1)."""
+
+MAX_FIT_LADDER_DATASET_KEY = "max_fit_ladder"
+"""``dataset_hashes`` key for the effective maximum-fit ladder, which the ceiling can change."""
+
+
+def max_fit_ladder(ceiling: int) -> tuple[int, ...]:
+    """Fit :data:`MAX_FIT_CONTEXT_TOKENS` to a machine's ceiling.
+
+    The same rule as ``native.long_context``'s sweep: truncated below the ceiling, extended by
+    doubling above it, with the ceiling itself as the final rung.
+
+    Args:
+        ceiling: ``benchmarks.max_fit_context_tokens``.
+
+    Returns:
+        The ladder this machine climbs, ascending, without duplicates, never empty.
+    """
+    from freeweight.benchmarks.long_context.benchmark import sweep_ladder
+
+    return sweep_ladder(MAX_FIT_CONTEXT_TOKENS, ceiling=ceiling)
+
+
+def max_fit_ladder_hash(ladder: Sequence[int]) -> str:
+    """Hash an effective ladder for ``dataset_hashes``, so two ceilings are two measurements."""
+    return f"sha256:{sha256_of(canonical_json(list(ladder)))}"
+
 
 SHARED_PREFIX_TOKENS = 4096
 """Tokens in the prefix the cache-reuse test sends once and then re-sends unchanged."""
@@ -267,8 +294,8 @@ def _context_slope(library: PromptLibrary) -> MemoryKvTest:
     )
 
 
-def _max_context_fit(library: PromptLibrary) -> MemoryKvTest:
-    """The maximum-fit test: climb until the runtime refuses, and record where it did."""
+def _max_context_fit(library: PromptLibrary, ladder: Sequence[int]) -> MemoryKvTest:
+    """The maximum-fit test: climb ``ladder`` until the runtime refuses, and record where it did."""
     return MemoryKvTest(
         key="memory_kv.max_context_fit",
         name="Maximum context fit",
@@ -285,7 +312,7 @@ def _max_context_fit(library: PromptLibrary) -> MemoryKvTest:
                 # happened. A declared requirement would skip it before it was tried.
                 None,
             )
-            for size in MAX_FIT_CONTEXT_TOKENS
+            for size in ladder
         ),
         library=library,
     )
@@ -548,6 +575,7 @@ class MemoryKvBenchmark:
 
     manifest: BenchmarkManifest
     library: PromptLibrary
+    max_fit_ladder: tuple[int, ...] = MAX_FIT_CONTEXT_TOKENS
 
     @property
     def tests(self) -> Sequence[MemoryKvTest]:
@@ -563,15 +591,23 @@ class MemoryKvBenchmark:
             _context_slope(self.library),
             _prefix_first_pass(self.library),
             _prefix_reuse(self.library),
-            _max_context_fit(self.library),
+            _max_context_fit(self.library, self.max_fit_ladder),
         )
 
 
-def build(library: PromptLibrary | None = None) -> MemoryKvBenchmark:
+def build(
+    library: PromptLibrary | None = None,
+    *,
+    max_fit_context_tokens: int = MAX_FIT_CONTEXT_TOKENS[-1],
+) -> MemoryKvBenchmark:
     """Build the suite, verifying that the manifest describes the installed prompts.
 
     Args:
         library: The loaded pack, or ``None`` to load the shipped one.
+        max_fit_context_tokens: ``benchmarks.max_fit_context_tokens`` — the ceiling the
+            maximum-fit ladder is fitted to. The effective ladder is hashed into the built
+            manifest's ``dataset_hashes`` (ADR-0121 §1), so a run at one ceiling never averages
+            with a run at another; the shipped ceiling leaves the shipped ladder unchanged.
 
     Returns:
         The benchmark.
@@ -596,4 +632,14 @@ def build(library: PromptLibrary | None = None) -> MemoryKvBenchmark:
             f"{actual!r}. Rebuild the manifest and bump the suite version — a prompt this suite "
             "uses has changed, which separates its results."
         )
-    return MemoryKvBenchmark(manifest=manifest, library=pack)
+    ladder = max_fit_ladder(max_fit_context_tokens)
+    # Configuration, so it cannot be declared in the shipped manifest — but it changes what the
+    # suite measures, so it reaches the fingerprint the way long_context's ladder does.
+    resolved = replace(
+        manifest,
+        dataset_hashes={
+            **manifest.dataset_hashes,
+            MAX_FIT_LADDER_DATASET_KEY: max_fit_ladder_hash(ladder),
+        },
+    )
+    return MemoryKvBenchmark(manifest=resolved, library=pack, max_fit_ladder=ladder)

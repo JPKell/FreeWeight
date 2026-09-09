@@ -416,8 +416,11 @@ verification I18 exists to make.
 [providers]   allow_remote = false
 [adapters]    directory = ""                       # "" = adapters off (ADR-0061 rule 2)
 [runtime]     context_size = unset                 # tokens; unset = let the provider choose
+              flash_attention = unset   kv_cache_precision = unset   # llamacpp only (ADR-0120)
+              fit_to_device = false                # llamacpp: --fit off, never a host-RAM spill (ADR-0121)
               gpu_layers = unset   threads = unset   batch_size = unset   keep_alive = unset
 [benchmarks]  long_context_max_tokens = 32000       # ceiling of native.long_context's depth sweep
+              max_fit_context_tokens = 131072       # ceiling of native.memory_kv's max-fit ladder (ADR-0121)
 [telemetry]   interval_ms = 1000   persist_during_runs = true   calibrate_overhead = true
 [execution]   warmup_repetitions = 1   measured_repetitions = 3   cooldown_seconds = 5
               test_timeout_seconds = 600   run_timeout_seconds = 86400
@@ -488,9 +491,22 @@ own default may be the model's advertised maximum: a 15.7B model asked for a 112
 KV cache and compute buffers far larger than the weights, spills to host memory, and measures the
 spill rather than the model.
 
-Fields the provider configures at **server startup** rather than per request — Ollama's KV cache
-precision and flash-attention setting among them — are deliberately **not** in `[runtime]`. A
-configuration key that silently does nothing is worse than an absent one.
+`flash_attention` and `kv_cache_precision` (`f16` | `q8_0` | `q4_0`) are launch-time settings
+`llama-server` honours per model, so under `provider.kind = "llamacpp"` they are sent, hashed and
+therefore separate results like every other profile field; a quantized cache requires
+`flash_attention = true`, because llama.cpp would otherwise keep the V cache at f16 without saying
+so. Under `provider.kind = "ollama"` either key is **refused by name** at load and on the API's
+per-run override — Ollama reads both once, daemon-wide, and a profile claiming either would
+describe a server that was never launched that way
+([ADR-0120](../../adr/0120-kv-cache-precision-and-flash-attention-are-per-model-llamacpp-settings.md)).
+A configuration key that silently does nothing is worse than an absent one. `fit_to_device`
+(default `false`) launches `llama-server` with `--fit off`, so a profile that does not fit fails
+at launch and is recorded as that failure rather than spilling to host RAM under a hash that says
+nothing about the spill; it travels as `provider_options["--fit"]` and is hashed like every other
+launch fact ([ADR-0121](../../adr/0121-freeweight-launches-llama-server-with-fit-off-and-caps-the-max-fit-ladder.md)).
+`provider.memory_max_bytes` caps the launched server's host memory through ModelRack
+([ADR-0119](../../adr/0119-model-servers-run-under-a-host-memory-cap.md)); it is not profile
+content, because it changes whether the host survives a non-fit, not what was served.
 
 **`[benchmarks]` holds limits a machine decides, not a suite author.** A shipped suite's content is
 fixed and hashed — that is what makes two runs of it comparable — but how far a sweep can reach
@@ -499,6 +515,9 @@ before the machine cannot serve the context is a property of the hardware.
 below it, extended by doubling above it, with the ceiling itself as the final rung. Raising it on a
 machine that can serve more turns `effective_context_tokens` from a floor into a measurement;
 lowering it on a small card keeps the suite runnable instead of failing every rung.
+`max_fit_context_tokens` does the same for `native.memory_kv`'s maximum-context-fit ladder
+(`8192 … 131072`), and exists because Ollama spills to host RAM instead of refusing: the ceiling
+stops the climb before the machine does (ADR-0121 §1).
 
 **It separates results**, and structurally: the effective ladder is hashed into that suite's own
 `dataset_hashes`, so it reaches the reproducibility fingerprint by the same path every other

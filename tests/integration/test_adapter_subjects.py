@@ -392,8 +392,8 @@ class TestServingModeIsSeparableFromSelection:
         from freeweight.config import RuntimeSettings
 
         runtime = RuntimeSettings()
-        clean = runtime.to_profile(adapters_registered=False)
-        registered = runtime.to_profile(adapters_registered=True)
+        clean = runtime.to_profile(provider_kind="ollama", adapters_registered=False)
+        registered = runtime.to_profile(provider_kind="ollama", adapters_registered=True)
 
         assert clean.profile_hash != registered.profile_hash
 
@@ -403,7 +403,10 @@ class TestServingModeIsSeparableFromSelection:
 
         from freeweight.config import RuntimeSettings
 
-        assert RuntimeSettings().to_profile().profile_hash == RuntimeProfile().profile_hash
+        assert (
+            RuntimeSettings().to_profile(provider_kind="ollama").profile_hash
+            == RuntimeProfile().profile_hash
+        )
 
     def test_two_runs_in_the_two_arms_are_two_subjects_of_one_base(
         self, run_environment: Callable[..., RunEnvironment]
@@ -424,7 +427,9 @@ class TestServingModeIsSeparableFromSelection:
                     ExecutionSettings(warmup_repetitions=0, cooldown_seconds=0),
                     measured_repetitions=1,
                 ),
-                runtime_profile=RuntimeSettings().to_profile(adapters_registered=registered),
+                runtime_profile=RuntimeSettings().to_profile(
+                    provider_kind="ollama", adapters_registered=registered
+                ),
             )
             for registered in (False, True)
         ]

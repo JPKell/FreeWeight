@@ -59,6 +59,8 @@ The default model provider FreeWeight talks to.
 | `provider.model_directory` | `FREEWEIGHT_PROVIDER__MODEL_DIRECTORY` | string | `""` | — | no — file or environment, then restart | — | `"~/ai/models/llm"` | Directory of GGUF weights kind='llamacpp' serves. Required for that kind; there is no default worth guessing, because a wrong directory is a server serving weights nobody asked for. |
 | `provider.state_dir` | `FREEWEIGHT_PROVIDER__STATE_DIR` | string | `""` | — | no — file or environment, then restart | — | `""` | Where the llama.cpp supervisor keeps its pid files and digest cache. Empty means <data_dir>/llamacpp. |
 | `provider.server_path` | `FREEWEIGHT_PROVIDER__SERVER_PATH` | string | `"llama-server"` | — | no — file or environment, then restart | — | `"llama-server"` | The llama-server executable, resolved on PATH unless absolute. |
+| `provider.memory_max_bytes` | `FREEWEIGHT_PROVIDER__MEMORY_MAX_BYTES` | integer, optional | unset | ≥ 1 | no — file or environment, then restart | — | `25769803776` | Host-memory cap for every llama-server this application launches (ADR-0119): the launch runs in a systemd-run user scope with MemoryMax at this value and swap denied, so a server that does not fit is killed rather than swapping the host. llamacpp only; unset launches uncapped. |
+| `provider.memory_high_bytes` | `FREEWEIGHT_PROVIDER__MEMORY_HIGH_BYTES` | integer, optional | unset | ≥ 1 | no — file or environment, then restart | — | `23622320128` | The throttle point below memory_max_bytes (MemoryHigh). Requires memory_max_bytes and must be below it. |
 
 ## `[providers]`
 
@@ -113,6 +115,9 @@ Default benchmark execution parameters (spec §12, ``[execution]``).
 | Key | Environment variable | Type | Default | Valid range | Runtime-changeable | Security | Example | Meaning |
 |---|---|---|---|---|---|---|---|---|
 | `runtime.context_size` | `FREEWEIGHT_RUNTIME__CONTEXT_SIZE` | integer, optional | unset | > 0 | no — file or environment, then restart | — | `8192` | Context window to serve, in tokens (Ollama's num_ctx). Unset lets the provider decide and records the served context as assumed. A different value is a different measurement subject (ADR-0023). |
+| `runtime.flash_attention` | `FREEWEIGHT_RUNTIME__FLASH_ATTENTION` | boolean, optional | unset | — | no — file or environment, then restart | — | `true` | Launch the server with flash attention. Honoured by provider.kind='llamacpp' only; refused by name under 'ollama', whose setting is daemon-wide (ADR-0120). |
+| `runtime.kv_cache_precision` | `FREEWEIGHT_RUNTIME__KV_CACHE_PRECISION` | one of `"f16"`, `"q8_0"`, `"q4_0"`, optional | unset | — | no — file or environment, then restart | — | `"q8_0"` | KV-cache precision: f16, q8_0 or q4_0. llamacpp only; q8_0 and q4_0 require flash_attention = true. A different precision is a different measurement subject. |
+| `runtime.fit_to_device` | `FREEWEIGHT_RUNTIME__FIT_TO_DEVICE` | boolean | `false` | — | no — file or environment, then restart | — | `false` | Let llama-server shrink unset launch arguments to fit device memory (--fit on). False launches with --fit off: no fit is a launch failure, never a host-RAM spill (ADR-0121). llamacpp only. |
 | `runtime.gpu_layers` | `FREEWEIGHT_RUNTIME__GPU_LAYERS` | integer, optional | unset | ≥ 0 | no — file or environment, then restart | — | `32` | Layers offloaded to the GPU. Unset lets the provider fit them. |
 | `runtime.threads` | `FREEWEIGHT_RUNTIME__THREADS` | integer, optional | unset | > 0 | no — file or environment, then restart | — | `8` | CPU threads for the parts that stay on the host. |
 | `runtime.batch_size` | `FREEWEIGHT_RUNTIME__BATCH_SIZE` | integer, optional | unset | > 0 | no — file or environment, then restart | — | `512` | Prompt-evaluation batch size. |
@@ -125,6 +130,7 @@ The ``[benchmarks]`` section: limits a machine, not a suite author, decides.
 | Key | Environment variable | Type | Default | Valid range | Runtime-changeable | Security | Example | Meaning |
 |---|---|---|---|---|---|---|---|---|
 | `benchmarks.long_context_max_tokens` | `FREEWEIGHT_BENCHMARKS__LONG_CONTEXT_MAX_TOKENS` | integer | `32000` | ≥ 1000, ≤ 2000000 | no — file or environment, then restart | — | `32000` | Ceiling of native.long_context's depth sweep. Hashed into that suite's dataset_hashes, so two ceilings are two measurements. |
+| `benchmarks.max_fit_context_tokens` | `FREEWEIGHT_BENCHMARKS__MAX_FIT_CONTEXT_TOKENS` | integer | `131072` | ≥ 8192, ≤ 2000000 | no — file or environment, then restart | — | `131072` | Ceiling of native.memory_kv's maximum-context-fit ladder (8192 doubling to 131072). Hashed into that suite's dataset_hashes, so two ceilings are two measurements (ADR-0121). Lower it on a provider that spills to host RAM instead of refusing. |
 
 ## `[goals]`
 

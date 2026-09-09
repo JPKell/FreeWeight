@@ -216,7 +216,7 @@ def create_run_endpoint(request: Request, body: dict[str, Any]) -> JSONResponse:
         update={
             key: value for key, value in runtime_body.items() if key in RuntimeSettings.model_fields
         }
-    ).to_profile()
+    ).to_profile(provider_kind=settings.provider.kind)
     unknown = sorted(set(runtime_body) - set(RuntimeSettings.model_fields))
     if unknown:
         raise ValidationError(

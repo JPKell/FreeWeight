@@ -183,7 +183,8 @@ def _measure(journey: Any, *, adapter: str | None, registered: bool | None | str
         suite_key=_SUITE,
         execution=ExecutionConfig.resolve(settings.execution, measured_repetitions=1),
         runtime_profile=settings.runtime.to_profile(
-            adapters_registered=cast("bool | None", registered)
+            provider_kind=settings.provider.kind,
+            adapters_registered=cast("bool | None", registered),
         ),
         adapter_name=adapter,
         adapter_entries=journey["entries"],

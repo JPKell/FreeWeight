@@ -226,17 +226,30 @@ class RuntimeSettings(BaseModel):
     (ADR-0023 §1). There is no "no profile" state; ``RuntimeProfile()`` has a stable hash and is
     stored like any other.
 
-    **Only settings a provider can actually honour per request appear here.** Ollama configures
-    flash attention and KV-cache precision at server startup (``OLLAMA_FLASH_ATTENTION``,
-    ``OLLAMA_KV_CACHE_TYPE``), not per request, so offering them here would record a promise the
-    run cannot keep — the same dishonesty ADR-0007 rule 2 forbids of a capability flag. They stay
-    server-side until a provider exposes them.
+    **Only settings the configured provider can actually honour appear in a profile.** Flash
+    attention and KV-cache precision are launch-time settings ``llama-server`` honours per model;
+    Ollama reads them once, daemon-wide (``OLLAMA_FLASH_ATTENTION``, ``OLLAMA_KV_CACHE_TYPE``),
+    so under ``provider.kind = "ollama"`` either key is **refused by name** rather than recorded
+    as a promise the run cannot keep — the dishonesty ADR-0007 rule 2 forbids of a capability
+    flag, applied to a profile (ADR-0120).
 
     Attributes:
         context_size: The context to serve, in tokens — Ollama's ``num_ctx``. Unset means the
             provider decides, and the run records its served context as ``assumed`` rather than
             ``configured``. **Setting it is what makes a context comparison possible**: two runs of
             one model at two contexts are two subjects, and without this they are indistinguishable.
+        flash_attention: Whether the server is launched with flash attention. llama.cpp only.
+        kv_cache_precision: The KV cache's precision — ``f16``, ``q8_0`` or ``q4_0``. llama.cpp
+            only. A quantized cache **requires** ``flash_attention = true``: llama.cpp cannot
+            quantize the V cache without it and silently keeps f16 otherwise, which would record a
+            precision that was never served. A different precision is a different
+            ``runtime_profile_hash`` and therefore a different measurement subject (ADR-0017).
+        fit_to_device: Whether ``llama-server`` may adjust unset launch arguments to fit device
+            memory (its ``--fit on`` default). ``False`` — FreeWeight's default — launches with
+            ``--fit off``: a profile that does not fit fails at launch and is recorded as that
+            failure, rather than spilling layers to host RAM under a profile hash that says
+            nothing about the spill (ADR-0121). Travels as ``provider_options["--fit"]`` and is
+            hashed like every other launch fact. Ignored under any other provider kind.
         gpu_layers: Layers to offload to the GPU. Unset lets the provider fit it.
         threads: CPU threads for the parts that stay on the host.
         batch_size: Prompt-evaluation batch size.
@@ -255,6 +268,31 @@ class RuntimeSettings(BaseModel):
             "measurement subject (ADR-0023)."
         ),
         examples=[8192],
+    )
+    flash_attention: bool | None = Field(
+        default=None,
+        description=(
+            "Launch the server with flash attention. Honoured by provider.kind='llamacpp' only; "
+            "refused by name under 'ollama', whose setting is daemon-wide (ADR-0120)."
+        ),
+        examples=[True],
+    )
+    kv_cache_precision: Literal["f16", "q8_0", "q4_0"] | None = Field(
+        default=None,
+        description=(
+            "KV-cache precision: f16, q8_0 or q4_0. llamacpp only; q8_0 and q4_0 require "
+            "flash_attention = true. A different precision is a different measurement subject."
+        ),
+        examples=["q8_0"],
+    )
+    fit_to_device: bool = Field(
+        default=False,
+        description=(
+            "Let llama-server shrink unset launch arguments to fit device memory (--fit on). "
+            "False launches with --fit off: no fit is a launch failure, never a host-RAM spill "
+            "(ADR-0121). llamacpp only."
+        ),
+        examples=[False],
     )
     gpu_layers: int | None = Field(
         default=None,
@@ -280,10 +318,55 @@ class RuntimeSettings(BaseModel):
         examples=["5m"],
     )
 
-    def to_profile(self, *, adapters_registered: bool | None = None) -> RuntimeProfile:
+    @model_validator(mode="after")
+    def _check_quantized_cache_has_flash_attention(self) -> RuntimeSettings:
+        """Refuse a quantized KV cache without flash attention (ADR-0120 rule 3).
+
+        Raises:
+            ValueError: ``kv_cache_precision`` is ``q8_0`` or ``q4_0`` and ``flash_attention`` is
+                not ``True``. llama.cpp keeps the V cache at f16 in that case without saying so,
+                and a profile recording a precision that was not served is a fabricated subject.
+        """
+        if self.kv_cache_precision in {"q8_0", "q4_0"} and self.flash_attention is not True:
+            raise ValueError(
+                f"runtime.kv_cache_precision = {self.kv_cache_precision!r} requires "
+                "runtime.flash_attention = true: llama.cpp cannot quantize the V cache without "
+                "flash attention and would silently serve f16."
+            )
+        return self
+
+    def refused_under(self, provider_kind: str) -> tuple[str, ...]:
+        """Name the keys set here that ``provider_kind`` cannot honour (ADR-0120 rule 4).
+
+        Args:
+            provider_kind: ``provider.kind``.
+
+        Returns:
+            The offending key names, empty when every set key is honoured. Only ``ollama`` refuses
+            anything: its flash-attention and KV-cache settings are daemon-wide environment, so a
+            profile claiming either would describe a server that was never launched that way.
+        """
+        if provider_kind != "ollama":
+            return ()
+        return tuple(
+            key
+            for key, value in (
+                ("flash_attention", self.flash_attention),
+                ("kv_cache_precision", self.kv_cache_precision),
+            )
+            if value is not None
+        )
+
+    def to_profile(
+        self, *, provider_kind: str, adapters_registered: bool | None = None
+    ) -> RuntimeProfile:
         """Build the :class:`~baseaicore.RuntimeProfile` these settings describe.
 
         Args:
+            provider_kind: ``provider.kind`` — which provider will be handed the profile. Decides
+                two things: whether ``fit_to_device`` becomes ``provider_options["--fit"]``
+                (``llamacpp`` only — Ollama would be sent an option it does not know), and
+                whether ``flash_attention`` / ``kv_cache_precision`` are refused (``ollama``).
             adapters_registered: Whether the server serving this run was launched with adapters
                 registered at all — a **serving mode**, not a selection
                 (ADR-0060, ADR-0074). It is
@@ -296,14 +379,36 @@ class RuntimeSettings(BaseModel):
             The profile. Two profiles differing only in ``adapters_registered`` hash differently,
             which is what makes the serving-mode A/B two ordinary, permanently separable
             measurements of one base rather than a comparison mechanism of its own.
+
+        Raises:
+            ConfigurationError: ``provider_kind`` is ``ollama`` and ``flash_attention`` or
+                ``kv_cache_precision`` is set — named, so the operator unsets it or switches
+                to ``llamacpp`` (ADR-0120 rule 4). Raised here as well as at load, because the
+                API's per-run override bypasses the settings validators.
         """
+        refused = self.refused_under(provider_kind)
+        if refused:
+            raise ConfigurationError(
+                f"runtime.{refused[0]} is not honoured by provider kind {provider_kind!r}: "
+                "Ollama reads flash attention and the KV-cache type once, daemon-wide "
+                "(OLLAMA_FLASH_ATTENTION, OLLAMA_KV_CACHE_TYPE), so a profile claiming either "
+                "would describe a server that was never launched that way. Unset it, or use "
+                "provider.kind = 'llamacpp'.",
+                details={"field": f"runtime.{refused[0]}", "provider_kind": provider_kind},
+            )
+        provider_options: dict[str, Any] = {}
+        if provider_kind == "llamacpp" and not self.fit_to_device:
+            provider_options["--fit"] = "off"
         return RuntimeProfile(
             context_size=self.context_size,
+            kv_cache_precision=self.kv_cache_precision,
             gpu_layers=self.gpu_layers,
+            flash_attention=self.flash_attention,
             threads=self.threads,
             batch_size=self.batch_size,
             keep_alive=self.keep_alive,
             adapters_registered=adapters_registered,
+            provider_options=provider_options,
         )
 
 
@@ -359,6 +464,44 @@ class ProviderSettings(BaseModel):
         description="The llama-server executable, resolved on PATH unless absolute.",
         examples=["llama-server"],
     )
+    memory_max_bytes: int | None = Field(
+        default=None,
+        ge=1,
+        description=(
+            "Host-memory cap for every llama-server this application launches (ADR-0119): the "
+            "launch runs in a systemd-run user scope with MemoryMax at this value and swap "
+            "denied, so a server that does not fit is killed rather than swapping the host. "
+            "llamacpp only; unset launches uncapped."
+        ),
+        examples=[25769803776],
+    )
+    memory_high_bytes: int | None = Field(
+        default=None,
+        ge=1,
+        description=(
+            "The throttle point below memory_max_bytes (MemoryHigh). Requires memory_max_bytes "
+            "and must be below it."
+        ),
+        examples=[23622320128],
+    )
+
+    @model_validator(mode="after")
+    def _check_memory_cap(self) -> ProviderSettings:
+        """Refuse a throttle point without a cap, or one not below it.
+
+        Raises:
+            ValueError: ``memory_high_bytes`` is set and ``memory_max_bytes`` is not, or the high
+                figure is not below the cap. ModelRack refuses the same shape at construction;
+                catching it here names the configuration key instead of a constructor argument.
+        """
+        if self.memory_high_bytes is not None and (
+            self.memory_max_bytes is None or self.memory_high_bytes >= self.memory_max_bytes
+        ):
+            raise ValueError(
+                f"provider.memory_high_bytes ({self.memory_high_bytes}) requires "
+                f"provider.memory_max_bytes and must be below it (got {self.memory_max_bytes})."
+            )
+        return self
 
 
 class AdapterSettings(BaseModel):
@@ -544,6 +687,10 @@ class BenchmarkSettings(BaseModel):
             ``dataset_hashes``, so a 32 000-token sweep and a 128 000-token sweep are two different
             measurements and are never averaged — a sweep that stopped earlier reports a smaller
             effective context for reasons that have nothing to do with the model.
+        max_fit_context_tokens: The ceiling of ``native.memory_kv``'s maximum-context-fit ladder,
+            ``8 192 … 131 072``, fitted the same way and hashed the same way (ADR-0121 §1). The
+            test climbs "until something refuses"; on a provider that spills to host RAM instead
+            of refusing, this ceiling is what stops the climb before the machine does.
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -557,6 +704,17 @@ class BenchmarkSettings(BaseModel):
             "dataset_hashes, so two ceilings are two measurements."
         ),
         examples=[32000],
+    )
+    max_fit_context_tokens: int = Field(
+        default=131_072,
+        ge=8_192,
+        le=2_000_000,
+        description=(
+            "Ceiling of native.memory_kv's maximum-context-fit ladder (8192 doubling to 131072). "
+            "Hashed into that suite's dataset_hashes, so two ceilings are two measurements "
+            "(ADR-0121). Lower it on a provider that spills to host RAM instead of refusing."
+        ),
+        examples=[131072],
     )
 
 
@@ -1022,6 +1180,25 @@ class Settings(BaseModel):
     auth: AuthSettings = Field(default_factory=AuthSettings)
     logging: LoggingSettings = Field(default_factory=LoggingSettings)
 
+    @model_validator(mode="after")
+    def _check_runtime_against_provider(self) -> Settings:
+        """Refuse a ``[runtime]`` key the configured provider cannot honour (ADR-0120 rule 4).
+
+        Raises:
+            ValueError: ``provider.kind`` is ``ollama`` and ``runtime.flash_attention`` or
+                ``runtime.kv_cache_precision`` is set. Refused at load so a server never starts
+                with a profile that misdescribes it; the API's per-run override is refused by the
+                same rule in :meth:`RuntimeSettings.to_profile`.
+        """
+        refused = self.runtime.refused_under(self.provider.kind)
+        if refused:
+            raise ValueError(
+                f"runtime.{refused[0]} is not honoured by provider.kind = {self.provider.kind!r} "
+                "(Ollama's flash attention and KV-cache type are daemon-wide environment). Unset "
+                "it, or use provider.kind = 'llamacpp'."
+            )
+        return self
+
 
 @dataclass(frozen=True, slots=True)
 class LoadedSettings:
@@ -1311,6 +1488,10 @@ backup_retention = 5        # automatic pre-migration backups to keep
 # on a machine that can serve more, lower it on one that cannot. The effective ladder is hashed
 # into the suite's dataset_hashes, so two ceilings are two measurements and are never averaged.
 long_context_max_tokens = 32000
+# The ceiling of native.memory_kv's maximum-context-fit ladder (8192 doubling to 131072). The test
+# climbs until the provider refuses; Ollama spills to host RAM instead of refusing, so lower this
+# to what the card serves there. Hashed like long_context_max_tokens (ADR-0121).
+max_fit_context_tokens = 131072
 
 [provider]
 kind = "ollama"
@@ -1320,6 +1501,8 @@ timeout_seconds = 300.0
 # model_directory = "~/ai/models/llm"   # required; no default is guessed
 # state_dir = ""                        # empty = <data_dir>/llamacpp
 # server_path = "llama-server"
+# memory_max_bytes = 25769803776        # 24 GiB: llama-server is killed, not swapped (ADR-0119)
+# memory_high_bytes = 23622320128       # 22 GiB throttle point; requires memory_max_bytes
 
 [providers]
 allow_remote = false
@@ -1337,6 +1520,11 @@ directory = ""
 # context_size = 8192   # Ollama's num_ctx. Unset = the provider decides and the run records its
                         # served context as "assumed" rather than "configured". Set it to compare
                         # one model against itself at two contexts.
+# flash_attention = true       # llamacpp only; refused by name under kind = "ollama" (ADR-0120)
+# kv_cache_precision = "q8_0"  # f16 | q8_0 | q4_0; q8_0/q4_0 require flash_attention = true.
+                               # A different precision is a different measurement subject.
+# fit_to_device = false        # llamacpp only. false = --fit off: no fit is a launch failure,
+                               # never a host-RAM spill under a profile that hides it (ADR-0121)
 # gpu_layers = 32
 # threads = 8
 # batch_size = 512

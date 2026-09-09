@@ -253,3 +253,30 @@ def test_evidence_parameters_are_range_checked(tmp_path: Path) -> None:
 def test_backup_retention_defaults_to_five() -> None:
     """Database standards §7: keep the last 5 automatic backups."""
     assert StorageSettings().backup_retention == 5
+
+
+def test_ollama_with_a_llamacpp_only_runtime_key_is_refused_at_load(tmp_path: Path) -> None:
+    """ADR-0120 rule 4, at the file: the server never starts with a profile it cannot serve."""
+    config_file = tmp_path / "config.toml"
+    config_file.write_text('[provider]\nkind = "ollama"\n[runtime]\nflash_attention = true\n')
+    with pytest.raises(ConfigurationError, match="runtime.flash_attention"):
+        load_settings(config_path=config_file)
+
+
+def test_llamacpp_honours_the_same_runtime_keys(tmp_path: Path) -> None:
+    config_file = tmp_path / "config.toml"
+    config_file.write_text(
+        '[provider]\nkind = "llamacpp"\nmodel_directory = "~/m"\n'
+        '[runtime]\nflash_attention = true\nkv_cache_precision = "q4_0"\n'
+        "[benchmarks]\nmax_fit_context_tokens = 32768\n"
+    )
+    loaded = load_settings(config_path=config_file)
+    assert loaded.settings.runtime.kv_cache_precision == "q4_0"
+    assert loaded.settings.benchmarks.max_fit_context_tokens == 32768  # noqa: PLR2004
+
+
+def test_a_memory_throttle_without_a_cap_is_refused_by_key(tmp_path: Path) -> None:
+    config_file = tmp_path / "config.toml"
+    config_file.write_text('[provider]\nkind = "llamacpp"\nmemory_high_bytes = 1024\n')
+    with pytest.raises(ConfigurationError, match="memory_high_bytes"):
+        load_settings(config_path=config_file)

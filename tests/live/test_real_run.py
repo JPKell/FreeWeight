@@ -692,9 +692,11 @@ def _profile() -> Any:  # noqa: ANN401 — a RuntimeProfile
     records ``served_context_source = "configured"``, the number in its fingerprint is a fact, and
     the memory it asks for is one this machine chose.
     """
-    from freeweight.config import RuntimeSettings
+    from freeweight.config import RuntimeSettings, load_settings
 
-    return RuntimeSettings(context_size=LIVE_CONTEXT_TOKENS).to_profile()
+    return RuntimeSettings(context_size=LIVE_CONTEXT_TOKENS).to_profile(
+        provider_kind=load_settings().settings.provider.kind
+    )
 
 
 def _execution(**changes: Any) -> Any:  # noqa: ANN401 — an ExecutionConfig

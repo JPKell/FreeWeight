@@ -168,7 +168,8 @@ def _measure(journey: Any, *, suite: str, adapter: str | None) -> str:
             max_output_tokens=int(cap) if cap else None,
         ),
         runtime_profile=settings.runtime.to_profile(
-            adapters_registered=serving_mode(journey["provider"], journey["entries"])
+            provider_kind=settings.provider.kind,
+            adapters_registered=serving_mode(journey["provider"], journey["entries"]),
         ),
         adapter_name=adapter,
         adapter_entries=journey["entries"],

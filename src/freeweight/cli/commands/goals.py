@@ -623,7 +623,7 @@ def calibrate(
             anchors=anchors_for(database, goal),
             seed=settings.calibration.partition_seed,
             # Served under `[runtime]` for the same reason the HTTP path is.
-            runtime_profile=settings.runtime.to_profile(),
+            runtime_profile=settings.runtime.to_profile(provider_kind=settings.provider.kind),
         )
         try:
             outcome = run_calibration(

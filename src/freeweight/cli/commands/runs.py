@@ -327,7 +327,9 @@ def _profile_for(
         if context_size is not None
         else settings.runtime
     )
-    return runtime.to_profile(adapters_registered=adapters_registered)
+    return runtime.to_profile(
+        provider_kind=settings.provider.kind, adapters_registered=adapters_registered
+    )
 
 
 def _serving_mode_ab(  # noqa: PLR0913 — every argument is one of `run start`'s own options

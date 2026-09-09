@@ -15,7 +15,7 @@ separately:
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Literal
 
 import pytest
 from baseaicore import UNSUPPORTED, ModelIdentity, ProviderKind, RuntimeProfile
@@ -54,19 +54,76 @@ def _context(**changes: Any) -> _RunContext:
 class TestTheSettingsProduceAProfile:
     def test_an_unset_section_is_provider_defaults_not_an_absence(self) -> None:
         """ADR-0023 §1: ``RuntimeProfile()`` is a legal, hashable profile."""
-        profile = RuntimeSettings().to_profile()
+        profile = RuntimeSettings().to_profile(provider_kind="ollama")
 
         assert profile.context_size is None
         assert profile.profile_hash
 
     def test_two_contexts_are_two_profiles_with_two_hashes(self) -> None:
         """The property that makes a context comparison possible at all (ADR-0017)."""
-        small = RuntimeSettings(context_size=2048).to_profile()
-        large = RuntimeSettings(context_size=8192).to_profile()
+        small = RuntimeSettings(context_size=2048).to_profile(provider_kind="ollama")
+        large = RuntimeSettings(context_size=8192).to_profile(provider_kind="ollama")
 
         assert small.context_size == 2048  # noqa: PLR2004 — the value under test
         assert small.profile_hash != large.profile_hash
-        assert small.profile_hash != RuntimeSettings().to_profile().profile_hash
+        assert (
+            small.profile_hash != RuntimeSettings().to_profile(provider_kind="ollama").profile_hash
+        )
+
+    def test_llamacpp_gets_fit_off_and_ollama_gets_no_option_at_all(self) -> None:
+        """ADR-0121 §2: ``--fit off`` is a llama.cpp launch flag, hashed; Ollama never sees it."""
+        settings = RuntimeSettings(context_size=8192)
+        llamacpp = settings.to_profile(provider_kind="llamacpp")
+        ollama = settings.to_profile(provider_kind="ollama")
+        assert llamacpp.provider_options == {"--fit": "off"}
+        assert ollama.provider_options == {}
+        assert llamacpp.profile_hash != ollama.profile_hash
+        # An Ollama profile hashes exactly as it did before the keys existed: stored hashes stand.
+        assert ollama.profile_hash == RuntimeProfile(context_size=8192).profile_hash
+
+    def test_fit_to_device_true_is_llama_servers_own_default_and_adds_nothing(self) -> None:
+        profile = RuntimeSettings(fit_to_device=True).to_profile(provider_kind="llamacpp")
+        assert profile.provider_options == {}
+
+    def test_kv_precision_and_flash_attention_reach_the_profile_and_separate_it(self) -> None:
+        """ADR-0120 rule 5: a different precision is a different subject."""
+        f16 = RuntimeSettings(flash_attention=True).to_profile(provider_kind="llamacpp")
+        q8 = RuntimeSettings(flash_attention=True, kv_cache_precision="q8_0").to_profile(
+            provider_kind="llamacpp"
+        )
+        assert q8.kv_cache_precision == "q8_0"
+        assert q8.flash_attention is True
+        assert f16.profile_hash != q8.profile_hash
+
+    @pytest.mark.parametrize("precision", ["q8_0", "q4_0"])
+    def test_a_quantized_cache_without_flash_attention_is_refused(
+        self, precision: Literal["q8_0", "q4_0"]
+    ) -> None:
+        """ADR-0120 rule 3: llama.cpp would silently serve f16."""
+        from pydantic import ValidationError as PydanticValidationError
+
+        with pytest.raises(PydanticValidationError, match="flash_attention"):
+            RuntimeSettings(kv_cache_precision=precision)
+        with pytest.raises(PydanticValidationError, match="flash_attention"):
+            RuntimeSettings(kv_cache_precision=precision, flash_attention=False)
+
+    @pytest.mark.parametrize(
+        "settings",
+        [RuntimeSettings(flash_attention=True), RuntimeSettings(kv_cache_precision="f16")],
+    )
+    def test_ollama_refuses_the_two_launch_settings_by_name(
+        self, settings: RuntimeSettings
+    ) -> None:
+        """ADR-0120 rule 4: a profile claiming a daemon-wide setting is a fabricated subject."""
+        from baseaicore import ConfigurationError
+
+        with pytest.raises(ConfigurationError) as caught:
+            settings.to_profile(provider_kind="ollama")
+        assert caught.value.details["field"] in {
+            "runtime.flash_attention",
+            "runtime.kv_cache_precision",
+        }
+        assert settings.to_profile(provider_kind="llamacpp").profile_hash
 
     def test_a_context_of_zero_is_refused_rather_than_stored(self) -> None:
         from pydantic import ValidationError as PydanticValidationError

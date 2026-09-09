@@ -44,7 +44,7 @@ Declared version ranges from `pyproject.toml` — kept from drifting by
 | `weightsdb` | `>=0.2,<0.3` |
 | `mirrorwall` | `>=0.2.2,<0.3` |
 | `setspec` | `>=0.6,<0.7` |
-| `modelrack` | `>=0.7,<0.8` |
+| `modelrack` | `>=0.8,<0.9` |
 | `sweatmeter` | `>=0.4,<0.5` |
 
 ## Documentation

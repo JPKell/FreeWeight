@@ -604,6 +604,8 @@ def active_prompt_library() -> PromptLibrary:
 
 _DEFAULT_LONG_CONTEXT_MAX_TOKENS: int = BenchmarkSettings().long_context_max_tokens
 """The shipped ceiling, read from the settings model so the default lives in exactly one place."""
+_DEFAULT_MAX_FIT_CONTEXT_TOKENS: int = BenchmarkSettings().max_fit_context_tokens
+"""Likewise for ``native.memory_kv``'s maximum-fit ladder (ADR-0121)."""
 
 
 def build_registry(
@@ -612,6 +614,7 @@ def build_registry(
     *,
     rule_timeout_ms: int = DEFAULT_RULE_TIMEOUT_MS,
     long_context_max_tokens: int = _DEFAULT_LONG_CONTEXT_MAX_TOKENS,
+    max_fit_context_tokens: int = _DEFAULT_MAX_FIT_CONTEXT_TOKENS,
 ) -> BenchmarkRegistry:
     """Build the registry of benchmarks this build can run.
 
@@ -634,6 +637,7 @@ def build_registry(
         goals: The loaded goal packs, or none. Each becomes one ``goal.<slug>`` suite.
         rule_timeout_ms: The per-rule, per-sample budget a goal's rule criteria run under.
         long_context_max_tokens: The ceiling ``native.long_context``'s depth sweep is fitted to.
+        max_fit_context_tokens: The ceiling ``native.memory_kv``'s maximum-fit ladder is fitted to.
             It reaches the run record through that suite's own ``dataset_hashes``, so two ceilings
             separate results rather than averaging into one.
 
@@ -660,7 +664,7 @@ def build_registry(
             critique_benchmark.build(pack),
             judge_benchmark.build(pack),
             long_context_benchmark.build(pack, max_context_tokens=long_context_max_tokens),
-            memory_kv_benchmark.build(pack),
+            memory_kv_benchmark.build(pack, max_fit_context_tokens=max_fit_context_tokens),
             energy_benchmark.build(pack),
             reliability_benchmark.build(pack),
             *(build_goal_benchmark(goal, rule_timeout_ms=rule_timeout_ms) for goal in goals),
@@ -701,6 +705,7 @@ def build_registry_for(settings: Settings, *, strict: bool = False) -> Benchmark
         goals=goals,
         rule_timeout_ms=settings.goals.rule_timeout_ms,
         long_context_max_tokens=settings.benchmarks.long_context_max_tokens,
+        max_fit_context_tokens=settings.benchmarks.max_fit_context_tokens,
     )
 
 
@@ -3861,8 +3866,15 @@ def _memory_kv_metrics(
     by_test: Mapping[str, list[_StoredSample]],
     architecture: KvArchitecture,
     context: _RunContext,
+    *,
+    ladder_ceiling: int,
 ) -> tuple[AggregatedMetric, ...]:
-    """Derive ``native.memory_kv``'s run-level figures from the descriptor and the telemetry."""
+    """Derive ``native.memory_kv``'s run-level figures from the descriptor and the telemetry.
+
+    ``ladder_ceiling`` is the top rung of the maximum-fit ladder this run climbed
+    (``benchmarks.max_fit_context_tokens``); with the served context it bounds what the run was
+    *configured* not to climb past, which is what ``max_context_capped_by_configuration`` reads.
+    """
     series = load_series(database, run.id)
     device = next((item for item in series.gpus if item.gpu_index == context.gpu_index), None)
     observations: list[ContextObservation] = []
@@ -3901,7 +3913,11 @@ def _memory_kv_metrics(
         gpu_index=context.gpu_index,
         multi_gpu_visible=context.multi_gpu_visible,
         placement_known=False,
-        configured_limit=context.served_context,
+        configured_limit=(
+            min(context.served_context, ladder_ceiling)
+            if context.served_context is not None
+            else ladder_ceiling
+        ),
     )
 
 
@@ -4017,7 +4033,15 @@ def _suite_derived_metrics(
         }
         architecture = _kv_architecture(session, run)
     if suite_key == "native.memory_kv":
-        return _memory_kv_metrics(database, run, by_test, architecture, context)
+        assert isinstance(benchmark, memory_kv_benchmark.MemoryKvBenchmark)  # noqa: S101 — keyed by suite
+        return _memory_kv_metrics(
+            database,
+            run,
+            by_test,
+            architecture,
+            context,
+            ladder_ceiling=benchmark.max_fit_ladder[-1],
+        )
     if suite_key == "native.energy":
         return _energy_metrics(database, run, by_test, context)
     return _reliability_metrics(by_test)

@@ -231,7 +231,7 @@ def run_calibration_endpoint(
         # Served under `[runtime]`, not under whatever the provider picks. A juror left to its
         # advertised context is the exact path that allocated 21.9 GiB of KV cache on a 30 GiB
         # machine and took the display driver down with it (PHASE10_ISSUES.md).
-        runtime_profile=settings.runtime.to_profile(),
+        runtime_profile=settings.runtime.to_profile(provider_kind=settings.provider.kind),
     )
     outcome = run_calibration(
         database,

@@ -103,9 +103,11 @@ nothing.
 
 `runtime` overrides the `[runtime]` configuration section **for this run**, field by field — the
 fields it omits keep their configured values. It accepts `context_size`, `gpu_layers`, `threads`,
-`batch_size` and `keep_alive`; an unrecognised key is a `VALIDATION_ERROR` naming it rather than a
-silently ignored one, because a runtime setting that is accepted and not applied produces a run
-whose record describes conditions it was never served under. Every field set here is hashed into
+`batch_size`, `keep_alive`, `flash_attention`, `kv_cache_precision` and `fit_to_device`; an
+unrecognised key is a `VALIDATION_ERROR` naming it rather than a silently ignored one, because a
+runtime setting that is accepted and not applied produces a run whose record describes conditions
+it was never served under. `flash_attention` and `kv_cache_precision` under `provider.kind =
+"ollama"` are a `CONFIGURATION_ERROR` naming the key for the same reason (ADR-0120 rule 4). Every field set here is hashed into
 `runtime_profile_hash` and therefore separates results
 ([ADR-0023](../../adr/0023-runtime-profile-resolution.md)).
 
