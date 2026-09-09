@@ -25,3 +25,5 @@ and is not.
 - [Risk register](apps/freeweight/risks.md) — the risks this design accepts, and their tells
 - [Configuration reference](configuration.md) — generated from the settings model; do not hand-edit
 - [OpenAPI snapshot](openapi.json) — the committed `/api/v1` contract; regenerate with `scripts/generate_openapi_snapshot.py`
+
+* [MEMORY_SAFETY.md](MEMORY_SAFETY.md) — keeping Ollama and `llama-server` from taking the host down: the cgroup caps, `--fit`, per-model KV-cache precision, the max-fit ceiling (mirrored).
