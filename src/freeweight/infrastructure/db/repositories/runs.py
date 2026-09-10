@@ -76,6 +76,7 @@ class RuntimeProfileRepository:
         threads: int | None,
         batch_size: int | None,
         keep_alive: str | None,
+        adapters_registered: bool | None,
         provider_options_json: Any,
         now: datetime,
     ) -> RuntimeProfile:
@@ -98,6 +99,9 @@ class RuntimeProfileRepository:
             threads: CPU threads requested, or ``None``.
             batch_size: Batch size requested, or ``None``.
             keep_alive: Provider keep-alive string, or ``None``.
+            adapters_registered: Whether the serving provider was launched with adapters
+                registered, or ``None`` when the profile does not say (ADR-0074). Stored as the
+                profile stated it, because ``profile_hash`` hashes it whenever it is stated.
             provider_options_json: Provider-specific options, already JSON-safe.
             now: The instant to record as ``created_at`` on first insert.
 
@@ -118,6 +122,7 @@ class RuntimeProfileRepository:
             threads=threads,
             batch_size=batch_size,
             keep_alive=keep_alive,
+            adapters_registered=adapters_registered,
             provider_options_json=provider_options_json,
             created_at=now,
         )

@@ -113,6 +113,8 @@ Index: `(model_id, observed_at DESC)`, `descriptor_hash`.
 ```text
 id ULID PK · profile_hash TEXT UNIQUE NOT NULL · context_size · kv_cache_precision
 gpu_layers · flash_attention · threads · batch_size · keep_alive · provider_options_json
+adapters_registered BOOLEAN NULL  -- NULL = not stated; hashed when stated (ADR-0074). Migration
+                                  -- 0010 recovered existing rows from profile_hash (ADR-0135)
 created_at
 ```
 

@@ -8,17 +8,21 @@ names and skip elsewhere rather than pretending to cover PostgreSQL.
 
 from __future__ import annotations
 
+import logging
 import shutil
 from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
+from baseaicore import RuntimeProfile as DomainRuntimeProfile
 from baseaicore import ValidationError
-from sqlalchemy import Column, Engine, Integer, MetaData, Table, insert, inspect, text
+from sqlalchemy import Column, Engine, Integer, MetaData, String, Table, insert, inspect, text
 from sqlalchemy.exc import IntegrityError, StatementError
 from weightsdb import (
     MigrationFailed,
     MigrationRunner,
+    PortableJSON,
+    UtcDateTime,
     create_engine_for,
     session_factory,
     session_scope,
@@ -436,3 +440,100 @@ def _cascading_child_counts(engine: Engine) -> dict[str, int]:
             table: connection.execute(text(f"SELECT COUNT(*) FROM {table}")).scalar_one()  # noqa: S608 — table names are the literal tuple above
             for table in tables
         }
+
+
+def _backfill_id(suffix: str) -> str:
+    """A 26-character id for one backfill case, recognisable by its ``01JWA1`` prefix."""
+    return f"01JWA1{'0' * 18}{suffix}"
+
+
+_BACKFILL_CASES: dict[str, tuple[DomainRuntimeProfile, bool | None, str | None]] = {
+    # id: (the profile a pre-0010 build hashed, the value 0010 must recover, a stored-hash override)
+    _backfill_id("0N"): (DomainRuntimeProfile(context_size=4096), None, None),
+    _backfill_id("0F"): (
+        DomainRuntimeProfile(context_size=4096, adapters_registered=False),
+        False,
+        None,
+    ),
+    _backfill_id("0T"): (
+        DomainRuntimeProfile(
+            gpu_layers=99, adapters_registered=True, provider_options={"--fit": "off"}
+        ),
+        True,
+        None,
+    ),
+    # A stored hash no state reproduces: it stays NULL and is counted, never guessed.
+    _backfill_id("0X"): (DomainRuntimeProfile(context_size=8192), None, "0" * 16),
+}
+
+
+def _insert_profiles_at_0009(engine: Engine) -> None:
+    """Write one ``runtime_profiles`` row per backfill case, as a build at ``0009`` stored them."""
+    profiles = Table(
+        "runtime_profiles",
+        MetaData(),
+        Column("id", String),
+        Column("profile_hash", String),
+        Column("context_size", Integer),
+        Column("gpu_layers", Integer),
+        Column("provider_options_json", PortableJSON),
+        Column("created_at", UtcDateTime),
+    )
+    with engine.begin() as connection:
+        for row_id, (profile, _expected, stored_hash) in _BACKFILL_CASES.items():
+            connection.execute(
+                insert(profiles).values(
+                    id=row_id,
+                    profile_hash=stored_hash or profile.profile_hash,
+                    context_size=profile.context_size,
+                    gpu_layers=profile.gpu_layers,
+                    provider_options_json=dict(profile.provider_options),
+                    created_at=datetime(2026, 9, 10, tzinfo=UTC),
+                )
+            )
+
+
+def _assert_backfilled(engine: Engine, log_text: str) -> None:
+    """Every case holds the value its hash proves, and the log counts each outcome once."""
+    with engine.connect() as connection:
+        rows = connection.execute(
+            text("SELECT id, adapters_registered FROM runtime_profiles WHERE id LIKE '01JWA1%'")
+        ).all()
+    recovered = {str(row_id): None if value is None else bool(value) for row_id, value in rows}
+    assert recovered == {row_id: case[1] for row_id, case in _BACKFILL_CASES.items()}
+    assert "adapters_registered backfill: 1 null, 1 false, 1 true, 1 unmatched" in log_text
+    assert _backfill_id("0X") in log_text
+
+
+def test_0010_recovers_adapters_registered_from_each_stored_hash(
+    runner: MigrationRunner, unmigrated_engine: Engine, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Row WA1's backfill (ADR-0135), on both dialects: recovered from the hash, never guessed."""
+    runner.upgrade("0009", backup=False)
+    _insert_profiles_at_0009(unmigrated_engine)
+
+    with caplog.at_level(logging.INFO):
+        runner.upgrade(backup=False)
+
+    _assert_backfilled(unmigrated_engine, caplog.text)
+
+
+def test_0010_backfills_a_copy_of_the_1_1_0_fixture(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    """The same recovery over a real ``1.1.0`` install's file, brought to ``0009`` first."""
+    fixture = Path(__file__).parent.parent / "fixtures" / "databases" / "freeweight-1.1.0.sqlite3"
+    working_copy = tmp_path / "freeweight-1.1.0.sqlite3"
+    shutil.copyfile(fixture, working_copy)
+    engine = create_engine_for(f"sqlite:///{working_copy}")
+    try:
+        runner = MigrationRunner(engine, script_location=MIGRATIONS_LOCATION)
+        runner.upgrade("0009", backup=False)
+        _insert_profiles_at_0009(engine)
+
+        with caplog.at_level(logging.INFO):
+            runner.upgrade(backup=False)
+
+        _assert_backfilled(engine, caplog.text)
+    finally:
+        engine.dispose()

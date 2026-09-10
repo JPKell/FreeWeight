@@ -45,7 +45,11 @@ dependencies = [
     # resolver that picked 0.4 would install a build with neither and fail at import rather than
     # at configuration. The row's own kickoff said this pin needed nothing; that was true of the
     # ceiling and wrong about the floor.
-    "setspec>=0.6,<0.7",
+    #
+    # The floor moved to 0.7 at row WA1: `BenchmarkRunSummaryV1_1Out`, the run summary whose
+    # profile can state `adapters_registered`, is 0.7.0 (ADR-0135). TODO: re-pin on publish —
+    # 0.7.0 is prepared, not on PyPI, so the CI lock cannot resolve until it is.
+    "setspec>=0.7,<0.8",
     # 0.7 adds `LlamaCppProvider` and adapter registration (ADR-0062, ModelRack P6-P8). Before it
     # this application could only talk to Ollama, which cannot serve a LoRA at all, so every
     # measurement in Phase 15 was unreachable rather than merely unbuilt.

@@ -260,6 +260,8 @@ class RuntimeProfile(Base):
     threads: Mapped[int | None] = mapped_column(Integer)
     batch_size: Mapped[int | None] = mapped_column(Integer)
     keep_alive: Mapped[str | None] = mapped_column(String)
+    # Tri-state, as on baseaicore.RuntimeProfile: NULL is "not stated" and is not hashed (ADR-0074).
+    adapters_registered: Mapped[bool | None] = mapped_column(Boolean)
     provider_options_json: Mapped[object | None] = mapped_column(PortableJSON)
     created_at: Mapped[datetime] = mapped_column(UtcDateTime, nullable=False, default=utcnow)
 

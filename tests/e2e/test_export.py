@@ -235,8 +235,12 @@ class TestTheDocumentIsCanonicalAndVersioned:
     def test_each_run_carries_a_validated_setspec_run_summary(
         self, client: TestClient, workspace: Path
     ) -> None:
-        """The cross-application contract, checked by re-reading it through SetSpec's own model."""
-        from setspec.benchmark.v1 import BenchmarkRunSummaryIn
+        """The cross-application contract, checked by re-reading it through SetSpec's own model.
+
+        Read at `1.1`, the minor this build writes: a `1.0` reader refuses a summary whose profile
+        states ``adapters_registered`` (ADR-0135), so the reader a consumer should copy is this one.
+        """
+        from setspec.benchmark.v1 import BenchmarkRunSummaryV1_1In
 
         run_id = _completed_run(client)
         with _database(workspace) as database:
@@ -247,7 +251,7 @@ class TestTheDocumentIsCanonicalAndVersioned:
             )
 
         summary = document["payload"]["runs"][0]["summary"]
-        parsed = BenchmarkRunSummaryIn.model_validate(summary)
+        parsed = BenchmarkRunSummaryV1_1In.model_validate(summary)
 
         assert parsed.runtime_profile_hash == summary["runtime_profile_hash"]
         assert parsed.suite.suite_key == "native.echo"

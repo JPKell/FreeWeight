@@ -91,7 +91,9 @@ particular — can consume without touching FreeWeight's internals.
 [ADR-0074](../../adr/0074-adapter-enabled-serving-is-a-runtime-profile-field.md)), `setspec`
 (capability vocabulary **≥ 1.1**, for the `user` root —
 [ADR-0032 §1](../../adr/0032-judge-validity-and-user-capability-namespace.md); payload
-`benchmark.evidence_bundle` **1.1** for adapter-bearing exports), `modelrack` (**≥ 0.7**, for
+`benchmark.evidence_bundle` **1.1** for adapter-bearing exports; **≥ 0.7** for
+`benchmark.run_summary` **1.1**, whose profile states `adapters_registered` —
+[ADR-0135](../../adr/0135-a-minor-that-feeds-a-checked-hash-is-read-at-its-own-minor.md)), `modelrack` (**≥ 0.7**, for
 `LlamaCppProvider` and adapter registration —
 [ADR-0062](../../adr/0062-llamacpp-serves-adapters-through-a-supervised-process.md)), `sweatmeter`,
 `weightsdb` (adopted at Phase 12), `mirrorwall` (adopted at Phase 12).
@@ -239,6 +241,14 @@ subject carries the `adapter` block and is `1.1`. A bundle is `1.1` if any recor
 `1.0` otherwise — in which case it is **byte-for-byte what `freeweight 1.0.0` wrote**, which a
 golden asserts rather than a paragraph claiming it. Mixed bundles, bare-base and adapter-bearing
 records together, are the normal shape of a real export and are `1.1`.
+
+**`benchmark.run_summary`, and the `freeweight.export` that embeds it, follow the same rule**
+([ADR-0135](../../adr/0135-a-minor-that-feeds-a-checked-hash-is-read-at-its-own-minor.md)). A run
+whose runtime profile states `adapters_registered` — every run on an adapter-capable provider,
+`true` or `false` — has a `1.1` summary carrying the field, and an export is `1.1` if any run in it
+does. A run whose profile never stated it exports exactly what `1.2.1` did, at `1.0`. A `1.0`
+reader refuses a stated summary, because the frozen model recomputes the hash without the field;
+read one with `BenchmarkRunSummaryV1_1In`.
 
 The choice is made from the records in hand, never from configuration and never from whether
 `[adapters] directory` is set: an installation that has configured adapters and measured none

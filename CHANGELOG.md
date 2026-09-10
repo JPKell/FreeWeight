@@ -7,6 +7,34 @@ packaging and release standards §3.
 
 ## [Unreleased]
 
+## [1.3.0] — 2026-09-10
+
+### Fixed
+
+- **A run served by an adapter-capable provider could not be exported** (row WA1, ADR-0135).
+  FreeWeight states `adapters_registered` (`true` or `false`) on such a run's runtime profile and
+  stores the hash BaseAiCore computes with it, but `runtime_profiles` had no column for the field
+  and the export sent the profile without it, so SetSpec refused the run summary with a
+  `runtime_profile_hash` mismatch. The same gap made a queued, resumed or repeated run rebuild its
+  profile without the field — a profile that was not the one it had been hashed under.
+
+### Added
+
+- **Migration `0010`**: a nullable `runtime_profiles.adapters_registered`. The backfill recovers
+  each existing row's value from its stored `profile_hash` — the one of `NULL`, `false` and `true`
+  whose recomputed hash matches — and never guesses: a row matching none stays `NULL` and is
+  logged by id. The counts by outcome are logged.
+- **The export writes `benchmark.run_summary` `1.1`** when a run's profile states the field, and
+  a `freeweight.export` document is `1.1` when any run in it does (in JSONL, per line). An export
+  of runs that never stated it is `1.0` and unchanged (ADR-0084). `freeweight version` and
+  `GET /api/v1/version` report `1.1` for both.
+
+### Changed
+
+- Requires `setspec>=0.7` for `BenchmarkRunSummaryV1_1Out`. A reader of a `freeweight.export` whose
+  summaries state the field reads them with `BenchmarkRunSummaryV1_1In`; the `1.0` model refuses
+  them (ADR-0135).
+
 ## [1.2.1] — 2026-09-09
 
 ### Added

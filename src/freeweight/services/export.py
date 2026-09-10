@@ -96,12 +96,12 @@ CALIBRATION_REPORT_SCHEMA_VERSION = SchemaVersion(1, 0)
 """The ``benchmark.calibration_report`` version this build writes (spec §7.3)."""
 
 EMITTED_SCHEMAS: Mapping[str, str] = {
-    "benchmark.run_summary": "1.0",
+    "benchmark.run_summary": "1.1",
     "capability.evidence": "1.1",
     "benchmark.evidence_bundle": "1.1",
     "benchmark.goal_pack": "1.0",
     "benchmark.calibration_report": "1.0",
-    "freeweight.export": "1.0",
+    "freeweight.export": "1.1",
 }
 """Every document schema this build writes, with the **highest** version it can write it at.
 
@@ -114,8 +114,11 @@ The ceiling, not the version of any particular document. Since Phase 15 this bui
 document, by content
 ([ADR-0084](../../../docs/adr/0084-a-producer-chooses-a-payload-version-by-content.md) rule 4): a
 record measured on a bare base is `1.0`, one measured on an adapter subject is `1.1`, and a bundle
-takes `1.1` if any record in it does. A consumer reading this map learns what it must be able to
-accept, which is the question it is asking; what it actually receives is narrower, never wider."""
+takes `1.1` if any record in it does. Since `1.3.0` the same holds for `benchmark.run_summary` and
+the `freeweight.export` that embeds it (ADR-0135): a summary whose profile states
+`adapters_registered` is `1.1`, and an export is `1.1` if any run in it is. A consumer reading this
+map learns what it must be able to accept, which is the question it is asking; what it actually
+receives is narrower, never wider."""
 
 
 @contextmanager
@@ -145,6 +148,18 @@ accepted both would be carrying a branch for documents nobody has."""
 EXPORT_SCHEMA_VERSION = SchemaVersion(1, 0)
 """The version this build writes. Additive changes bump the minor; a consumer rejects an
 unsupported major and names both versions (API standards §7 rule 3)."""
+
+EXPORT_SCHEMA_VERSION_SERVING_MODE = SchemaVersion(1, 1)
+"""The version an export takes when any run in it states ``adapters_registered`` (ADR-0135).
+
+Chosen by content, never by build (ADR-0084): only then do its summaries need
+``benchmark.run_summary`` `1.1`, so an export of runs that never stated it stays `1.0`."""
+
+
+def _states_serving_mode(run_document: Mapping[str, Any]) -> bool:
+    """Whether one run's export document states ``adapters_registered`` on its profile."""
+    return "adapters_registered" in run_document["summary"]["runtime_profile"]
+
 
 _GENERATOR = GeneratorInfo(name="freeweight", version=__version__)
 
@@ -598,7 +613,11 @@ def model_identity_payload(model: Any, descriptor: Any) -> dict[str, Any]:  # no
 
 
 def _profile_payload(profile: Any) -> dict[str, Any]:  # noqa: ANN401 — a runtime_profiles row
-    """The ``RuntimeProfileFields`` half of a run summary."""
+    """The ``RuntimeProfileV1_1Fields`` half of a run summary.
+
+    ``adapters_registered`` is passed even when ``None``: the `1.1` model leaves an unstated value
+    out of the dump, so a profile that never stated it is written exactly as `1.0` wrote it.
+    """
     options = (
         dict(profile.provider_options_json)
         if isinstance(profile.provider_options_json, dict)
@@ -612,6 +631,7 @@ def _profile_payload(profile: Any) -> dict[str, Any]:  # noqa: ANN401 — a runt
         "threads": profile.threads,
         "batch_size": profile.batch_size,
         "keep_alive": profile.keep_alive,
+        "adapters_registered": profile.adapters_registered,
         "provider_options": options,
     }
 
@@ -662,7 +682,7 @@ def _run_summary_payload(  # noqa: PLR0913 — a run summary is exactly these ro
             document that looks fine.
     """
     from pydantic import ValidationError as PydanticValidationError
-    from setspec.benchmark.v1 import BenchmarkRunSummaryOut
+    from setspec.benchmark.v1 import BenchmarkRunSummaryV1_1Out
 
     document = (
         dict(run.fingerprint_document_json)
@@ -714,7 +734,9 @@ def _run_summary_payload(  # noqa: PLR0913 — a run summary is exactly these ro
         "error_text": run.error_text,
     }
     try:
-        return dict(BenchmarkRunSummaryOut.model_validate(payload).model_dump())
+        # `1.1` (ADR-0135): its profile carries `adapters_registered` when stated and drops it when
+        # not, so an unstated summary dumps exactly what the frozen `1.0` writer produced.
+        return dict(BenchmarkRunSummaryV1_1Out.model_validate(payload).model_dump())
     except PydanticValidationError as exc:
         raise ValidationError(
             f"Run {run.id!r} cannot be exported as benchmark.run_summary: {exc.errors()[0]['msg']}",
@@ -1029,14 +1051,19 @@ def _iter_json(
         '"since":' + canonical_json(selection.since) + ","
         '"until":' + canonical_json(selection.until) + "},"
         '"schema":' + canonical_json(EXPORT_SCHEMA) + ","
-        '"schema_version":' + canonical_json(str(EXPORT_SCHEMA_VERSION)) + "}"
+        '"schema_version":'
     )
+    stated = False
     yield _envelope_head(head)
     with _translated(), database.read() as session:
         for index, run_id in enumerate(run_ids):
+            document = _bundle(session, run_id, selection).document
+            stated = stated or _states_serving_mode(document)
             prefix = "" if index == 0 else ","
-            yield prefix + canonical_json(_bundle(session, run_id, selection).document)
-    yield tail
+            yield prefix + canonical_json(document)
+    # The version is the last key canonical JSON writes, so it is chosen after every run is seen.
+    version = EXPORT_SCHEMA_VERSION_SERVING_MODE if stated else EXPORT_SCHEMA_VERSION
+    yield tail + canonical_json(str(version)) + "}"
 
 
 def _iter_jsonl(
@@ -1055,8 +1082,11 @@ def _iter_jsonl(
     with _translated(), database.read() as session:
         for run_id in run_ids:
             bundle = _bundle(session, run_id, selection)
+            stated = _states_serving_mode(bundle.document)
+            version = EXPORT_SCHEMA_VERSION_SERVING_MODE if stated else EXPORT_SCHEMA_VERSION
             document = {
                 **_envelope_fields(generated_at),
+                "schema_version": str(version),
                 "payload": {
                     "complete": False,
                     "runs": [bundle.document],

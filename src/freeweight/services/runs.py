@@ -1060,6 +1060,7 @@ def create_run(
             threads=runtime_profile.threads,
             batch_size=runtime_profile.batch_size,
             keep_alive=runtime_profile.keep_alive,
+            adapters_registered=runtime_profile.adapters_registered,
             provider_options_json=json_safe(dict(runtime_profile.provider_options)),
             now=now,
         )
@@ -4234,6 +4235,10 @@ def _stored_runtime_profile(session: Session, profile_id: str) -> RuntimeProfile
     Read back from the row rather than re-resolved from configuration, so a repeat repeats the
     profile as well as the execution parameters. A row that has gone missing yields provider
     defaults, which is the same profile every run used before ``[runtime]`` existed.
+
+    Every hashed field comes back, ``adapters_registered`` included: a profile rebuilt without it
+    hashes differently from the one the run was created under, so a repeat would refuse itself and
+    a queued run would reach the provider claiming nothing about its serving mode (ADR-0135).
     """
     from freeweight.infrastructure.db.models import RuntimeProfile as RuntimeProfileRow
 
@@ -4249,6 +4254,7 @@ def _stored_runtime_profile(session: Session, profile_id: str) -> RuntimeProfile
         threads=row.threads,
         batch_size=row.batch_size,
         keep_alive=row.keep_alive,
+        adapters_registered=row.adapters_registered,
         provider_options=dict(options),
     )
 
