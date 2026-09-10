@@ -91,8 +91,8 @@ particular — can consume without touching FreeWeight's internals.
 [ADR-0074](../../adr/0074-adapter-enabled-serving-is-a-runtime-profile-field.md)), `setspec`
 (capability vocabulary **≥ 1.1**, for the `user` root —
 [ADR-0032 §1](../../adr/0032-judge-validity-and-user-capability-namespace.md); payload
-`benchmark.evidence_bundle` **1.1** for adapter-bearing exports; **≥ 0.7** for
-`benchmark.run_summary` **1.1**, whose profile states `adapters_registered` —
+`benchmark.evidence_bundle` **1.1** for adapter-bearing exports; `benchmark.run_summary` **1.1**,
+whose profile states `adapters_registered`, from SetSpec `main` until its next release —
 [ADR-0135](../../adr/0135-a-minor-that-feeds-a-checked-hash-is-read-at-its-own-minor.md)), `modelrack` (**≥ 0.7**, for
 `LlamaCppProvider` and adapter registration —
 [ADR-0062](../../adr/0062-llamacpp-serves-adapters-through-a-supervised-process.md)), `sweatmeter`,

@@ -7,8 +7,6 @@ packaging and release standards §3.
 
 ## [Unreleased]
 
-## [1.3.0] — 2026-09-10
-
 ### Fixed
 
 - **A run served by an adapter-capable provider could not be exported** (row WA1, ADR-0135).
@@ -31,9 +29,11 @@ packaging and release standards §3.
 
 ### Changed
 
-- Requires `setspec>=0.7` for `BenchmarkRunSummaryV1_1Out`. A reader of a `freeweight.export` whose
-  summaries state the field reads them with `BenchmarkRunSummaryV1_1In`; the `1.0` model refuses
-  them (ADR-0135).
+- Uses SetSpec's `BenchmarkRunSummaryV1_1Out`, which is on SetSpec `main` and in no release:
+  versions are held until the W arc ends, so the `setspec` range stays `>=0.6,<0.7` and a working
+  install takes SetSpec editable from `main`. A reader of a `freeweight.export` whose summaries
+  state the field reads them with `BenchmarkRunSummaryV1_1In`; the `1.0` model refuses them
+  (ADR-0135).
 
 ## [1.2.1] — 2026-09-09
 

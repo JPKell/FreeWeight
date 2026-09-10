@@ -1,7 +1,7 @@
 """Contract: a run summary carries ``adapters_registered`` when its profile stated it (ADR-0135).
 
 Row WA1. FreeWeight states the field for every run on an adapter-capable provider and stores the
-hash BaseAiCore computes with it (ADR-0074). Before ``1.3.0`` the ``runtime_profiles`` row had no
+hash BaseAiCore computes with it (ADR-0074). Before row WA1 the ``runtime_profiles`` row had no
 column for it and the export sent the profile without it, so SetSpec's own hash check refused the
 run. Three claims, each asserted rather than argued:
 

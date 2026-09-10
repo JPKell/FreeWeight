@@ -114,7 +114,7 @@ The ceiling, not the version of any particular document. Since Phase 15 this bui
 document, by content
 ([ADR-0084](../../../docs/adr/0084-a-producer-chooses-a-payload-version-by-content.md) rule 4): a
 record measured on a bare base is `1.0`, one measured on an adapter subject is `1.1`, and a bundle
-takes `1.1` if any record in it does. Since `1.3.0` the same holds for `benchmark.run_summary` and
+takes `1.1` if any record in it does. Since row WA1 the same holds for `benchmark.run_summary` and
 the `freeweight.export` that embeds it (ADR-0135): a summary whose profile states
 `adapters_registered` is `1.1`, and an export is `1.1` if any run in it is. A consumer reading this
 map learns what it must be able to accept, which is the question it is asking; what it actually
