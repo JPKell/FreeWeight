@@ -133,6 +133,9 @@ def show(
         body = _record_json(record)
         body["system"] = record.system
         body["template"] = record.template
+        # The whole record as shipped, so an override can start from it and be diffed against it
+        # (prompt standards §6; WeightRoomGym's prompt editor, row W9).
+        body["record"] = record.body
         typer.echo(json.dumps(body))
         return
 

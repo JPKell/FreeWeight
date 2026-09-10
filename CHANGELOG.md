@@ -7,6 +7,12 @@ packaging and release standards §3.
 
 ## [Unreleased]
 
+### Added
+
+- **`freeweight prompts show --json` carries the whole shipped record** under `record` (row W9), so
+  WeightRoomGym's prompt editor can start an override from it and diff an override against it.
+  Additive: every existing key is unchanged.
+
 ### Fixed
 
 - **A run served by an adapter-capable provider could not be exported** (row WA1, ADR-0135).
