@@ -76,6 +76,7 @@ __all__ = [
     "CalibrationOutcome",
     "CriterionAgreement",
     "Disagreement",
+    "ExcludedSample",
     "GradeSubmission",
     "GradingProgress",
     "add_samples",
@@ -257,6 +258,31 @@ class Disagreement:
 
 
 @dataclass(frozen=True, slots=True)
+class ExcludedSample:
+    """One holdout sample the jury was shown, whose grade the report does not count.
+
+    Beside every ``n_holdout`` that is smaller than the number of samples the jury actually
+    judged, this is the difference: which sample dropped out and why. Never silent — a report
+    that counted fewer samples than it judged and did not say why would leave the discrepancy for
+    the author to notice on their own, or not at all.
+
+    Attributes:
+        sample_id: The excluded sample.
+        reason: A juror's own ``refused_reason`` (``self_judging``, ``protocol_error``,
+            ``timeout``) when every verdict refused outright; ``"unparsed_grade"`` when the jury
+            answered but no verdict yielded a usable grade; or ``"not_graded_by_author"`` when the
+            jury graded it but the author never did.
+    """
+
+    sample_id: str
+    reason: str
+
+    def as_json(self) -> dict[str, Any]:
+        """Return the exclusion as the report renders it."""
+        return {"sample_id": self.sample_id, "reason": self.reason}
+
+
+@dataclass(frozen=True, slots=True)
 class CriterionAgreement:
     """One judged criterion's measured agreement and everything read beside it.
 
@@ -269,6 +295,9 @@ class CriterionAgreement:
         band: The interpretation band, so the number arrives with its consequence.
         lint: The lint's read on *why*, when agreement is poor.
         disagreements: The worst-diverging holdout samples for this criterion.
+        n_judged: How many holdout samples the jury actually judged for this criterion — at least
+            ``result.n``, and larger than it exactly when :attr:`excluded` is non-empty.
+        excluded: Every judged sample :attr:`result`'s ``n`` does not count, with why.
     """
 
     criterion_key: str
@@ -279,6 +308,8 @@ class CriterionAgreement:
     band: str = ""
     lint: str = ""
     disagreements: tuple[Disagreement, ...] = ()
+    n_judged: int = 0
+    excluded: tuple[ExcludedSample, ...] = ()
 
     def as_json(self) -> dict[str, Any]:
         """Return the criterion's agreement as the API, the CLI and the report render it."""
@@ -291,6 +322,8 @@ class CriterionAgreement:
             "band": self.band,
             "lint": self.lint,
             "disagreements": [item.as_json() for item in self.disagreements],
+            "n_judged": self.n_judged,
+            "excluded": [item.as_json() for item in self.excluded],
         }
 
 
@@ -676,6 +709,19 @@ def anchors_for(database: Database, goal: LoadedGoal) -> dict[str, tuple[AnchorE
     }
 
 
+def _exclusion_reason(result: JudgedCriterionResult) -> str:
+    """Why a holdout sample the jury judged produced no median grade for its criterion.
+
+    A juror's own ``refused_reason`` when every verdict refused outright — the reasons are a set
+    because a multi-juror jury can refuse for different reasons — or ``"unparsed_grade"`` when the
+    jury answered but no verdict yielded a usable grade.
+    """
+    reasons = sorted(
+        {verdict.refused_reason for verdict in result.verdicts if verdict.refused_reason}
+    )
+    return ", ".join(reasons) if reasons else "unparsed_grade"
+
+
 def _lint_for(result: AgreementResult, criterion: Criterion) -> str:
     """The lint's read on why agreement is poor (Subjective Goals §5.6).
 
@@ -726,6 +772,8 @@ def measure_agreement(  # noqa: PLR0913 — an agreement figure is a function of
     excerpts: Mapping[str, str] | None = None,
     alphas: Mapping[str, float | None] | None = None,
     n_holdout_target: int = 10,
+    holdout_sample_ids: Sequence[str] = (),
+    judge_exclusions: Mapping[str, Mapping[str, str]] | None = None,
 ) -> tuple[CriterionAgreement, ...]:
     """Compute per-criterion agreement between the author and the jury on the holdout.
 
@@ -739,6 +787,10 @@ def measure_agreement(  # noqa: PLR0913 — an agreement figure is a function of
         excerpts: A bounded excerpt of each sample, so the author can recognise it.
         alphas: Inter-juror agreement per criterion.
         n_holdout_target: The shrinkage denominator.
+        holdout_sample_ids: Every sample the partition put in the holdout, so a criterion can
+            report how many of them it actually judged — not only how many it counted.
+        judge_exclusions: ``{sample_id: {criterion_key: reason}}`` for a holdout sample the jury
+            judged but produced no usable grade for — a refusal or an unparsed answer.
 
     Returns:
         One entry per judged criterion that had at least one paired grade, in the goal's
@@ -758,6 +810,31 @@ def measure_agreement(  # noqa: PLR0913 — an agreement figure is a function of
         ]
         if not pairs:
             continue
+        counted_ids = {sample_id for sample_id, _author, _jury in pairs}
+        attempted_ids = (
+            {
+                sample_id
+                for sample_id in holdout_sample_ids
+                if criterion.key in jury_grades.get(sample_id, {})
+                or criterion.key in (judge_exclusions or {}).get(sample_id, {})
+            }
+            if holdout_sample_ids
+            else counted_ids
+        )
+        excluded_samples = tuple(
+            sorted(
+                (
+                    ExcludedSample(
+                        sample_id=sample_id,
+                        reason=(judge_exclusions or {})
+                        .get(sample_id, {})
+                        .get(criterion.key, "not_graded_by_author"),
+                    )
+                    for sample_id in attempted_ids - counted_ids
+                ),
+                key=lambda item: item.sample_id,
+            )
+        )
         author = [grade for _sample, grade, _jury in pairs]
         jury_medians = [int(round(value)) for _sample, _grade, value in pairs]
         result = agreement(author, jury_medians, scale_points=criterion.scale.points)
@@ -793,6 +870,8 @@ def measure_agreement(  # noqa: PLR0913 — an agreement figure is a function of
                 disagreements=tuple(
                     item for item in divergences[:_DIAGNOSTIC_SAMPLES] if item.divergence > 0
                 ),
+                n_judged=len(attempted_ids),
+                excluded=excluded_samples,
             )
         )
     return tuple(results)
@@ -957,6 +1036,7 @@ def run_calibration(  # noqa: PLR0913 — a calibration run needs all of its col
     rationales: dict[str, dict[str, str]] = {}
     excerpts: dict[str, str] = {}
     results_by_criterion: dict[str, list[Any]] = {}
+    judge_exclusions: dict[str, dict[str, str]] = {}
     for position, sample_id in enumerate(partition.holdout, start=1):
         sample = samples[sample_id]
         excerpts[sample_id] = sample.content[:_EXCERPT_CHARACTERS]
@@ -965,6 +1045,7 @@ def run_calibration(  # noqa: PLR0913 — a calibration run needs all of its col
             key = result.outcome.criterion_key
             results_by_criterion.setdefault(key, []).append(result)
             if result.median_grade is None:
+                judge_exclusions.setdefault(sample_id, {})[key] = _exclusion_reason(result)
                 continue
             jury_grades.setdefault(sample_id, {})[key] = result.median_grade
             reasons = [verdict.rationale for verdict in result.verdicts if verdict.rationale]
@@ -988,6 +1069,8 @@ def run_calibration(  # noqa: PLR0913 — a calibration run needs all of its col
         excerpts=excerpts,
         alphas=alphas,
         n_holdout_target=n_holdout_target,
+        holdout_sample_ids=partition.holdout,
+        judge_exclusions=judge_exclusions,
     )
     # Every judged criterion the goal *declares*, not only the ones that produced a coefficient.
     # A criterion the jury could not grade at all has ``kappa_w = None``, which is excluded from
@@ -1013,6 +1096,7 @@ def run_calibration(  # noqa: PLR0913 — a calibration run needs all of its col
         min_agreement=policy.min_agreement,
         n_anchor=len(partition.anchors),
         n_holdout_target=n_holdout_target,
+        n_judged=len(partition.holdout),
     )
     if jury.assembly.reduced:
         warnings.append(
@@ -1130,7 +1214,10 @@ def _persist(
             "passed_gate": outcome.verdict.passed,
             "min_agreement": outcome.verdict.min_agreement,
             "judge_validity_factor": outcome.verdict.judge_validity_factor,
-            "disagreement_json": {"warnings": list(outcome.warnings)},
+            "disagreement_json": {
+                "warnings": list(outcome.warnings),
+                "n_judged": outcome.verdict.n_judged,
+            },
             "graded_by": outcome.graded_by,
             "measured_at": outcome.measured_at,
             "policy_version": POLICY_VERSION,
@@ -1155,6 +1242,8 @@ def _persist(
                 "band": item.band,
                 "lint": item.lint,
                 "samples": [entry.as_json() for entry in item.disagreements],
+                "n_judged": item.n_judged,
+                "excluded": [entry.as_json() for entry in item.excluded],
             },
             "graded_by": outcome.graded_by,
             "measured_at": outcome.measured_at,
@@ -1227,6 +1316,14 @@ def latest_outcome(database: Database, goal: LoadedGoal) -> CalibrationOutcome |
                     )
                     for entry in detail.get("samples", ())
                 ),
+                n_judged=int(detail.get("n_judged", report.n_holdout)),
+                excluded=tuple(
+                    ExcludedSample(
+                        sample_id=str(entry.get("sample_id", "")),
+                        reason=str(entry.get("reason", "")),
+                    )
+                    for entry in detail.get("excluded", ())
+                ),
             )
         )
     state = (
@@ -1246,6 +1343,7 @@ def latest_outcome(database: Database, goal: LoadedGoal) -> CalibrationOutcome |
         graded_samples=0,
         min_samples=goal.pack.calibration.min_samples,
         policy_version=goal_level.policy_version,
+        n_judged=int(_mapping(goal_level.disagreement_json).get("n_judged", goal_level.n_holdout)),
     )
     warnings = tuple(
         str(item) for item in _mapping(goal_level.disagreement_json).get("warnings", ())

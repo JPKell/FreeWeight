@@ -775,6 +775,90 @@ class TestTheAuthorsGradesSurviveEverything:
         assert first == second
 
 
+@dataclass
+class _PartiallyRefusingJury:
+    """A single juror that refuses the first ``refuse_first`` distinct samples it is asked to
+    judge, then grades the rest exactly as the author did.
+
+    What WP6 saw live (WPF8_HANDOFF): the jury judged four holdout samples and the report counted
+    two, with nothing on the page or in the payload saying why. This double reproduces that shape
+    without depending on a real judge's refusal or an unparsed answer: some holdout samples get a
+    usable grade and some do not, deterministically.
+    """
+
+    truth: dict[str, int]
+    refuse_first: int
+    assembly: Any = field(default_factory=lambda: assemble_jury(["a"], candidate=None, jury_size=1))
+    anchors: dict[str, Any] = field(default_factory=dict)
+    seen: list[str] = field(default_factory=list)
+
+    def with_anchors(self, anchors: Any) -> _PartiallyRefusingJury:
+        from dataclasses import replace
+
+        return replace(self, anchors=dict(anchors))
+
+    def judge_prompt_reference(self) -> dict[str, str]:
+        return {
+            "prompt_id": "goals.judge.rubric",
+            "prompt_version": "1.0.0",
+            "prompt_sha256": "sha256:" + "ab" * 32,
+        }
+
+    def grade_all(
+        self, criteria: Sequence[Criterion], response_text: str, case: Any
+    ) -> list[JudgedCriterionResult]:
+        del case
+        self.seen.append(response_text)
+        refuse = len(self.seen) <= self.refuse_first
+        results: list[JudgedCriterionResult] = []
+        for criterion in criteria:
+            if refuse:
+                verdicts = [JurorVerdict("a", 0, 1, refused_reason="protocol_error")]
+            else:
+                grade = self.truth.get(response_text, 3)
+                verdicts = [
+                    JurorVerdict("a", 0, 1, grade=grade, rationale="because the rubric says so")
+                ]
+            results.append(combine_verdicts(criterion, verdicts))
+        return results
+
+
+class TestTheReportCountsWhatItJudged:
+    """WPF8: the holdout count the report shows is never smaller than what the jury judged
+    without saying why (WP6_HANDOFF findings 10 and 11)."""
+
+    def test_a_fully_judged_holdout_counts_every_sample_it_judged(
+        self, database: Any, goal: Any
+    ) -> None:
+        truth = _seed_grades(database, goal)
+        outcome = run_calibration(database, goal, jury=FakeJury(truth=truth), graded_by="tester")
+        item = outcome.criteria[0]
+        assert item.n_judged == item.result.n
+        assert item.excluded == ()
+        assert outcome.verdict.n_judged == outcome.verdict.n_holdout
+
+    def test_an_excluded_sample_is_counted_and_explained(self, database: Any, goal: Any) -> None:
+        truth = _seed_grades(database, goal)
+        jury = _PartiallyRefusingJury(truth=truth, refuse_first=2)
+        outcome = run_calibration(database, goal, jury=jury, graded_by="tester")
+        item = outcome.criteria[0]
+
+        assert len(jury.seen) == outcome.verdict.n_judged, "every holdout sample was judged once"
+        assert item.n_judged == item.result.n + 2  # noqa: PLR2004 — refuse_first=2
+        assert len(item.excluded) == 2  # noqa: PLR2004 — refuse_first=2
+        assert {entry.reason for entry in item.excluded} == {"protocol_error"}
+
+        # The exclusion survives a round trip through storage.
+        read_back = latest_outcome(database, goal)
+        assert read_back is not None
+        reread = read_back.criteria[0]
+        assert reread.n_judged == item.n_judged
+        assert {(entry.sample_id, entry.reason) for entry in reread.excluded} == {
+            (entry.sample_id, entry.reason) for entry in item.excluded
+        }
+        assert read_back.verdict.n_judged == outcome.verdict.n_judged
+
+
 class TestAJudgedGoalThatCouldNotBeGradedIsUncalibrated:
     """Not ``not_required`` — that would say the goal never needed a jury."""
 
