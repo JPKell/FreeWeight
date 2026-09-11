@@ -14,6 +14,7 @@ The three shapes api.md decides, restated as tests:
 
 from __future__ import annotations
 
+import copy
 import json
 from collections.abc import Iterator
 from pathlib import Path
@@ -770,3 +771,100 @@ class TestThePackIsServedWhole:
         assert item["n_holdout"] is None
         assert item["calibrated_at"] is None
         assert item["calibration_stale"] is False
+
+
+class TestAGoalWrittenWhileServingIsRunnable:
+    """A goal created or edited while FreeWeight runs is runnable at once, as it now stands.
+
+    The registry was built once at startup: a goal written since was ``BENCHMARK_NOT_FOUND`` when
+    the scheduler claimed its run (found by row WP4's demonstration), and an edited goal would have
+    run under its startup rubric.
+    """
+
+    def test_a_goal_created_and_edited_after_startup_runs_its_current_rubric(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        import time
+
+        database = tmp_path / "freeweight.sqlite3"
+        for name, value in {
+            "FREEWEIGHT_STORAGE__DATABASE_URL": f"sqlite:///{database}",
+            "FREEWEIGHT_PROVIDER__KIND": "fake",
+            "FREEWEIGHT_GOALS__ROOT": str(tmp_path / "goals"),
+            "FREEWEIGHT_EXECUTION__WARMUP_REPETITIONS": "0",
+            "FREEWEIGHT_EXECUTION__COOLDOWN_SECONDS": "0",
+            "FREEWEIGHT_EXECUTION__IDLE_GPU_THRESHOLD_PERCENT": "0",
+        }.items():
+            monkeypatch.setenv(name, value)
+        engine = create_engine_for(f"sqlite:///{database}")
+        try:
+            MigrationRunner(engine, script_location=MIGRATIONS_LOCATION).upgrade(backup=False)
+        finally:
+            engine.dispose()
+        settings = load_settings(config_path=tmp_path / "missing.toml").settings
+        with TestClient(create_app(settings), base_url="http://127.0.0.1") as client:
+            assert client.post("/api/v1/models/discover").status_code == 200
+            model = client.get("/api/v1/models").json()["items"][0]["canonical_id"]
+
+            def run_to_the_end(execution: dict[str, Any]) -> dict[str, Any]:
+                started = client.post(
+                    "/api/v1/runs",
+                    json={"model": model, "suites": ["goal.house_voice"], "execution": execution},
+                )
+                assert started.status_code == 201, started.text
+                run_id = started.json()["id"]
+                deadline = time.monotonic() + 60
+                while time.monotonic() < deadline:
+                    body: dict[str, Any] = client.get(f"/api/v1/runs/{run_id}").json()
+                    if body["status"] in {"completed", "failed", "cancelled", "interrupted"}:
+                        return body
+                    time.sleep(0.2)
+                raise AssertionError(f"run {run_id} did not finish")
+
+            created = _create(client)
+            first = run_to_the_end({"measured_repetitions": 1})
+            assert first["status"] == "completed", first.get("error")
+            assert first["suite"]["version"].endswith(created["goal_hash"][7:15])
+
+            pack = client.get("/api/v1/goals/house_voice").json()["pack"]
+            pack["goal"]["criteria"][0]["rule"]["phrases"] = ["delve", "tapestry"]
+            edited = client.put("/api/v1/goals/house_voice", json=pack).json()
+            assert edited["hash_change"]["separates"] is True
+            second = run_to_the_end({"measured_repetitions": 1})
+            assert second["status"] == "completed", second.get("error")
+            assert second["suite"]["version"].endswith(edited["goal_hash"][7:15])
+
+
+class TestAForkLosesItsBadgeWhenItsContentIsEdited:
+    """Subjective Goals §8: ``unforked`` until the criteria or the tasks are edited — and no longer.
+
+    Nothing cleared the field: a fork edited through ``PUT`` stayed badged ``unforked`` with its
+    lint's ``UNFORKED_STARTER`` warning (found by row WP4's demonstration).
+    """
+
+    def test_a_criteria_edit_clears_the_badge_and_a_rename_does_not(
+        self, client: TestClient
+    ) -> None:
+        forked = client.post("/api/v1/goals/starters/creative_voice/fork", json={"slug": "mine"})
+        assert forked.json()["unforked"] is True
+        pack = client.get("/api/v1/goals/mine").json()["pack"]
+
+        renamed = copy.deepcopy(pack)
+        renamed["goal"]["name"] = "Mine"
+        assert client.put("/api/v1/goals/mine", json=renamed).json()["unforked"] is True
+
+        edited = copy.deepcopy(pack)
+        edited["goal"]["criteria"][0]["weight"] = round(
+            edited["goal"]["criteria"][0]["weight"] + 0.05, 4
+        )
+        edited["goal"]["criteria"][1]["weight"] = round(
+            edited["goal"]["criteria"][1]["weight"] - 0.05, 4
+        )
+        preview = client.put("/api/v1/goals/mine?dry_run=true", json=edited).json()
+        assert preview["unforked"] is False
+        assert client.get("/api/v1/goals/mine").json()["unforked"] is True, (
+            "a dry run writes nothing"
+        )
+        applied = client.put("/api/v1/goals/mine", json=edited).json()
+        assert applied["unforked"] is False
+        assert client.get("/api/v1/goals/mine").json()["pack"]["goal"]["unforked"] is False

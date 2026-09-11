@@ -56,7 +56,7 @@ if TYPE_CHECKING:
     from freeweight.services.calibration import CalibrationOutcome
     from freeweight.services.goals import LoadedGoal
 
-__all__ = ["api_router", "goal_json"]
+__all__ = ["api_router", "goal_json", "installed"]
 
 api_router = APIRouter(tags=["goals"])
 
@@ -91,6 +91,17 @@ def _root(request: Request) -> Path:
     """The configured goal-pack root."""
     settings: Settings = request.app.state.settings
     return settings.goals.root_path
+
+
+def installed(request: Request) -> None:
+    """Rebuild the app's benchmark registry after a goal write: the goal runs as it now stands.
+
+    ``POST /runs``, a repeat and the grading routes read ``app.state.registry``; a registry left as
+    it was at startup refused a goal written since and described an edited goal as it was then.
+    """
+    from freeweight.services.runs import build_registry_for
+
+    request.app.state.registry = build_registry_for(request.app.state.settings)
 
 
 def _outcome(request: Request, goal: LoadedGoal) -> CalibrationOutcome | None:
@@ -198,6 +209,7 @@ def create_goal_endpoint(request: Request, body: GoalPackBody) -> JSONResponse:
     such a pack could not be run at all.
     """
     goal = write_pack(_root(request), goal=body.goal, tasks=body.tasks)
+    installed(request)
     return JSONResponse(
         goal_json(goal, outcome=_outcome(request, goal)), status_code=status.HTTP_201_CREATED
     )
@@ -256,6 +268,7 @@ def fork_starter_endpoint(request: Request, key: str, body: ForkBody | None = No
     from freeweight.goals.starters import fork_starter
 
     goal = fork_starter(_root(request), key, slug=(body.slug if body else None))
+    installed(request)
     return JSONResponse(
         goal_json(goal, outcome=_outcome(request, goal)), status_code=status.HTTP_201_CREATED
     )
@@ -299,6 +312,8 @@ def replace_goal_endpoint(
     change = goal_hash_change(
         request.app.state.database, slug=slug, existing=previous, replacement=current
     )
+    if not dry_run:
+        installed(request)
     return {
         **goal_json(current, outcome=_outcome(request, current)),
         "dry_run": dry_run,
@@ -319,7 +334,10 @@ def delete_goal_endpoint(request: Request, slug: str, dry_run: bool = True) -> d
     A bare ``DELETE`` previews. The preview names the two things that are expensive to lose: the
     runs it orphans, and the grades the user produced by hand.
     """
-    return delete_goal(request.app.state.database, _root(request), slug, dry_run=dry_run)
+    outcome = delete_goal(request.app.state.database, _root(request), slug, dry_run=dry_run)
+    if not dry_run:
+        installed(request)
+    return outcome
 
 
 @api_router.post("/goals/{slug}/validate", summary="Every problem this goal has")
@@ -453,6 +471,7 @@ def import_goal_endpoint(request: Request, body: GoalBundleBody) -> JSONResponse
         max_bytes=settings.goals.max_pack_bytes,
         slug=body.slug,
     )
+    installed(request)
     return JSONResponse(
         goal_json(goal, outcome=_outcome(request, goal)), status_code=status.HTTP_201_CREATED
     )

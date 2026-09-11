@@ -986,6 +986,13 @@ def write_pack(
     return load_goal(destination)
 
 
+def _edits_starter_content(previous: LoadedGoal, replacement: LoadedGoal) -> bool:
+    """Whether a replacement changes the criteria or the tasks — what ``unforked`` is about."""
+    before = hashable_document(previous.pack, judge_prompt_sha256=None)
+    after = hashable_document(replacement.pack, judge_prompt_sha256=None)
+    return any(before.get(key) != after.get(key) for key in ("criteria", "tasks"))
+
+
 def replace_pack(
     root: Path,
     *,
@@ -1051,6 +1058,16 @@ def replace_pack(
             (staging / relative).parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(path, staging / relative)
         staged = load_goal_as(staging, slug)
+        if staged.pack.unforked and _edits_starter_content(previous, staged):
+            # Subjective Goals §8: a fork is badged until its criteria or its tasks are edited. The
+            # badge is the pack's own field, so it is cleared here, where the edit is known, rather
+            # than left for the author to find and delete by hand. It is outside goal_hash.
+            _write_member(
+                staging,
+                GOAL_FILE,
+                json.dumps({**goal, "unforked": False}, indent=2, ensure_ascii=False) + "\n",
+            )
+            staged = load_goal_as(staging, slug)
         if dry_run:
             shutil.rmtree(staging, ignore_errors=True)
             return previous, staged

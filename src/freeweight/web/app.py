@@ -130,13 +130,15 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
     )
     app.state.telemetry = telemetry
     # Rebuilt here, not reused from ``create_app``: this is the first point in the lifecycle
-    # that may touch the filesystem, and the user's goal packs live there. A goal installed
-    # after the process started still needs a restart; a goal installed before it does not.
+    # that may touch the filesystem, and the user's goal packs live there. The goal routes rebuild
+    # it after every write, and the scheduler rebuilds its own before each run, so a goal created,
+    # edited or imported while the process runs is runnable at once and runs as it now stands.
     app.state.registry = build_registry_for(settings)
     scheduler = RunScheduler(
         database,
         app.state.provider,
         registry=app.state.registry,
+        registry_source=lambda: build_registry_for(settings),
         # The same collector the telemetry bar samples from, so a run's persisted telemetry and
         # the live view are two readings of one instrument rather than two instruments competing
         # for ``nvidia-smi``.

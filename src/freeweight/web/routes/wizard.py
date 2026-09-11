@@ -146,11 +146,13 @@ def fork_starter_form(request: Request, key: str, slug: _TextForm = "") -> Any: 
     on the row rather than in a footnote.
     """
     from freeweight.goals.starters import fork_starter
+    from freeweight.web.routes.goals import installed
 
     try:
         fork_starter(_goals_root(request), key, slug=slug.strip() or None)
     except SuiteError as exc:
         return _starters_page(error=f"{exc.message} ({exc.code})", status_code=400)
+    installed(request)
     return RedirectResponse("/goals", status_code=303)
 
 
@@ -432,6 +434,9 @@ def wizard_save_submit(
             goal=None,
             cost=wizard_service.grading_cost_sentence(draft),
         )
+    from freeweight.web.routes.goals import installed
+
+    installed(request)
     return _page(
         "goals/wizard_save.html",
         draft=draft,
@@ -756,7 +761,7 @@ def draft_save_endpoint(request: Request, draft_id: str, body: DraftSaveBody) ->
         ValidationError: No criterion, no task, or a judged criterion with no descriptors.
         GoalSlugCollision: A goal with that slug already exists.
     """
-    from freeweight.web.routes.goals import goal_json
+    from freeweight.web.routes.goals import goal_json, installed
 
     database = _database(request)
     draft = wizard_service.load_draft(database, draft_id)
@@ -768,6 +773,7 @@ def draft_save_endpoint(request: Request, draft_id: str, body: DraftSaveBody) ->
             ),
         )
     draft, goal = wizard_service.save_pack(database, _goals_root(request), draft)
+    installed(request)
     return {"draft": draft_json(draft), "goal": goal_json(goal, outcome=None)}
 
 

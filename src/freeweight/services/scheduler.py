@@ -40,6 +40,8 @@ from freeweight.services.runs import build_registry, execute_run
 from freeweight.services.settings import apply_stored
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
     from baseaicore.timeutil import Clock
     from modelrack.provider import Provider
     from sweatmeter import TelemetryCollector
@@ -96,6 +98,12 @@ class RunScheduler:
         provider: The provider runs generate through.
         registry: The benchmarks this build can run. Defaults to
             :func:`~freeweight.services.runs.build_registry`.
+        registry_source: Builds the registry as installed *now*, called before each claimed run
+            executes, or ``None`` to execute every run against ``registry``. A goal is a directory
+            an author creates, edits and imports while the server runs; a registry built once at
+            startup refused a goal installed since (``BENCHMARK_NOT_FOUND``) and ran an edited goal
+            under the rubric it had at startup. Between runs only, as settings are re-read; a
+            source that fails falls back to ``registry`` rather than stopping the queue.
         collector: The telemetry collector runs are observed through, or ``None`` to record no
             telemetry and skip the idle check. Handed in rather than built here so that the one
             collector the process already owns — the telemetry bar's — is the one a run samples
@@ -117,6 +125,7 @@ class RunScheduler:
         "_provider",
         "_publisher",
         "_registry",
+        "_registry_source",
         "_settings",
         "_stop",
         "_telemetry",
@@ -129,6 +138,7 @@ class RunScheduler:
         provider: Provider,
         *,
         registry: BenchmarkRegistry | None = None,
+        registry_source: Callable[[], BenchmarkRegistry] | None = None,
         collector: TelemetryCollector | None = None,
         telemetry: TelemetrySettings | None = None,
         settings: Settings | None = None,
@@ -139,6 +149,7 @@ class RunScheduler:
         self._database = database
         self._provider = provider
         self._registry = registry if registry is not None else build_registry()
+        self._registry_source = registry_source
         self._collector = collector
         self._telemetry = telemetry
         self._settings = settings
@@ -267,7 +278,7 @@ class RunScheduler:
         status = execute_run(
             self._database,
             self._provider,
-            self._registry,
+            self._current_registry(),
             self._publisher,
             run_id,
             collector=self._collector,
@@ -277,6 +288,22 @@ class RunScheduler:
         )
         logger.info("run.finished", extra={"run_id": run_id, "status": status.value})
         return run_id
+
+    def _current_registry(self) -> BenchmarkRegistry:
+        """The benchmarks as installed when this run starts: goal packs re-read from disk.
+
+        Returns:
+            The source's registry, or the one this scheduler was built with when it has no source
+            or the source failed — logged, because a queue that stops over a goal pack with a typo
+            would halt every other benchmark with it.
+        """
+        if self._registry_source is None:
+            return self._registry
+        try:
+            return self._registry_source()
+        except SuiteError:
+            logger.warning("scheduler.registry_rebuild_failed", exc_info=True)
+            return self._registry
 
     def _current_settings(self) -> Settings | None:
         """Re-read stored settings before executing a run.

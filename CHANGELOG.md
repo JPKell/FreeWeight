@@ -36,6 +36,14 @@ packaging and release standards §3.
 
 ### Fixed
 
+- A goal created, forked, imported, edited or saved from a draft while FreeWeight ran was not
+  runnable until a restart: the benchmark registry was built once at startup, so the scheduler
+  failed its run with `BENCHMARK_NOT_FOUND`, and an edited goal would have run under the rubric
+  it had at startup. The goal routes rebuild the registry after every write and the scheduler
+  rebuilds its own before each run (found by row WP4's demonstration).
+- A fork edited through `PUT /goals/{slug}` kept its `unforked` badge and its `UNFORKED_STARTER`
+  lint for ever: nothing cleared the field. A replacement that changes the criteria or the tasks
+  now writes `unforked: false` (Subjective Goals §8); a rename or a jury change does not.
 - `PUT /goals/{slug}` deleted every file of the pack but `goal.json` and `tasks/`: a pack's own
   judge rubric (which moves `goal_hash`), its calibration files and `pack.json`. They are carried
   over.
