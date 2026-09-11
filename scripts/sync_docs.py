@@ -6,13 +6,12 @@ component repository carries a copy of the documents that concern it so it can b
 standalone. A copy maintained by hand drifts, and did: the mirror once held four of the seven
 documents, with the links to the missing three quietly stripped out of the four that were there.
 
-This script is the whole convention, executable:
-
-* every ``apps/freeweight/*.md`` is copied verbatim, so a link *between* mirrored documents keeps
-  working;
-* every link that points **outside** the mirrored set — an ADR, a standard, an architecture note —
-  is **de-linked to its own text**, because a link to a file that is not in this repository is worse
-  than plain prose: it looks navigable and is not.
+This script is the whole convention, executable, and the convention is **byte-identical**: every
+``apps/freeweight/*.md`` is copied verbatim, links included. A link that leaves the mirrored set
+(an ADR, a standard) does not resolve inside this repository — that is accepted, because the
+alternative this script once implemented, rewriting such links to plain text, made every faithful
+copy report *stale* and put the script at odds with the rule the workspace ``CLAUDE.md`` states
+(settled at WeightRoomGym row W10; ``history/handoffs/W7_HANDOFF.md`` §8 item 5).
 
 Run it with ``--check`` in CI to fail when the mirror and the canonical copy have diverged.
 
@@ -24,7 +23,6 @@ Usage:
 from __future__ import annotations
 
 import argparse
-import re
 import sys
 from pathlib import Path
 
@@ -32,22 +30,6 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 CANONICAL = REPO_ROOT.parent / "WeightRoom" / "docs"
 MIRROR = REPO_ROOT / "docs"
 SUBDIR = Path("apps/freeweight")
-
-#: ``[text](target)`` where the target leaves ``apps/freeweight/`` — ``../../adr/…`` and friends.
-_OUTBOUND = re.compile(r"\[([^\]]+)\]\(\.\./\.\./[^)]+\)")
-
-
-def delink(text: str) -> str:
-    """Return ``text`` with every link out of the mirrored set reduced to its label.
-
-    Args:
-        text: One document's markdown.
-
-    Returns:
-        The same markdown with outbound links flattened. Links between mirrored documents,
-        anchors and absolute URLs are left alone.
-    """
-    return _OUTBOUND.sub(r"\1", text)
 
 
 def render() -> dict[Path, str]:
@@ -65,7 +47,7 @@ def render() -> dict[Path, str]:
     if not source.is_dir():
         raise FileNotFoundError(f"Canonical documentation not found at {source}.")
     return {
-        MIRROR / SUBDIR / path.name: delink(path.read_text(encoding="utf-8"))
+        MIRROR / SUBDIR / path.name: path.read_text(encoding="utf-8")
         for path in sorted(source.glob("*.md"))
     }
 

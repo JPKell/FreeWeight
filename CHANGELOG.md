@@ -7,6 +7,13 @@ packaging and release standards §3.
 
 ## [Unreleased]
 
+### Changed
+
+- `scripts/sync_docs.py` copies the canonical `apps/freeweight/*.md` **verbatim** (row W10). It
+  used to rewrite links that leave the mirrored set into plain text, so byte-identical copies
+  reported *stale* and the script contradicted the byte-identical mirror rule in the workspace
+  `CLAUDE.md`; `--check` now passes exactly when `cmp` does.
+
 ### Added
 
 - **`freeweight prompts show --json` carries the whole shipped record** under `record` (row W9), so
