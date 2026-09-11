@@ -90,8 +90,8 @@ git push origin v1.0.0rc1
 ```
 
 The docs repository also changed (canonical copies of spec §12, api.md §6, data-model.md,
-subjective-goals.md §3.3); commit those from `~/ai/suite/docs` (or `AiSuite/`, whichever is the
-git root) with a message naming Phase 11.
+subjective-goals.md §3.3); commit those from `~/ai/suite/WeightRoom` (the documentation tree lives under its `docs/`)
+with a message naming Phase 11.
 
 ---
 
