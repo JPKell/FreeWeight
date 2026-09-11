@@ -7,6 +7,19 @@ packaging and release standards §3.
 
 ## [Unreleased]
 
+### Added
+
+- **MirrorWall 0.3 adopted on the pages that want it** (row WM2, `apps/weightroom/design.md`
+  §6): the run, model and results lists render dense (`data-density="dense"`); the System page
+  shows each health component with the suite's status dot beside its own word; the telemetry
+  bar carries inline meters on CPU, RAM, GPU and VRAM; the run page's event timeline is
+  MirrorWall's bounded, pausable log pane, fed by the new `GET /runs/{run_id}/log` — the same
+  event stream as `/api/v1/runs/{run_id}/events`, rendered as `log` frames and closed with
+  `log.closed`; and the top bar gains the suite's tab strip — WeightRoomGym and the peer
+  applications through it — when the new `[console] url` names the console. Unset, the strip is
+  absent and the masthead is byte-for-byte what it was. htmx loads on the run page only
+  (ADR-0128). `mirrorwall>=0.3.1,<0.4`.
+
 ### Changed
 
 - `scripts/sync_docs.py` copies the canonical `apps/freeweight/*.md` **verbatim** (row W10). It

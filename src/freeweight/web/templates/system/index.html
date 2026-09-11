@@ -2,7 +2,7 @@
    route, not here (UI standards keep computation out of templates); this template only renders
    what the route already assembled. #}
 {% extends "base.html" %}
-{% from "mirrorwall/components.html" import badge, kv_list, table %}
+{% from "mirrorwall/components.html" import kv_list, status_dot, table %}
 {% block title %}System — FreeWeight{% endblock %}
 {% block content %}
 <h2>System</h2>
@@ -16,7 +16,10 @@
 {% set columns = [{"label": "Component"}, {"label": "Status"}, {"label": "Detail"}] %}
 {% set rows = [] %}
 {% for component in health.components %}
-{% set _ = rows.append([component.name, badge(component.status, tone="success" if component.status in ("ok", "not_configured") else "danger" if component.status == "unavailable" else "warning"), component.detail]) %}
+{#- MirrorWall 0.3's status dot (row WM2), in the console's vocabulary: a component that answers
+    is ok, one that answers badly is degraded, one that does not answer is stopped, and one that
+    was never configured is unknown — the word beside the dot stays the health payload's own. -#}
+{% set _ = rows.append([component.name, status_dot({"ok": "ok", "degraded": "degraded", "unavailable": "stopped"}.get(component.status, "unknown"), label=component.status), component.detail]) %}
 {% endfor %}
 {{ table(columns, rows, table_id="health", complete=true, row_count=health.components | length) }}
 

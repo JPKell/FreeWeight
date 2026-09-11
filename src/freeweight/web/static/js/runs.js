@@ -69,7 +69,7 @@
       } catch (error) {
         return;
       }
-      appendEvent(log, payload);
+      if (log) { appendEvent(log, payload); }
       setProgress(bar, text, payload.progress);
       if (payload.data && payload.data.status) {
         setStatus(badge, payload.data.status);
@@ -92,8 +92,10 @@
     var badge = document.getElementById("run-status");
     var bar = document.getElementById("run-progress");
     var text = document.getElementById("run-progress-text");
+    // The events list is MirrorWall's log pane since row WM2 (its own stream); this file keeps
+    // the badge and the progress bar, and appends nothing when no list is on the page.
     var log = document.getElementById("run-events");
-    if (!badge || !bar || !text || !log) {
+    if (!badge || !bar || !text) {
       return;
     }
     if (badge.getAttribute("data-terminal") === "true") {

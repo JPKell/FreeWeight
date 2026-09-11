@@ -24,7 +24,7 @@
 {% if error %}
   {{ error_state(error) }}
 {% elif models %}
-<table>
+<table data-density="dense">
   <caption class="muted">{{ models | length }} model identity(ies) recorded.</caption>
   <thead>
     <tr>

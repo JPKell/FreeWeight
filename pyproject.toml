@@ -30,10 +30,10 @@ dependencies = [
     # LoadCoach P1/P4 (ADR-0011), and the in-app copies are deleted in the same phase. The
     # acceptance criterion for the swap was the pre-existing test suite passing unchanged.
     "weightsdb>=0.2,<0.3",
-    # Floor 0.2.2 (2026-09-07, row L6): 0.2.0 and 0.2.1 still pinned setspec<0.5, below this
-    # application's own setspec floor, so a resolver asked for the lowest mirrorwall could not
-    # resolve at all. The compatibility matrix tests both ends of every range.
-    "mirrorwall>=0.2.2,<0.3",
+    # Floor 0.3.1 (row WM2): the tab strip (`app_tab`), the status dot, the telemetry meters, the
+    # dense table and the log pane with its `log_pane_response` are 0.3/0.3.1 components this
+    # application's pages now render. The compatibility matrix tests both ends of every range.
+    "mirrorwall>=0.3.1,<0.4",
     # `setspec.prompts` (SetSpec Phase 5, 0.4.0) is the oldest surface used here: the prompt
     # loader, renderer and hasher this application delegates to (ADR-0011, ADR-0028). The ceiling
     # widened from `<0.5` at E5's sweep, once mirrorwall 0.2.2 lifted the cap that held every

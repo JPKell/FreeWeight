@@ -24,11 +24,28 @@ from freeweight.__about__ import __version__
 if TYPE_CHECKING:
     from jinja2 import Environment
 
-__all__ = ["NAV_ITEMS", "TELEMETRY_STREAM_URL", "render", "templates"]
+__all__ = [
+    "APP_TABS",
+    "NAV_ITEMS",
+    "TELEMETRY_STREAM_URL",
+    "configure_shell",
+    "render",
+    "templates",
+]
 
 _TEMPLATES_DIR = Path(__file__).parent / "templates"
 
 TELEMETRY_STREAM_URL = "/api/v1/system/telemetry/stream"
+
+APP_TABS: tuple[tuple[str, str], ...] = (
+    ("freeweight", "FreeWeight"),
+    ("loadcoach", "LoadCoach"),
+    ("ideapress", "IdeaPress"),
+    ("promptcadence", "PromptCadence"),
+)
+"""The suite's four applications, in the console's order, for the top-bar tab strip (row WM2).
+Rendered only when ``[console] url`` is set; a peer is reached through the console
+(``<url>/apps/<name>``), never on its own loopback port."""
 
 NAV_ITEMS: tuple[dict[str, str], ...] = (
     {"key": "home", "href": "/", "label": "Overview"},
@@ -68,6 +85,14 @@ def templates() -> Environment:
             "theme_storage_key": "freeweight-theme",
             "show_telemetry_bar": True,
             "telemetry_stream_url": TELEMETRY_STREAM_URL,
+            # MirrorWall 0.3 opt-ins (row WM2, design brief §6): inline meters on the four
+            # telemetry groups, the product name as a link home, and the tab strip — which
+            # renders nothing until `configure_shell` hands it a console URL.
+            "telemetry_field_meters": ["cpu", "ram", "gpu", "vram"],
+            "product_href": "/",
+            "console_url": "",
+            "app_tabs": APP_TABS,
+            "own_app": "freeweight",
             # CSRF defaults so a form's `_csrf` partial renders under StrictUndefined on any page.
             # A form page rendered through `web.csrf.render_form_page` overrides these with a real
             # token and sets the matching `__Host-` cookie; a non-form page keeps the empty token,
@@ -78,6 +103,15 @@ def templates() -> Environment:
     )
     environment.filters["bytes"] = environment.filters["bytes_human"]
     return environment
+
+
+def configure_shell(*, console_url: str) -> None:
+    """Hand the shell what only the running configuration knows.
+
+    Args:
+        console_url: ``[console] url`` — WeightRoomGym's base URL, or ``""`` for no tab strip.
+    """
+    templates().globals["console_url"] = console_url.rstrip("/")
 
 
 def render(template_name: str, /, **context: Any) -> str:

@@ -10,6 +10,7 @@
     "calibration.n_holdout_target",
     "calibration.partition_seed",
     "calibration.target_samples",
+    "console.url",
     "evidence.capability_weights_path",
     "evidence.freshness_floor",
     "evidence.goal_contribution_weight",
@@ -199,6 +200,23 @@
           }
         },
         "title": "CalibrationSettings",
+        "type": "object"
+      },
+      "ConsoleSettings": {
+        "additionalProperties": false,
+        "description": "Where WeightRoomGym is, when one fronts this application (row WM2).\n\nSet, the top bar gains the suite's tab strip: WeightRoomGym itself and the peer applications\nthrough it (``<url>/apps/<name>``), the way the console's own shell links back. Unset \u2014 the\ndefault \u2014 nothing is rendered, byte for byte as before: an application knows only its own\nport, and a strip pointing at loopback addresses another machine cannot reach would be a\nstrip of dead links.",
+        "properties": {
+          "url": {
+            "default": "",
+            "description": "WeightRoomGym's base URL (https://<host>:8769); empty renders no application tab strip.",
+            "examples": [
+              "https://jordan-main.local:8769"
+            ],
+            "title": "Url",
+            "type": "string"
+          }
+        },
+        "title": "ConsoleSettings",
         "type": "object"
       },
       "EvidenceSettings": {
@@ -1171,6 +1189,9 @@
       "calibration": {
         "$ref": "#/$defs/CalibrationSettings"
       },
+      "console": {
+        "$ref": "#/$defs/ConsoleSettings"
+      },
       "evidence": {
         "$ref": "#/$defs/EvidenceSettings"
       },
@@ -1329,6 +1350,7 @@
     "calibration.n_holdout_target": "default",
     "calibration.partition_seed": "default",
     "calibration.target_samples": "default",
+    "console.url": "default",
     "evidence.capability_weights_path": "default",
     "evidence.freshness_floor": "default",
     "evidence.goal_contribution_weight": "default",

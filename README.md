@@ -42,7 +42,7 @@ Declared version ranges from `pyproject.toml` — kept from drifting by
 |---|---|
 | `baseaicore` | `>=0.4.2,<0.5` |
 | `weightsdb` | `>=0.2,<0.3` |
-| `mirrorwall` | `>=0.2.2,<0.3` |
+| `mirrorwall` | `>=0.3.1,<0.4` |
 | `setspec` | `>=0.6,<0.7` |
 | `modelrack` | `>=0.8,<0.9` |
 | `sweatmeter` | `>=0.4,<0.5` |

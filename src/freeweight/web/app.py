@@ -36,7 +36,7 @@ from freeweight.services.telemetry import TelemetryService, build_collector
 from freeweight.web.csrf import CsrfCookieMiddleware
 from freeweight.web.errors import register_exception_handlers
 from freeweight.web.middleware import BodySizeLimitMiddleware
-from freeweight.web.rendering import render, templates
+from freeweight.web.rendering import configure_shell, render, templates
 from freeweight.web.routes import benchmarks as benchmarks_routes
 from freeweight.web.routes import calibration as calibration_routes
 from freeweight.web.routes import compare as compare_routes
@@ -196,6 +196,7 @@ def create_app(
         lifespan=_lifespan,
     )
     app.state.settings = settings
+    configure_shell(console_url=settings.console.url)
     # The file the Providers page writes (ADR-0117). Resolved when the caller did not say, which
     # is what a test that builds an app without a file gets.
     app.state.config_path = config_path if config_path is not None else resolve_config_path()

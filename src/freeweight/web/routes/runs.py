@@ -23,6 +23,7 @@ from typing import TYPE_CHECKING, Annotated, Any, Protocol
 
 from fastapi import APIRouter, Form, Query, Request, Response, status
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, StreamingResponse
+from mirrorwall import log_line
 from weightsdb import DatabaseError
 
 from freeweight.__about__ import __version__
@@ -30,6 +31,7 @@ from freeweight.domain.benchmark import BenchmarkNotFound
 from freeweight.services.events import (
     POLL_INTERVAL_SECONDS,
     RunEventPublisher,
+    StoredEvent,
     format_event_frame,
     format_heartbeat,
     read_events,
@@ -49,7 +51,7 @@ from freeweight.services.telemetry_recording import TelemetrySeries, load_series
 from freeweight.web.rendering import render
 
 if TYPE_CHECKING:
-    from collections.abc import AsyncGenerator, Sequence
+    from collections.abc import AsyncGenerator, Callable, Sequence
 
     from freeweight.services.database import Database
 
@@ -418,6 +420,8 @@ async def _event_stream(
     close_when_drained: bool = False,
     poll_interval_seconds: float = POLL_INTERVAL_SECONDS,
     heartbeat_interval_seconds: float = _HEARTBEAT_INTERVAL_SECONDS,
+    frame: Callable[[StoredEvent], str] | None = None,
+    closing: str | None = None,
 ) -> AsyncGenerator[str, None]:
     """Yield this run's SSE frames from ``after_sequence`` onwards, then close on the terminal one.
 
@@ -443,7 +447,12 @@ async def _event_stream(
             process, which is exactly what a page reloaded just after a run finished does.
         poll_interval_seconds: How often to look for new events. Overridable so tests do not wait.
         heartbeat_interval_seconds: Heartbeat cadence absent new events; 15 s in production.
+        frame: How one event becomes a frame; the enveloped :func:`format_event_frame` by default.
+            The log pane's stream (row WM2) renders a ``log`` frame instead — same loop, same
+            events, another shape.
+        closing: A frame written after the terminal event, when given (the pane's ``log.closed``).
     """
+    render_frame = frame if frame is not None else format_event_frame
     sequence = after_sequence
     next_heartbeat = time.monotonic() + heartbeat_interval_seconds
     while not await request.is_disconnected():
@@ -451,9 +460,11 @@ async def _event_stream(
             read_events, database, run_id, after_sequence=sequence, limit=_MAX_EVENT_BATCH
         )
         for event in batch:
-            yield format_event_frame(event)
+            yield render_frame(event)
             sequence = event.sequence
             if event.is_terminal:
+                if closing is not None:
+                    yield closing
                 return
         now = time.monotonic()
         if now >= next_heartbeat:
@@ -487,6 +498,49 @@ async def run_events(
             detail.run.id,
             after_sequence=after,
             close_when_drained=detail.run.is_terminal,
+        ),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
+
+
+def _log_frame(event: StoredEvent) -> str:
+    """One run event as a ``log_pane`` line: when, what, and the message in the event's words."""
+    level = "info"
+    if event.event_type in ("run.failed", "test.failed", "sample.failed"):
+        level = "error"
+    elif event.event_type in ("run.cancelled", "run.interrupted"):
+        level = "warning"
+    text = f"{event.timestamp.strftime('%H:%M:%S')} {event.event_type}"
+    if event.message:
+        text += f" — {event.message}"
+    return f"id: {event.sequence}\nevent: log\ndata: {log_line(text, level=level)}\n\n"
+
+
+@router.get("/runs/{run_id}/log", include_in_schema=False)
+async def run_log(
+    request: Request,
+    run_id: str,
+    last_event_id: Annotated[str | None, Query(alias="last_event_id")] = None,
+) -> StreamingResponse:
+    """The run's events as a MirrorWall ``log_pane`` stream (row WM2).
+
+    The same events and the same loop as ``/api/v1/runs/{run_id}/events``, rendered as ``log``
+    frames the pane swaps in, with ``log.closed`` after the terminal one so the pane stops
+    reconnecting. The enveloped stream stays the API; this is the page's.
+    """
+    database: Database = request.app.state.database
+    detail = await asyncio.to_thread(get_run, database, run_id)
+    after = _resolve_last_event_id(request, last_event_id)
+    return StreamingResponse(
+        _event_stream(
+            request,
+            database,
+            detail.run.id,
+            after_sequence=after,
+            close_when_drained=detail.run.is_terminal,
+            frame=_log_frame,
+            closing="event: log.closed\ndata: {}\n\n",
         ),
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
@@ -727,6 +781,8 @@ def run_detail_page(request: Request, run_id: str) -> HTMLResponse:
             charts=_charts(series),
             telemetry_samples=series.sample_count,
             error=None,
+            # htmx on this page only (ADR-0128): the log pane's SSE region is the one swap.
+            mirrorwall={"htmx": True},
         )
     )
 

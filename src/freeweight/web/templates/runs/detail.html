@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from "mirrorwall/components.html" import log_pane %}
 {% block title %}Run · FreeWeight{% endblock %}
 {% block content %}
 {% if error %}
@@ -233,7 +234,9 @@
 {% endif %}
 
 <h3>Events</h3>
-<ol id="run-events" class="event-log" aria-live="polite"></ol>
+{#- MirrorWall 0.3's log pane (row WM2), fed by /runs/<id>/log — the run's own event stream as
+    log frames, bounded and pausable; runs.js keeps the status badge and the progress bar. -#}
+{{ log_pane("run-log", stream_url="/runs/" ~ run.id ~ "/log", label="Events") }}
 <noscript>
   <p class="muted">
     Live events need JavaScript. Everything above is rendered by the server and is complete as of

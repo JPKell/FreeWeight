@@ -244,3 +244,31 @@ class TestGoalPackValidateAndLint:
         assert loaded.pack is not None
         print(f"\ngoal pack validate + lint: {elapsed * 1000:.1f} ms (spec §15 budget 500 ms)")
         assert elapsed < 0.5, f"validate + lint took {elapsed * 1000:.1f} ms"
+
+
+class TestJavaScriptPerPage:
+    """Spec §15 of WeightRoomGym as this application inherits it (ADR-0139, row WM2): a page loads
+    at most 120 KB of JavaScript in total, ECharts and mermaid aside."""
+
+    def test_every_page_stays_under_the_total_budget(self, served_base_url: str) -> None:
+        import re
+
+        sizes: dict[str, int] = {}
+        totals: dict[str, int] = {}
+        for path in ("/dashboard", "/runs", "/models", "/results", "/system", "/settings"):
+            with urllib.request.urlopen(f"{served_base_url}{path}", timeout=10) as response:  # noqa: S310 — loopback
+                html = response.read().decode()
+            total = sum(
+                len(script)
+                for script in re.findall(r"<script(?![^>]*\bsrc=)[^>]*>(.*?)</script>", html, re.S)
+            )
+            for src in re.findall(r'<script[^>]+src="([^"]+)"', html):
+                if "vendor/echarts" in src or "vendor/mermaid" in src:
+                    continue
+                name = src.split("?")[0]
+                if name not in sizes:
+                    with urllib.request.urlopen(f"{served_base_url}{src}", timeout=10) as asset:  # noqa: S310 — loopback
+                        sizes[name] = len(asset.read())
+                total += sizes[name]
+            totals[path] = total
+        assert max(totals.values()) <= 120 * 1024, totals

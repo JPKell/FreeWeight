@@ -225,3 +225,13 @@ Structured-logging behaviour.
 | `logging.level` | `FREEWEIGHT_LOGGING__LEVEL` | string | `"INFO"` | — | yes — applies to work started from now on | — | `"INFO"` | Log verbosity. |
 | `logging.format` | `FREEWEIGHT_LOGGING__FORMAT` | one of `"text"`, `"json"`, `"auto"` | `"auto"` | listed values | no — file or environment, then restart | — | `"auto"` | text, json, or auto (text on a TTY, json otherwise). |
 | `logging.include_content` | `FREEWEIGHT_LOGGING__INCLUDE_CONTENT` | boolean | `false` | — | no — file or environment, then restart | Config only. Logs full prompts and responses when on; hashes only when off. | `false` | Log full prompts and responses. Off by default: only hashes and lengths are logged (observability standards §3.2). |
+
+## `[console]`
+
+Where WeightRoomGym is, when one fronts this application (row WM2). Set, the top bar gains the
+suite's tab strip — WeightRoomGym itself and the peer applications through it
+(`<url>/apps/<name>`); unset, nothing is rendered.
+
+| Key | Environment variable | Type | Default | Valid range | Runtime-changeable | Security | Example | Meaning |
+|---|---|---|---|---|---|---|---|---|
+| `console.url` | `FREEWEIGHT_CONSOLE__URL` | string | `""` | — | no — file or environment, then restart | — | `"https://jordan-main.local:8769"` | WeightRoomGym's base URL (https://<host>:8769); empty renders no application tab strip. |
