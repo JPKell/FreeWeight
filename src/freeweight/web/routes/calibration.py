@@ -32,6 +32,8 @@ from freeweight.services.calibration import (
     GradeSubmission,
     add_samples,
     anchors_for,
+    blinded_samples,
+    graded_criteria,
     grading_progress,
     latest_outcome,
     record_grades,
@@ -51,11 +53,16 @@ api_router = APIRouter(tags=["calibration"])
 
 
 class SampleBody(BaseModel):
-    """One candidate output to be graded."""
+    """One candidate output to be graded: its text, or the run sample to promote.
+
+    ``content`` is optional because a promoted sample's text is FreeWeight's own record: with
+    ``source_sample_id`` the service reads the stored response and refuses a ``content`` that
+    differs from it.
+    """
 
     model_config = ConfigDict(extra="forbid")
 
-    content: str = Field(min_length=1)
+    content: str | None = None
     origin: str = "pasted"
     goal_task_key: str | None = None
     source_sample_id: str | None = None
@@ -149,16 +156,49 @@ def calibration_state(request: Request, slug: str) -> dict[str, Any]:
     }
 
 
+@api_router.get("/goals/{slug}/calibration/grading", summary="The blinded grading view")
+def calibration_grading(request: Request, slug: str) -> dict[str, Any]:
+    """What a grader is shown: the samples blinded and shuffled, the criteria and scales, progress.
+
+    The same view FreeWeight's own grading screen renders, and nothing more: a sample's origin,
+    its partition, the model that wrote it and every jury grade stay out, because
+    :func:`~freeweight.services.calibration.blinded_samples` does not read them out.
+    """
+    goal = _goal(request, slug)
+    database = request.app.state.database
+    return {
+        "slug": goal.pack.slug,
+        "goal_hash": goal.goal_hash,
+        "criteria": [
+            {
+                "key": criterion.key,
+                "name": criterion.name,
+                "rung": criterion.rung.value,
+                "scale_points": None if criterion.scale is None else criterion.scale.points,
+                "descriptors": {} if criterion.scale is None else dict(criterion.scale.descriptors),
+            }
+            for criterion in graded_criteria(goal)
+        ],
+        "samples": [
+            {"sample_id": sample["id"], "content": sample["content"], "grades": sample["grades"]}
+            for sample in blinded_samples(database, goal)
+        ],
+        "progress": grading_progress(database, goal).as_json(),
+    }
+
+
 @api_router.post(
     "/goals/{slug}/calibration/samples",
     status_code=status.HTTP_201_CREATED,
     summary="Add samples to grade",
 )
 def add_calibration_samples(request: Request, slug: str, body: SamplesBody) -> JSONResponse:
-    """Add candidate outputs for the author to grade.
+    """Add candidate outputs for the author to grade: pasted text, or promoted run samples.
 
     A sample whose content is already present is skipped: two identical samples would be graded
-    twice and counted twice in a figure that assumes independent observations.
+    twice and counted twice in a figure that assumes independent observations. A promoted sample
+    must be a completed sample of a run of this goal, and its text is read from FreeWeight's own
+    record.
     """
     goal = _goal(request, slug)
     added = add_samples(
@@ -260,6 +300,42 @@ def calibration_report(request: Request, slug: str) -> dict[str, Any]:
     return outcome.as_json()
 
 
+def _judge_results(database: Any, model: str) -> dict[str, Any] | None:  # noqa: ANN401 — a Database
+    """One model's latest completed ``native.judge`` run, as its bias figures.
+
+    Read through the metric query every other surface uses, so a juror's figures here are the ones
+    its results page shows. The run-level roll-up wins over a test's own row for the same key.
+
+    Returns:
+        ``{"run_id", "created_at", "metrics"}`` with one entry per figure that characterises a
+        juror (``null`` where that run reported none), or ``None`` for a model never measured as a
+        judge — including one this database has never recorded at all.
+    """
+    from baseaicore import SuiteError, to_rfc3339
+
+    from freeweight.domain.judging import BIAS_METRIC_KEYS, JUDGE_SUITE_KEY
+    from freeweight.services.results import ResultsQuery, query_results
+
+    try:
+        rows = query_results(
+            database, ResultsQuery(model=model, suite=JUDGE_SUITE_KEY, limit=500)
+        ).rows
+    except SuiteError:
+        return None
+    if not rows:
+        return None
+    latest = rows[0]
+    metrics: dict[str, float | None] = dict.fromkeys(BIAS_METRIC_KEYS)
+    mine = [row for row in rows if row.run_id == latest.run_id and row.metric_key in metrics]
+    for row in sorted(mine, key=lambda one: one.run_test_id is None):
+        metrics[row.metric_key] = row.numeric_value
+    return {
+        "run_id": latest.run_id,
+        "created_at": to_rfc3339(latest.run_created_at),
+        "metrics": metrics,
+    }
+
+
 @api_router.get("/judges", summary="Models eligible to judge")
 def list_judges(request: Request, candidate: str | None = None) -> dict[str, Any]:
     """List every model that may serve as a juror, with the reason for each refusal."""
@@ -281,6 +357,7 @@ def list_judges(request: Request, candidate: str | None = None) -> dict[str, Any
             "eligible": verdict.eligible,
             "reasons": list(verdict.reasons),
             "judge_benchmark_suite": JUDGE_SUITE_KEY,
+            "judge_results": _judge_results(request.app.state.database, verdict.model_canonical_id),
         }
         for verdict in verdicts
     ]

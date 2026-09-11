@@ -15,6 +15,94 @@
         "title": "CalibrationRunBody",
         "type": "object"
       },
+      "CriteriaActionBody": {
+        "additionalProperties": false,
+        "description": "One of step 2's four actions, and the fields that action reads.",
+        "properties": {
+          "action": {
+            "enum": [
+              "add",
+              "answer",
+              "describe",
+              "split"
+            ],
+            "title": "Action",
+            "type": "string"
+          },
+          "bottom": {
+            "default": "",
+            "title": "Bottom",
+            "type": "string"
+          },
+          "criterion": {
+            "default": "",
+            "title": "Criterion",
+            "type": "string"
+          },
+          "first": {
+            "default": "",
+            "title": "First",
+            "type": "string"
+          },
+          "graded_alike": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Graded Alike"
+          },
+          "intent": {
+            "default": "",
+            "title": "Intent",
+            "type": "string"
+          },
+          "middle": {
+            "default": "",
+            "title": "Middle",
+            "type": "string"
+          },
+          "name": {
+            "default": "",
+            "title": "Name",
+            "type": "string"
+          },
+          "one_quality": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "One Quality"
+          },
+          "points": {
+            "default": 5,
+            "title": "Points",
+            "type": "integer"
+          },
+          "second": {
+            "default": "",
+            "title": "Second",
+            "type": "string"
+          },
+          "top": {
+            "default": "",
+            "title": "Top",
+            "type": "string"
+          }
+        },
+        "required": [
+          "action"
+        ],
+        "title": "CriteriaActionBody",
+        "type": "object"
+      },
       "DeleteBody": {
         "additionalProperties": false,
         "description": "The selection to delete, plus the token that authorizes it.",
@@ -82,6 +170,71 @@
         ],
         "title": "DeletionScope",
         "type": "string"
+      },
+      "DraftSaveBody": {
+        "additionalProperties": false,
+        "description": "The name the pack is written under; blank keeps the draft's own.",
+        "properties": {
+          "name": {
+            "default": "",
+            "title": "Name",
+            "type": "string"
+          },
+          "slug": {
+            "default": "",
+            "title": "Slug",
+            "type": "string"
+          }
+        },
+        "title": "DraftSaveBody",
+        "type": "object"
+      },
+      "DraftStartBody": {
+        "additionalProperties": false,
+        "description": "Step 1's answer, or the starter a draft customises.",
+        "properties": {
+          "intent": {
+            "default": "",
+            "title": "Intent",
+            "type": "string"
+          },
+          "name": {
+            "default": "",
+            "title": "Name",
+            "type": "string"
+          },
+          "starter": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Starter"
+          }
+        },
+        "title": "DraftStartBody",
+        "type": "object"
+      },
+      "DraftTaskBody": {
+        "additionalProperties": false,
+        "description": "One of the author's own prompts.",
+        "properties": {
+          "name": {
+            "default": "",
+            "title": "Name",
+            "type": "string"
+          },
+          "prompt_text": {
+            "default": "",
+            "title": "Prompt Text",
+            "type": "string"
+          }
+        },
+        "title": "DraftTaskBody",
+        "type": "object"
       },
       "EnabledBody": {
         "additionalProperties": false,
@@ -351,14 +504,109 @@
         "title": "ProviderBody",
         "type": "object"
       },
+      "RuleAcceptBody": {
+        "additionalProperties": false,
+        "description": "One proposal accepted, with its parameters as the author left them.",
+        "properties": {
+          "criterion": {
+            "minLength": 1,
+            "title": "Criterion",
+            "type": "string"
+          },
+          "parameters": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Parameters"
+          },
+          "rule_type": {
+            "minLength": 1,
+            "title": "Rule Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "criterion",
+          "rule_type"
+        ],
+        "title": "RuleAcceptBody",
+        "type": "object"
+      },
+      "RunGradeBody": {
+        "additionalProperties": false,
+        "description": "One grade for one of the run's samples on one human criterion.",
+        "properties": {
+          "criterion": {
+            "minLength": 1,
+            "title": "Criterion",
+            "type": "string"
+          },
+          "grade": {
+            "maximum": 7.0,
+            "minimum": 1.0,
+            "title": "Grade",
+            "type": "integer"
+          },
+          "note": {
+            "default": "",
+            "title": "Note",
+            "type": "string"
+          },
+          "sample_id": {
+            "minLength": 1,
+            "title": "Sample Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "sample_id",
+          "criterion",
+          "grade"
+        ],
+        "title": "RunGradeBody",
+        "type": "object"
+      },
+      "RunGradesBody": {
+        "additionalProperties": false,
+        "description": "A batch of grades. Partial submission is normal; each is upserted on its own row.",
+        "properties": {
+          "graded_by": {
+            "default": "unknown",
+            "minLength": 1,
+            "title": "Graded By",
+            "type": "string"
+          },
+          "grades": {
+            "items": {
+              "$ref": "#/components/schemas/RunGradeBody"
+            },
+            "title": "Grades",
+            "type": "array"
+          }
+        },
+        "title": "RunGradesBody",
+        "type": "object"
+      },
       "SampleBody": {
         "additionalProperties": false,
-        "description": "One candidate output to be graded.",
+        "description": "One candidate output to be graded: its text, or the run sample to promote.\n\n``content`` is optional because a promoted sample's text is FreeWeight's own record: with\n``source_sample_id`` the service reads the stored response and refuses a ``content`` that\ndiffers from it.",
         "properties": {
           "content": {
-            "minLength": 1,
-            "title": "Content",
-            "type": "string"
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Content"
           },
           "goal_task_key": {
             "anyOf": [
@@ -388,9 +636,6 @@
             "title": "Source Sample Id"
           }
         },
-        "required": [
-          "content"
-        ],
         "title": "SampleBody",
         "type": "object"
       },
@@ -721,7 +966,7 @@
     },
     "/api/v1/evidence": {
       "get": {
-        "description": "Return the current ``capability.evidence`` records (API §6).\n\nA collection envelope whose ``items`` are SetSpec envelopes — the two nest in exactly that\norder and never the reverse (ADR-0025 §2). ``user.*`` records carry ``goal_hash``,\n``score_method_mix``, ``judge_set``, ``calibration`` and ``judge_validity_factor``\n(ADR-0032 §5); a goal below its calibration gate has no record here at all.\n\nArgs:\n    request: The incoming request; the database handle lives on its application state.\n    capability: Exact capability ID.\n    model: Model canonical ID, ULID or unambiguous prefix.\n    machine: Machine fingerprint.\n    runtime_profile: Runtime profile hash.\n    min_confidence: Records at or above this confidence.\n    limit: Page size, clamped to 500.\n    cursor: Opaque continuation token.\n\nReturns:\n    The collection envelope: ``items`` and ``page``.\n\nRaises:\n    ValidationError: The cursor was not issued here, or ``model`` is an ambiguous prefix.\n    NotFoundError: ``model`` matches nothing.",
+        "description": "Return the current ``capability.evidence`` records (API §6).\n\nA collection envelope whose ``items`` are SetSpec envelopes — the two nest in exactly that\norder and never the reverse (ADR-0025 §2). ``user.*`` records carry ``goal_hash``,\n``score_method_mix``, ``judge_set``, ``calibration`` and ``judge_validity_factor``\n(ADR-0032 §5); a goal below its calibration gate has no record here at all.\n\nArgs:\n    request: The incoming request; the database handle lives on its application state.\n    capability: Exact capability ID.\n    model: Model canonical ID, ULID or unambiguous prefix.\n    machine: Machine fingerprint.\n    runtime_profile: Runtime profile hash.\n    min_confidence: Records at or above this confidence.\n    limit: Page size, clamped to 500.\n    cursor: Opaque continuation token.\n\nReturns:\n    The collection envelope: ``items`` and ``page``, and ``explanations`` — one per item, in\n    the same order: its staleness as of this request under this installation's policy, and\n    the confidence factors it was computed from. Beside the envelopes rather than inside them,\n    because staleness is a reading of a record at one instant and not part of the record.\n\nRaises:\n    ValidationError: The cursor was not issued here, or ``model`` is an ambiguous prefix.\n    NotFoundError: ``model`` matches nothing.",
         "operationId": "list_evidence_api_v1_evidence_get",
         "parameters": [
           {
@@ -1083,6 +1328,367 @@
         ]
       }
     },
+    "/api/v1/goals/drafts": {
+      "get": {
+        "description": "Every draft still live, the most recently changed first; an expired one is collected.",
+        "operationId": "list_drafts_endpoint_api_v1_goals_drafts_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response List Drafts Endpoint Api V1 Goals Drafts Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "The authoring wizard's live drafts",
+        "tags": [
+          "goals"
+        ]
+      },
+      "post": {
+        "description": "Begin a draft at step 2: from step 1's intent, or from a starter to customise.\n\nRaises:\n    ValidationError: No starter was named and the intent is empty.\n    StarterNotFound: No starter has that key.",
+        "operationId": "start_draft_endpoint_api_v1_goals_drafts_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DraftStartBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Begin a draft",
+        "tags": [
+          "goals"
+        ]
+      }
+    },
+    "/api/v1/goals/drafts/{draft_id}": {
+      "delete": {
+        "description": "Abandon one draft. A pack it already wrote stays: the goal is the author's, not the draft's.\n\nRaises:\n    DraftNotFound: No draft has that id.",
+        "operationId": "delete_draft_endpoint_api_v1_goals_drafts__draft_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "draft_id",
+            "required": true,
+            "schema": {
+              "title": "Draft Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Abandon a draft",
+        "tags": [
+          "goals"
+        ]
+      },
+      "get": {
+        "description": "One draft with its proposals, its weight shift and what grading it will cost.\n\nRaises:\n    DraftNotFound: No draft has that id, or it has expired.",
+        "operationId": "get_draft_endpoint_api_v1_goals_drafts__draft_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "draft_id",
+            "required": true,
+            "schema": {
+              "title": "Draft Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Get Draft Endpoint Api V1 Goals Drafts  Draft Id  Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "One draft",
+        "tags": [
+          "goals"
+        ]
+      }
+    },
+    "/api/v1/goals/drafts/{draft_id}/criteria": {
+      "post": {
+        "description": "Add a criterion, answer its two questions, describe its scale, or split it in two.\n\nRaises:\n    DraftNotFound: No draft has that id.\n    ValidationError: The service's own refusal — an unnamed criterion, a key that collides,\n        an unknown criterion, a scale that is not 3, 5 or 7 points or describes fewer than\n        three of them, a half with no name.",
+        "operationId": "draft_criteria_endpoint_api_v1_goals_drafts__draft_id__criteria_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "draft_id",
+            "required": true,
+            "schema": {
+              "title": "Draft Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CriteriaActionBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Draft Criteria Endpoint Api V1 Goals Drafts  Draft Id  Criteria Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Step 2: one action on the criteria",
+        "tags": [
+          "goals"
+        ]
+      }
+    },
+    "/api/v1/goals/drafts/{draft_id}/rules": {
+      "post": {
+        "description": "Accept one rule for one criterion — the only way a draft's criterion leaves the judge.\n\nRaises:\n    DraftNotFound: No draft has that id.\n    ValidationError: The criterion does not exist, or the rule type is not one this build runs.",
+        "operationId": "draft_rules_endpoint_api_v1_goals_drafts__draft_id__rules_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "draft_id",
+            "required": true,
+            "schema": {
+              "title": "Draft Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RuleAcceptBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Draft Rules Endpoint Api V1 Goals Drafts  Draft Id  Rules Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Step 3: accept one proposed rule",
+        "tags": [
+          "goals"
+        ]
+      }
+    },
+    "/api/v1/goals/drafts/{draft_id}/save": {
+      "post": {
+        "description": "Write the draft as a goal pack, under the name given or the draft's own.\n\nA draft already saved answers the pack it wrote rather than writing a second — a client that\nretries after a dropped response gets the goal, not a collision with itself.\n\nRaises:\n    DraftNotFound: No draft has that id.\n    ValidationError: No criterion, no task, or a judged criterion with no descriptors.\n    GoalSlugCollision: A goal with that slug already exists.",
+        "operationId": "draft_save_endpoint_api_v1_goals_drafts__draft_id__save_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "draft_id",
+            "required": true,
+            "schema": {
+              "title": "Draft Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DraftSaveBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Draft Save Endpoint Api V1 Goals Drafts  Draft Id  Save Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Step 7: write the pack",
+        "tags": [
+          "goals"
+        ]
+      }
+    },
+    "/api/v1/goals/drafts/{draft_id}/tasks": {
+      "post": {
+        "description": "Add one of the author's own prompts.\n\nRaises:\n    DraftNotFound: No draft has that id.\n    ValidationError: The name or the prompt is empty, or the name collides.",
+        "operationId": "draft_tasks_endpoint_api_v1_goals_drafts__draft_id__tasks_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "draft_id",
+            "required": true,
+            "schema": {
+              "title": "Draft Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DraftTaskBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Draft Tasks Endpoint Api V1 Goals Drafts  Draft Id  Tasks Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Step 4: add a task",
+        "tags": [
+          "goals"
+        ]
+      }
+    },
     "/api/v1/goals/import": {
       "post": {
         "description": "Import a portable goal bundle.\n\nEverything is validated against the bundle in memory — size, member names, hash, slug\navailability — before a single file is written, and an import never overwrites an existing\ngoal in place (spec §14).",
@@ -1260,7 +1866,7 @@
         ]
       },
       "get": {
-        "description": "Return one goal as loaded, with its lint findings.",
+        "description": "Return one goal as loaded: its lint findings, its pack and its calibration report.\n\n``pack`` is ``goal.json`` and the task records exactly as they are on disk — the body ``PUT``\ntakes — so an editor starts from the documents rather than from this summary, which would drop\nwhatever the summary does not carry. ``calibration`` is the stored report, or ``null``.",
         "operationId": "get_goal_endpoint_api_v1_goals__slug__get",
         "parameters": [
           {
@@ -1366,6 +1972,47 @@
         ]
       }
     },
+    "/api/v1/goals/{slug}/bundle": {
+      "get": {
+        "description": "Return one goal as the bundle ``freeweight goals export`` writes — the round-trip form.\n\nEvery file of the pack, hash-pinned, which is what ``POST /goals/import`` reads back. Byte for\nbyte the CLI's document (:func:`~freeweight.services.goals.bundle_text`), so the two cannot\ncome to differ, and served as an attachment because it is a file to keep.",
+        "operationId": "bundle_endpoint_api_v1_goals__slug__bundle_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "slug",
+            "required": true,
+            "schema": {
+              "title": "Slug",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Export the portable bundle",
+        "tags": [
+          "goals"
+        ]
+      }
+    },
     "/api/v1/goals/{slug}/calibration": {
       "get": {
         "description": "Return one goal's calibration samples, the partition, and what remains to be graded.",
@@ -1461,6 +2108,51 @@
           }
         },
         "summary": "Submit grades",
+        "tags": [
+          "calibration"
+        ]
+      }
+    },
+    "/api/v1/goals/{slug}/calibration/grading": {
+      "get": {
+        "description": "What a grader is shown: the samples blinded and shuffled, the criteria and scales, progress.\n\nThe same view FreeWeight's own grading screen renders, and nothing more: a sample's origin,\nits partition, the model that wrote it and every jury grade stay out, because\n:func:`~freeweight.services.calibration.blinded_samples` does not read them out.",
+        "operationId": "calibration_grading_api_v1_goals__slug__calibration_grading_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "slug",
+            "required": true,
+            "schema": {
+              "title": "Slug",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Calibration Grading Api V1 Goals  Slug  Calibration Grading Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "The blinded grading view",
         "tags": [
           "calibration"
         ]
@@ -1609,7 +2301,7 @@
     },
     "/api/v1/goals/{slug}/calibration/samples": {
       "post": {
-        "description": "Add candidate outputs for the author to grade.\n\nA sample whose content is already present is skipped: two identical samples would be graded\ntwice and counted twice in a figure that assumes independent observations.",
+        "description": "Add candidate outputs for the author to grade: pasted text, or promoted run samples.\n\nA sample whose content is already present is skipped: two identical samples would be graded\ntwice and counted twice in a figure that assumes independent observations. A promoted sample\nmust be a completed sample of a run of this goal, and its text is read from FreeWeight's own\nrecord.",
         "operationId": "add_calibration_samples_api_v1_goals__slug__calibration_samples_post",
         "parameters": [
           {
@@ -1660,7 +2352,7 @@
     },
     "/api/v1/goals/{slug}/export": {
       "get": {
-        "description": "Return one goal as a ``benchmark.goal_pack`` SetSpec envelope.\n\nThe cross-application contract, returned as the envelope alone with no collection wrapper\n(API standards §3): a pack is one document. It carries the goal's *definition* — criteria,\nweights, rungs, task prompt identities and hashes — which is what a consumer needs to decide\ncomparability. The portable *bundle*, which carries the files an importer would need, is\n``freeweight goals export`` on the CLI.\n\nThe document itself is :func:`~freeweight.services.export.iter_goal_export`'s, so this\nendpoint and ``freeweight results export`` cannot come to emit different bytes for one pack.",
+        "description": "Return one goal as a ``benchmark.goal_pack`` SetSpec envelope.\n\nThe cross-application contract, returned as the envelope alone with no collection wrapper\n(API standards §3): a pack is one document. It carries the goal's *definition* — criteria,\nweights, rungs, task prompt identities and hashes — which is what a consumer needs to decide\ncomparability. The portable *bundle*, which carries the files an importer would need, is\n``GET /goals/{slug}/bundle`` and ``freeweight goals export`` on the CLI.\n\nThe document itself is :func:`~freeweight.services.export.iter_goal_export`'s, so this\nendpoint and ``freeweight results export`` cannot come to emit different bytes for one pack.",
         "operationId": "export_goal_endpoint_api_v1_goals__slug__export_get",
         "parameters": [
           {
@@ -1701,7 +2393,7 @@
     },
     "/api/v1/goals/{slug}/suggest-rules": {
       "post": {
-        "description": "Propose rung-2 rules for this goal's criteria. **Proposals only** — never applied.",
+        "description": "Propose rung-2 rules for this goal's criteria. **Proposals only** — never applied.\n\n``proposals`` names the rule types per criterion; ``items`` carries each one with the wizard's\nown pre-filled parameters and its explanation, so a client can show a proposal a person can\nread, disagree with and edit — and accepting one stays that person's act.",
         "operationId": "suggest_rules_endpoint_api_v1_goals__slug__suggest_rules_post",
         "parameters": [
           {
@@ -3266,6 +3958,106 @@
           }
         },
         "summary": "Live run events, server-sent",
+        "tags": [
+          "runs"
+        ]
+      }
+    },
+    "/api/v1/runs/{run_id}/grades": {
+      "post": {
+        "description": "Record grades on the run's samples; composites, aggregates and evidence follow.\n\nUpserted per ``(sample, criterion)``, so a batch sent twice — a client retrying after a dropped\nconnection — replaces rather than duplicates.\n\nRaises:\n    RunNotFound: No run has this id.\n    RunNotGradeable: See :func:`run_grading_endpoint`.\n    ValidationError: A sample outside the run, a criterion that is not a human one, or a grade\n        outside the criterion's scale — and then no grade of the batch lands.",
+        "operationId": "run_grades_endpoint_api_v1_runs__run_id__grades_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "run_id",
+            "required": true,
+            "schema": {
+              "title": "Run Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RunGradesBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Run Grades Endpoint Api V1 Runs  Run Id  Grades Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Grade a goal run's samples",
+        "tags": [
+          "runs"
+        ]
+      }
+    },
+    "/api/v1/runs/{run_id}/grading": {
+      "get": {
+        "description": "The samples a person grades on a completed goal run's human criteria, blinded and shuffled.\n\nRaises:\n    RunNotFound: No run has this id.\n    RunNotGradeable: ``409``: not a completed goal run with a human criterion, or its goal's\n        rubric has changed since the run.",
+        "operationId": "run_grading_endpoint_api_v1_runs__run_id__grading_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "run_id",
+            "required": true,
+            "schema": {
+              "title": "Run Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Run Grading Endpoint Api V1 Runs  Run Id  Grading Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "A goal run's blinded grading view",
         "tags": [
           "runs"
         ]

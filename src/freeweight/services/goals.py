@@ -71,6 +71,7 @@ __all__ = [
     "GoalPathUnsafe",
     "GoalSummary",
     "LoadedGoal",
+    "bundle_text",
     "delete_goal",
     "export_bundle",
     "goal_hash_change",
@@ -79,6 +80,7 @@ __all__ = [
     "replace_pack",
     "load_goal",
     "load_goals",
+    "pack_documents",
     "suggest_rules_for_pack",
     "sync_goals",
     "write_pack",
@@ -764,6 +766,34 @@ def export_bundle(goal: LoadedGoal) -> dict[str, Any]:
     }
 
 
+def bundle_text(goal: LoadedGoal) -> str:
+    """Return the bundle as the document ``freeweight goals export`` writes, byte for byte.
+
+    One rendering, so the CLI's file and ``GET /goals/{slug}/bundle`` cannot come to differ.
+    """
+    return json.dumps(export_bundle(goal), indent=2, ensure_ascii=False) + "\n"
+
+
+def pack_documents(goal: LoadedGoal) -> dict[str, Any]:
+    """Return a pack's ``goal.json`` and task records exactly as they are on disk.
+
+    The body ``PUT /goals/{slug}`` takes, so a client can edit a goal without reconstructing the
+    documents from the parsed summary — which would drop whatever the summary does not carry.
+
+    Returns:
+        ``{"goal": the goal.json object, "tasks": [each task record, in file order]}``.
+
+    Raises:
+        GoalPackInvalid: A file could not be read.
+    """
+    task_root = goal.pack_path / TASKS_DIRECTORY
+    task_files = sorted(task_root.glob("*.json")) if task_root.is_dir() else []
+    return {
+        "goal": _read_json(goal.pack_path / GOAL_FILE),
+        "tasks": [_read_json(path) for path in task_files],
+    }
+
+
 def import_bundle(
     body: Mapping[str, Any], *, root: Path, max_bytes: int, slug: str | None = None
 ) -> LoadedGoal:
@@ -1009,6 +1039,17 @@ def replace_pack(
                 f"{TASKS_DIRECTORY}/{ordinal:03d}.json",
                 json.dumps(task, indent=2, ensure_ascii=False) + "\n",
             )
+        # The body is goal.json and the tasks, and nothing else is replaced: a judge rubric under
+        # prompts/, calibration files and pack.json are carried over as they were. Dropping them
+        # would move goal_hash (the rubric is hashed) on an edit that changed no criterion.
+        for path in sorted(previous.pack_path.rglob("*")):
+            relative = path.relative_to(previous.pack_path)
+            if path.is_symlink() or not path.is_file():
+                continue
+            if relative.parts[0] in {GOAL_FILE, TASKS_DIRECTORY}:
+                continue
+            (staging / relative).parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(path, staging / relative)
         staged = load_goal_as(staging, slug)
         if dry_run:
             shutil.rmtree(staging, ignore_errors=True)

@@ -57,7 +57,7 @@ from freeweight.infrastructure.db.repositories.goals import GoalRepository
 from freeweight.services.jury import AnchorExemplar
 
 if TYPE_CHECKING:
-    from collections.abc import Mapping, Sequence
+    from collections.abc import Callable, Mapping, Sequence
     from datetime import datetime
 
     from baseaicore import Clock
@@ -81,6 +81,8 @@ __all__ = [
     "add_samples",
     "anchors_for",
     "anchors_for_slug",
+    "blinded_samples",
+    "graded_criteria",
     "grading_progress",
     "latest_outcome",
     "measure_agreement",
@@ -377,7 +379,16 @@ def add_samples(
         seen = CalibrationSampleRepository().existing_hashes(session, row.id)
         pending: list[dict[str, Any]] = []
         for entry in contents:
-            text = str(entry["content"])
+            fields = (
+                _promoted(session, goal, entry) if entry.get("source_sample_id") else dict(entry)
+            )
+            text = str(fields.get("content") or "")
+            if not text:
+                raise ValidationError(
+                    "A calibration sample needs its text: paste it, or name a run sample to "
+                    "promote with source_sample_id.",
+                    details={"field": "content"},
+                )
             digest = f"sha256:{sha256_of(text)}"
             if digest in seen:
                 continue
@@ -385,10 +396,10 @@ def add_samples(
             pending.append(
                 {
                     "goal_id": row.id,
-                    "goal_task_id": tasks.get(str(entry.get("goal_task_key", ""))),
-                    "origin": str(entry.get("origin", "pasted")),
-                    "model_id": entry.get("model_id"),
-                    "source_sample_id": entry.get("source_sample_id"),
+                    "goal_task_id": tasks.get(str(fields.get("goal_task_key", ""))),
+                    "origin": str(fields.get("origin", "pasted")),
+                    "model_id": fields.get("model_id"),
+                    "source_sample_id": fields.get("source_sample_id"),
                     "content": text,
                     "content_sha256": digest,
                     # Held out until the seeded partition says otherwise. The default is
@@ -402,6 +413,95 @@ def add_samples(
             )
         created = CalibrationSampleRepository().insert_many(session, pending)
         return [sample.id for sample in created]
+
+
+def _promoted(session: Any, goal: LoadedGoal, entry: Mapping[str, Any]) -> dict[str, Any]:  # noqa: ANN401 — a Session
+    """What one promoted run sample becomes: FreeWeight's own stored text, never the caller's.
+
+    A promoted sample names its source, and the source is a claim about provenance; reading the
+    text here, rather than accepting what a client sent beside the id, is what makes the claim
+    true.
+
+    Raises:
+        ValidationError: The sample is not a completed, text-bearing sample of a run of this goal,
+            or the entry's ``content`` differs from the text stored for it.
+    """
+    from sqlalchemy import select
+
+    from freeweight.infrastructure.db.models_runs import BenchmarkSuite, Run, RunTest, Sample
+
+    sample_id = str(entry["source_sample_id"])
+    suite = f"goal.{goal.pack.slug}"
+    found = session.execute(
+        select(Sample, Run.model_id, BenchmarkSuite.key)
+        .join(RunTest, RunTest.id == Sample.run_test_id)
+        .join(Run, Run.id == RunTest.run_id)
+        .join(BenchmarkSuite, BenchmarkSuite.id == Run.suite_id)
+        .where(Sample.id == sample_id)
+    ).one_or_none()
+    if (
+        found is None
+        or found[2] != suite
+        or found[0].status != "completed"
+        or found[0].response_text is None
+    ):
+        raise ValidationError(
+            f"Sample {sample_id!r} is not a completed sample of a {suite} run with its response "
+            "stored; only such a sample can be promoted into this goal's calibration set.",
+            details={"source_sample_id": sample_id, "suite": suite},
+        )
+    sample, model_id, _suite = found
+    supplied = entry.get("content")
+    if supplied not in (None, "") and str(supplied) != sample.response_text:
+        raise ValidationError(
+            f"The content sent for promoted sample {sample_id!r} is not the text FreeWeight "
+            "stored for it. A promoted sample is FreeWeight's own record: send no content.",
+            details={"source_sample_id": sample_id, "field": "content"},
+        )
+    return {
+        "content": sample.response_text,
+        "origin": "imported_run_sample",
+        "model_id": model_id,
+        "source_sample_id": sample_id,
+        "goal_task_key": sample.case_id,
+    }
+
+
+def blinded_samples(database: Database, goal: LoadedGoal) -> list[dict[str, Any]]:
+    """This goal's calibration samples as a grader sees them: text and grades, blinded, shuffled.
+
+    The model that produced a sample, its origin and its partition are deliberately **not**
+    returned: blinding is enforced by what this reads out rather than by what a page chooses to
+    render, so neither a template nor an API client can leak them. The order is a stable per-goal
+    shuffle — the same on every reload, so "the third one" keeps its meaning mid-sitting — and not
+    the order the samples were added in, so it says nothing about where one came from.
+
+    Returns:
+        ``[{"id", "content", "grades": {criterion_key: {"grade", "note"}}}]``.
+    """
+    import hashlib
+
+    with database.read() as session:
+        row = GoalRepository().get_by_slug(session, goal.pack.slug)
+        if row is None:
+            return []
+        keys = {
+            value: key for key, value in GoalRepository().criterion_ids(session, row.id).items()
+        }
+        grades: dict[str, dict[str, Any]] = {}
+        for grade in CalibrationGradeRepository().list_for_goal(session, row.id):
+            grades.setdefault(grade.calibration_sample_id, {})[
+                keys.get(grade.goal_criterion_id, "")
+            ] = {"grade": grade.grade, "note": grade.note or ""}
+        samples = [
+            {"id": sample.id, "content": sample.content, "grades": grades.get(sample.id, {})}
+            for sample in CalibrationSampleRepository().list_for_goal(session, row.id)
+        ]
+    slug = goal.pack.slug
+    return sorted(
+        samples,
+        key=lambda sample: hashlib.sha256(f"{slug}:{sample['id']}".encode()).hexdigest(),
+    )
 
 
 def record_grades(
@@ -440,7 +540,15 @@ def record_grades(
                 f"Goal {goal.pack.slug!r} is not stored.", details={"slug": goal.pack.slug}
             )
         criterion_ids = GoalRepository().criterion_ids(session, row.id)
+        owned = {
+            sample.id for sample in CalibrationSampleRepository().list_for_goal(session, row.id)
+        }
         for submission in submissions:
+            if submission.sample_id not in owned:
+                raise ValidationError(
+                    f"Goal {goal.pack.slug!r} has no calibration sample {submission.sample_id!r}.",
+                    details={"sample_id": submission.sample_id},
+                )
             criterion = goal.pack.criterion(submission.criterion_key)
             if criterion is None or submission.criterion_key not in criterion_ids:
                 raise ValidationError(
@@ -471,7 +579,7 @@ def record_grades(
         return len(submissions)
 
 
-def _graded_criteria(goal: LoadedGoal) -> tuple[Criterion, ...]:
+def graded_criteria(goal: LoadedGoal) -> tuple[Criterion, ...]:
     """The criteria the author grades: judged ones, plus human ones, graded the same way."""
     return tuple(
         criterion for criterion in goal.pack.criteria if criterion.rung in {Rung.JUDGE, Rung.HUMAN}
@@ -480,7 +588,7 @@ def _graded_criteria(goal: LoadedGoal) -> tuple[Criterion, ...]:
 
 def grading_progress(database: Database, goal: LoadedGoal) -> GradingProgress:
     """Return what remains to be graded, so an interrupted sitting can be resumed."""
-    criteria = _graded_criteria(goal)
+    criteria = graded_criteria(goal)
     with database.read() as session:
         row = GoalRepository().get_by_slug(session, goal.pack.slug)
         if row is None:
@@ -698,6 +806,7 @@ def run_calibration(  # noqa: PLR0913 — a calibration run needs all of its col
     n_holdout_target: int = 10,
     graded_by: str = "unknown",
     clock: Clock = utc_now,
+    progress: Callable[[dict[str, Any]], None] | None = None,
 ) -> CalibrationOutcome:
     """Partition the graded samples, score the holdout with the jury, and gate.
 
@@ -713,6 +822,10 @@ def run_calibration(  # noqa: PLR0913 — a calibration run needs all of its col
         n_holdout_target: The shrinkage denominator.
         graded_by: Who graded, recorded on the report.
         clock: Injected for deterministic tests.
+        progress: Called with ``calibration.started`` once the partition is recorded, with
+            ``calibration.sample_judged`` after the jury grades each holdout sample, and with
+            ``calibration.completed`` before returning. Each event says how far the jury has got
+            and never what it graded, so following a calibration live shows no jury grade.
 
     Returns:
         The outcome, already persisted.
@@ -829,12 +942,22 @@ def run_calibration(  # noqa: PLR0913 — a calibration run needs all of its col
     jury = jury.with_anchors(
         _exemplars_from(partition.anchors, samples=samples, author=author, notes=notes)
     )
+    report = progress or (lambda _event: None)
+    report(
+        {
+            "event": "calibration.started",
+            "goal": goal.pack.slug,
+            "anchors": len(partition.anchors),
+            "holdout": len(partition.holdout),
+            "jurors": list(jury.assembly.jurors),
+        }
+    )
 
     jury_grades: dict[str, dict[str, float]] = {}
     rationales: dict[str, dict[str, str]] = {}
     excerpts: dict[str, str] = {}
     results_by_criterion: dict[str, list[Any]] = {}
-    for sample_id in partition.holdout:
+    for position, sample_id in enumerate(partition.holdout, start=1):
         sample = samples[sample_id]
         excerpts[sample_id] = sample.content[:_EXCERPT_CHARACTERS]
         case = _calibration_case(goal, sample_id)
@@ -847,6 +970,13 @@ def run_calibration(  # noqa: PLR0913 — a calibration run needs all of its col
             reasons = [verdict.rationale for verdict in result.verdicts if verdict.rationale]
             if reasons:
                 rationales.setdefault(sample_id, {})[key] = reasons[0]
+        report(
+            {
+                "event": "calibration.sample_judged",
+                "sample": position,
+                "of": len(partition.holdout),
+            }
+        )
 
     alphas = {key: inter_juror_agreement(results) for key, results in results_by_criterion.items()}
     criteria = measure_agreement(
@@ -903,6 +1033,14 @@ def run_calibration(  # noqa: PLR0913 — a calibration run needs all of its col
         warnings=tuple(warnings),
     )
     _persist(database, goal_id=goal_id, criterion_ids=criterion_ids, outcome=outcome)
+    report(
+        {
+            "event": "calibration.completed",
+            "state": verdict.state.value,
+            "weighted_kappa_w": verdict.weighted_kappa_w,
+            "n_holdout": verdict.n_holdout,
+        }
+    )
     return outcome
 
 

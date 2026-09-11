@@ -72,24 +72,35 @@ Decisions: [ADR-0031](../../adr/0031-user-defined-goal-benchmarks.md),
 
 | Endpoint | Notes |
 |---|---|
-| `GET /goals` | Goals with `goal_hash`, `score_method_mix`, calibration state (`uncalibrated` \| `insufficient` \| `calibrated`), `kappa_w`, `n_holdout`, calibration age, `unforked` |
+| `GET /goals` | Goals with `goal_hash`, `score_method_mix`, `calibration_state` (`uncalibrated` \| `insufficient` \| `calibrated`), `kappa_w`, `n_holdout`, `calibrated_at` (the stored report's `measured_at`: the calibration's age), `calibration_stale` (the stored report was measured against another `goal_hash`), `unforked`. The state comes from the stored report; a goal with no report is `insufficient` when it has judged criteria and `calibrated` when it has none, with `kappa_w`, `n_holdout` and `calibrated_at` `null` |
 | `POST /goals` | Create from a goal-pack body. Validates and lints before writing; a lint finding never blocks creation, it is returned |
-| `GET /goals/{slug}` | The full pack as loaded, plus lint findings and the current calibration report |
-| `PUT /goals/{slug}` | Replace. Returns the **old and new `goal_hash`** and, when they differ, the count of existing runs the change separates — before the change is committed |
+| `GET /goals/{slug}` | The full pack as loaded, plus lint findings and the current calibration report. `pack` is `{"goal", "tasks"}` — `goal.json` and each task's prompt record exactly as they are on disk, which is the body `PUT` takes — and `calibration` is `GET …/calibration/report`'s body, or `null` for a goal never calibrated |
+| `PUT /goals/{slug}` | Replace. Returns the **old and new `goal_hash`** and, when they differ, the count of existing runs the change separates — before the change is committed. `?dry_run=true` builds and validates the replacement, reports the same, and writes nothing. A replacement rewrites `goal.json` and `tasks/`; every other file in the pack — a judge rubric under `prompts/`, calibration files, `pack.json` — is carried over as it was |
 | `DELETE /goals/{slug}` | Previewed like every destructive operation; the preview states how many runs it orphans and how many of the user's grades it destroys |
 | `POST /goals/{slug}/validate` | Schema, weights, scale descriptors, rule dialect, template rendering. Returns findings with severity |
-| `POST /goals/{slug}/suggest-rules` | Given criteria (and calibration samples where present), proposes rung-2 rules with pre-filled parameters. **Proposals only** — never applied automatically |
+| `POST /goals/{slug}/suggest-rules` | Given criteria (and calibration samples where present), proposes rung-2 rules with pre-filled parameters: `proposals` (`{criterion: [rule_type, …]}`) and `items`, one per proposal with `criterion`, `rule_type`, `parameters` and `explanation`. **Proposals only** — never applied automatically |
 | `GET /goals/{slug}/tasks` | The task set, flagged `is_starter` |
 | `GET /goals/{slug}/calibration` | Samples with partition, grade progress, and what remains to be graded |
-| `POST /goals/{slug}/calibration/samples` | Add samples: generate over a model spread, paste text, or promote prior run samples |
+| `GET /goals/{slug}/calibration/grading` | The blinded grading view FreeWeight's own grading screen renders: `criteria` to grade (judged and human) with `name`, `scale_points` and `descriptors`; `samples` in a stable per-goal shuffle, each `sample_id`, `content` and the grades recorded so far (`{criterion: {"grade", "note"}}`); `progress`. It never carries a sample's origin, its partition, the model that wrote it, or any jury grade |
+| `POST /goals/{slug}/calibration/samples` | Add samples: paste text, or promote prior run samples. An entry with `source_sample_id` promotes a completed sample of a run of **this** goal: FreeWeight reads the response text it stored, records `origin: "imported_run_sample"` and the run's model, and refuses (`400`) a sample that is not one, or a `content` that differs from what it stored. Generation over a model spread is composed from runs: run the goal on each model, then promote their samples |
 | `POST /goals/{slug}/calibration/grades` | Submit grades. Idempotent per `(sample, criterion)`; partial submission is normal and progress survives interruption |
-| `POST /goals/{slug}/calibration/run` | Score the **holdout** with the configured jury and compute agreement. Returns a run id; progress streams over the run event SSE like any other run |
+| `POST /goals/{slug}/calibration/run` | Score the **holdout** with the configured jury and compute agreement. **Synchronous**: the request lasts as long as the jury does and answers with the report. No run is created and nothing streams — `freeweight goals calibrate <slug> --progress` prints one JSON line per holdout sample as the jury grades it, which is how a console follows a calibration live |
 | `GET /goals/{slug}/calibration/report` | `kappa_w`, `rho`, `mae`, `bias`, `n_anchor`, `n_holdout`, inter-juror alpha, per criterion and weighted; gate verdict; `judge_validity_factor`; the worst-diverging holdout samples with both rationales |
+| `GET /goals/{slug}/calibration/report/export` | The same report as a `benchmark.calibration_report` SetSpec envelope; refused for a goal never calibrated |
 | `GET /goals/{slug}/export` | `benchmark.goal_pack` — a single SetSpec envelope describing the pack. **Not** the round-trip format: `POST /goals/import` reads the *bundle* that `freeweight goals export` writes ([spec §7.3](spec.md)) |
+| `GET /goals/{slug}/bundle` | The bundle itself, byte for byte what `freeweight goals export` writes, as an attachment — the round-trip form `POST /goals/import` reads |
 | `POST /goals/import` | Import a pack. Size-capped, containment-checked, schema-validated, hash-verified before any write; **never overwrites in place** — a colliding slug is rejected with the existing `goal_hash` named |
 | `GET /goals/starters` | The four shipped starter packs with their approximate deterministic weight |
 | `POST /goals/starters/{key}/fork` | Copy a starter to a new slug. The copy is `unforked` until its criteria or tasks are edited |
-| `GET /judges` | Models eligible to serve as jurors, each with its own `native.judge` bias results and eligibility reasons |
+| `GET /goals/drafts` | The authoring wizard's drafts still live, most recently changed first: `draft_id`, `name`, `slug`, `step`, `forked_from`, `saved_slug`, `created_at`, `updated_at`, `expires_at`. A draft untouched for 30 days has expired and is not listed; listing removes it |
+| `POST /goals/drafts` | Begin a draft: `{"intent", "name"}` is the wizard's step 1; `{"starter": key}` customises a starter, its criteria and tasks arriving as drafts with every task `is_starter`. `201` with the draft |
+| `GET /goals/drafts/{draft_id}` | One draft with what each wizard step shows: `questions` (step 2's two), each criterion's `needs_descriptors` and `needs_attention`, `proposals` (step 3, each `accepted` or not), `weight_shift` (`deterministic`, `judged`, `sentence`) and `grading_cost`. `404` for an unknown or expired draft |
+| `POST /goals/drafts/{draft_id}/criteria` | One step-2 action: `{"action": "add", "name", "intent"}`, `{"action": "answer", "criterion", "graded_alike", "one_quality"}` (each `true`, `false` or `null` for unanswered), `{"action": "describe", "criterion", "points", "top", "middle", "bottom"}`, or `{"action": "split", "criterion", "first", "second"}`. Answers the draft |
+| `POST /goals/drafts/{draft_id}/rules` | Accept one proposed rule: `{"criterion", "rule_type", "parameters"}`, `parameters` `null` for the pre-filled ones. The only way a draft's criterion moves to a rule |
+| `POST /goals/drafts/{draft_id}/tasks` | Add a task: `{"name", "prompt_text"}` |
+| `POST /goals/drafts/{draft_id}/save` | Write the pack: `{"slug", "name"}`, either blank for the draft's own. Answers `{"draft", "goal"}`; a draft already saved answers the pack it wrote rather than writing a second |
+| `DELETE /goals/drafts/{draft_id}` | Abandon a draft. `204` |
+| `GET /judges` | Models eligible to serve as jurors, each with its own `native.judge` bias results and eligibility reasons. `judge_results` is the model's latest completed `native.judge` run — `run_id`, `created_at` and `metrics`, one entry per figure that characterises a juror (pairwise accuracy, swap consistency, the position, repetition, verbosity and style rates, transitivity violations, self-preference), `null` where that run reported none — or `null` for a model never measured as a judge |
 | `POST /judges/validate` | Dry-run a jury configuration: assembly, self-judging conflicts, remote permission, structured-output capability |
 
 Two behaviours worth stating at the API level, because a client will otherwise get them wrong:
@@ -151,6 +162,8 @@ selected test requires a sandbox).
 | `GET /runs/{id}/events` | SSE with `Last-Event-ID` replay |
 | `GET /runs/{id}/tests` · `GET /runs/{id}/tests/{test_id}/samples` | Drill-down. Samples come in `(ordinal, repetition)` order with `limit` (default 500, at most 1000) and `cursor`; the body is `samples` plus `page`, and each sample names `prompt_id`, `prompt_version` and `client_ttft_ms` beside its score |
 | `GET /runs/{id}/telemetry` | The run's persisted telemetry as parallel series for a chart: `timestamps`, `cpu_percent`, `ram_used_bytes`, and `gpus`, one entry per device with `utilization_percent`, `vram_used_bytes`, `power_watts` and `temperature_c`. Every series shares the timestamps' index; a `null` is a reading this machine could not take at that instant — a gap, never a zero ([ADR-0016](../../adr/0016-unavailable-is-not-zero.md)). Empty series for a run that recorded none |
+| `GET /runs/{id}/grading` | The blinded grading view of a completed goal run's `human` criteria (Subjective Goals §3.3), what FreeWeight's `/runs/{id}/grade` screen renders: `goal_slug`, `goal_name`, `criteria` with `name`, `weight`, `scale_points` and `descriptors`, `samples` in a seeded order that is not the order they were produced in — each `sample_id`, `case_id`, `response_text` and the grades so far — and `expected_grades`, `recorded_grades`, `complete`. The model is never read. `409 RUN_NOT_GRADEABLE` names why a run cannot be graded: not a goal run, not completed, no human criterion, or a rubric changed since |
+| `POST /runs/{id}/grades` | `{"grades": [{"sample_id", "criterion", "grade", "note"}], "graded_by"}`, upserted per `(sample, criterion)`. Each graded sample's composite, the run's aggregate metrics and the subject's capability evidence are recomputed before the answer, which is the view's progress and `recorded` |
 | `GET /samples/{sample_id}` | The case inspector: one sample exactly as recorded — prompt identity and hashes, the response (when the run stored it), score and method, tokens and timings, the scorer's `result`, `tool_calls`, `criterion_scores` with each juror's `verdicts`, and the `telemetry` observations inside the sample's reconstructed window — with its `run_id`, `run_status`, `run_test_id` and `run_test_key`. `404 NOT_FOUND` for an unknown id |
 
 ### Run events
@@ -244,6 +257,13 @@ zero, and a goal below its calibration gate has no record at all
 ([ADR-0032 §3](../../adr/0032-judge-validity-and-user-capability-namespace.md)). The page form,
 `/evidence`, shows the same records with ADR-0017's staleness badge and, one interaction away, the
 six confidence factors and the contributing metrics that explain each score.
+
+The collection carries both beside `items`: `explanations`, one entry per item in the same order,
+each `capability_id`, `staleness` (`stale`, `freshness_factor`, `age_days`, `drift`, `reasons` — the
+page's badge, computed as of the request under FreeWeight's own policy) and `confidence_factors`
+(the factors the confidence was computed from, as stored). Beside the envelopes rather than inside
+them: a record's envelope is the SetSpec document LoadCoach imports, and staleness is a reading of
+it at one instant, not part of it.
 
 ### `GET /evidence/export` parameters
 
@@ -374,7 +394,7 @@ The codes are listed in [spec §13](spec.md); this is the status each one carrie
 | 403 | `FORBIDDEN`, `REMOTE_JUDGE_NOT_PERMITTED` |
 | 404 | `NOT_FOUND`, `MODEL_NOT_FOUND`, `RUN_NOT_FOUND`, `BENCHMARK_NOT_FOUND`, `GOAL_NOT_FOUND`, `COMPARISON_SUBJECT_NOT_FOUND` |
 | 405 | `METHOD_NOT_ALLOWED` |
-| 409 | `CONFLICT`, `RUN_NOT_CANCELLABLE`, `RUN_ALREADY_RUNNING`, `CALIBRATION_REQUIRED`, `CALIBRATION_INSUFFICIENT`, `JUDGE_SELF_JUDGING_REFUSED`, `PROMPT_OVERRIDE_REFUSED` |
+| 409 | `CONFLICT`, `RUN_NOT_CANCELLABLE`, `RUN_ALREADY_RUNNING`, `RUN_NOT_GRADEABLE`, `CALIBRATION_REQUIRED`, `CALIBRATION_INSUFFICIENT`, `JUDGE_SELF_JUDGING_REFUSED`, `PROMPT_OVERRIDE_REFUSED` |
 | 413 | `PAYLOAD_TOO_LARGE` |
 | 415 | `UNSUPPORTED_MEDIA_TYPE` |
 | 421 | `MISDIRECTED_REQUEST` |

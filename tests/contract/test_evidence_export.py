@@ -773,6 +773,32 @@ class TestTheApiSurface:
         only = test_client.get("/evidence", params={"stale": "only"}).text
         assert 'status-interrupted">stale' in only
 
+    def test_each_record_is_explained_beside_its_envelope(
+        self, client: tuple[TestClient, Any]
+    ) -> None:
+        import json
+
+        test_client, environment = client
+        body = test_client.get("/api/v1/evidence").json()
+        assert len(body["explanations"]) == len(body["items"]) == 1
+        explained = body["explanations"][0]
+        assert explained["capability_id"] == body["items"][0]["payload"]["capability_id"]
+        assert set(explained["staleness"]) == {
+            "stale", "freshness_factor", "age_days", "drift", "reasons",
+        }  # fmt: skip
+        assert explained["staleness"]["stale"] is False
+        record = query_evidence(environment.database, EvidenceQuery()).records[0]
+        assert explained["confidence_factors"] == json.loads(json.dumps(dict(record.factors)))
+        assert "staleness" not in json.dumps(body["items"]), "the envelope is not touched"
+
+        with environment.database.write() as session:
+            for row in EvidenceRepository().list_all(session):
+                row.measured_at = row.measured_at - timedelta(days=400)
+                row.computed_at = row.computed_at - timedelta(days=400)
+        aged = test_client.get("/api/v1/evidence").json()["explanations"][0]["staleness"]
+        assert aged["stale"] is True
+        assert aged["reasons"]
+
     def test_drift_alone_badges_stale(self, client: tuple[TestClient, Any]) -> None:
         _test_client, environment = client
         record = query_evidence(environment.database, EvidenceQuery()).records[0]

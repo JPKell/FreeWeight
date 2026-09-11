@@ -230,6 +230,9 @@ def create_app(
 
     app.include_router(system_routes.router, prefix="/api/v1")
     app.include_router(runs_routes.api_router, prefix="/api/v1")
+    app.include_router(grading_routes.api_router, prefix="/api/v1")
+    # Before the goals router: `/goals/drafts` would otherwise be read as a goal named "drafts".
+    app.include_router(wizard_routes.api_router, prefix="/api/v1")
     app.include_router(goals_routes.api_router, prefix="/api/v1")
     app.include_router(calibration_routes.api_router, prefix="/api/v1")
     app.include_router(compare_routes.api_router, prefix="/api/v1")

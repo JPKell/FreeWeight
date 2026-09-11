@@ -63,15 +63,19 @@ __all__ = [
     "WizardDraft",
     "WizardStep",
     "accept_rule",
+    "default_rule_parameters",
     "delete_draft",
     "draft_from_goal",
+    "list_drafts",
     "set_scale",
     "load_draft",
     "pack_body",
     "propose_rules",
+    "rule_explanation",
     "save_draft",
     "purge_expired_drafts",
     "save_pack",
+    "scale_descriptors",
     "start_draft",
     "weight_shift",
 ]
@@ -489,6 +493,43 @@ def purge_expired_drafts(database: Database) -> int:
     return len(expired)
 
 
+def list_drafts(database: Database) -> list[dict[str, Any]]:
+    """Every draft still live, the most recently changed first, as ``GET /goals/drafts`` lists them.
+
+    Expired drafts are collected first, on the path that would otherwise show them
+    (:func:`purge_expired_drafts`). A draft is the part of a goal a person has spent time on and
+    that is not yet a pack, so a client that lost its link must be able to find it again.
+
+    Returns:
+        One entry per draft: its stored form with ``criteria`` and ``tasks`` as counts (a draft's
+        own criteria are :func:`load_draft`'s), plus ``expires_at``.
+    """
+    from sqlalchemy import select
+
+    from freeweight.infrastructure.db.models_goals import WizardDraft as DraftRow
+
+    purge_expired_drafts(database)
+    with database.read() as session:
+        rows = [
+            (row.body_json, row.expires_at)
+            for row in session.scalars(
+                select(DraftRow).order_by(DraftRow.updated_at.desc(), DraftRow.id.desc())
+            )
+        ]
+    listed: list[dict[str, Any]] = []
+    for body, expires_at in rows:
+        parsed = json.loads(body) if isinstance(body, str) else body
+        if not isinstance(parsed, Mapping):  # pragma: no cover — only a hand-edited row
+            continue
+        draft = _from_json(parsed)
+        entry = draft.as_json()
+        entry["criteria"] = len(draft.criteria)
+        entry["tasks"] = len(draft.tasks)
+        entry["expires_at"] = to_rfc3339(expires_at)
+        listed.append(entry)
+    return listed
+
+
 def add_criterion(
     draft: WizardDraft, *, name: str, intent: str = "", weight: float | None = None
 ) -> WizardDraft:
@@ -527,7 +568,14 @@ def add_criterion(
 def answer_questions(
     draft: WizardDraft, key: str, *, graded_alike: bool | None, one_quality: bool | None
 ) -> WizardDraft:
-    """Record the user's answers to step 2's two questions for one criterion."""
+    """Record the user's answers to step 2's two questions for one criterion.
+
+    Raises:
+        ValidationError: The draft has no criterion with that key; an answer about nothing would
+            otherwise vanish without a word.
+    """
+    if draft.criterion(key) is None:
+        raise ValidationError(f"No criterion {key!r}.", details={"criterion": key})
     criteria = tuple(
         replace(item, graded_alike=graded_alike, one_quality=one_quality)
         if item.key == key
@@ -591,6 +639,15 @@ def set_scale(
         for item in draft.criteria
     )
     return replace(draft, criteria=criteria)
+
+
+def scale_descriptors(points: int, *, top: str, middle: str, bottom: str) -> dict[str, str]:
+    """The three descriptors step 2 asks for — the top, the middle, the bottom — keyed by point.
+
+    The middle of a 3, 5 or 7-point scale is ``(points + 1) // 2``. Held here so the wizard's page
+    and its API describe the same three points of the same scale.
+    """
+    return {str(points): top, str((points + 1) // 2): middle, "1": bottom}
 
 
 def split_criterion(draft: WizardDraft, key: str, *, first: str, second: str) -> WizardDraft:
@@ -739,6 +796,27 @@ suggestion the user has to research; one with plausible values is a suggestion t
 disagree with, and change in ten seconds."""
 
 
+def default_rule_parameters(rule_type: str) -> dict[str, Any]:
+    """The pre-filled, editable parameters a proposal of ``rule_type`` starts from."""
+    return dict(_DEFAULT_PARAMETERS.get(rule_type, {}))
+
+
+def rule_explanation(name: str, rule_type: str) -> str:
+    """Why ``rule_type`` was proposed for the criterion called ``name``, in the wizard's words."""
+    from freeweight.domain.goals.criteria import REFERENCE_RULE_TYPES
+
+    return (
+        f"Your description of {name!r} reads like something a "
+        f"{rule_type.replace('_', ' ')} rule can check. Rules are free, exact, "
+        "and never disagree with you."
+        + (
+            " This one needs ground truth on the task — an annotated source."
+            if rule_type in REFERENCE_RULE_TYPES
+            else ""
+        )
+    )
+
+
 def propose_rules(draft: WizardDraft) -> tuple[RuleProposal, ...]:
     """Propose the rules that could carry part of each judged criterion.
 
@@ -754,7 +832,6 @@ def propose_rules(draft: WizardDraft) -> tuple[RuleProposal, ...]:
         Every proposal, in criterion order. A criterion whose rule the user has already accepted
         contributes a proposal marked ``accepted`` so the UI can show what it did.
     """
-    from freeweight.domain.goals.criteria import REFERENCE_RULE_TYPES
     from freeweight.domain.goals.lint import suggest_rules
     from freeweight.domain.goals.pack import Criterion, Rung, ScaleSpec
 
@@ -787,17 +864,8 @@ def propose_rules(draft: WizardDraft) -> tuple[RuleProposal, ...]:
                 RuleProposal(
                     criterion_key=item.key,
                     rule_type=rule_type,
-                    parameters=dict(_DEFAULT_PARAMETERS.get(rule_type, {})),
-                    explanation=(
-                        f"Your description of {item.name!r} reads like something a "
-                        f"{rule_type.replace('_', ' ')} rule can check. Rules are free, exact, "
-                        "and never disagree with you."
-                        + (
-                            " This one needs ground truth on the task — an annotated source."
-                            if rule_type in REFERENCE_RULE_TYPES
-                            else ""
-                        )
-                    ),
+                    parameters=default_rule_parameters(rule_type),
+                    explanation=rule_explanation(item.name, rule_type),
                 )
             )
     return tuple(proposals)

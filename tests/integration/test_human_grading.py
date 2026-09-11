@@ -502,3 +502,118 @@ class TestTheScreenAndTheCli:
         assert body["recorded_grades"] == 2
         assert body["expected_grades"] == len(_TASKS)
         assert "model" not in result.stdout.lower()
+
+
+class TestTheApiGradesAsTheScreenDoes:
+    """``GET /runs/{id}/grading`` and ``POST /runs/{id}/grades`` (api.md §4)."""
+
+    @pytest.fixture
+    def client(
+        self,
+        graded_run: tuple[Any, str],
+        goals_root: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+    ) -> Iterator[tuple[TestClient, Any, str]]:
+        environment, run_id = graded_run
+        monkeypatch.setenv("FREEWEIGHT_STORAGE__DATABASE_URL", environment.database_url)
+        monkeypatch.setenv("FREEWEIGHT_PROVIDER__KIND", "fake")
+        monkeypatch.setenv("FREEWEIGHT_GOALS__ROOT", str(goals_root))
+        loaded = load_settings(config_path=tmp_path / "missing.toml")
+        with TestClient(create_app(loaded.settings), base_url="http://127.0.0.1") as test_client:
+            yield test_client, environment, run_id
+
+    def test_the_view_is_the_screen_s_and_a_batch_sent_twice_lands_once(
+        self, client: tuple[TestClient, Any, str]
+    ) -> None:
+        test_client, environment, run_id = client
+        view = test_client.get(f"/api/v1/runs/{run_id}/grading").json()
+        service = run_grading_view(environment.database, run_id)
+        assert [one["sample_id"] for one in view["samples"]] == [
+            one.sample_id for one in service.samples
+        ]
+        assert view["samples"][0]["response_text"] == _ANSWER
+        assert view["criteria"][0]["descriptors"] == {"5": "Yes.", "3": "Maybe.", "1": "No."}
+        assert environment.model_ref not in json.dumps(view)
+
+        first = view["samples"][0]["sample_id"]
+        body = {
+            "grades": [{"sample_id": first, "criterion": "would_ship", "grade": 5, "note": "ship"}],
+            "graded_by": "tester",
+        }
+        posted = test_client.post(f"/api/v1/runs/{run_id}/grades", json=body)
+        assert posted.status_code == 200, posted.text
+        assert posted.json()["recorded_grades"] == 1
+        assert (
+            test_client.post(f"/api/v1/runs/{run_id}/grades", json=body).json()["recorded_grades"]
+            == 1
+        )
+        reread = test_client.get(f"/api/v1/runs/{run_id}/grading").json()
+        assert reread["samples"][0]["grades"] == {"would_ship": {"grade": 5, "note": "ship"}}
+
+    def test_refusals_carry_their_own_codes(
+        self, client: tuple[TestClient, Any, str], goals_root: Path
+    ) -> None:
+        test_client, environment, run_id = client
+        missing = test_client.get("/api/v1/runs/01J00000000000000000000000/grading")
+        assert missing.status_code == 404
+        sample = run_grading_view(environment.database, run_id).samples[0].sample_id
+        off_scale = test_client.post(
+            f"/api/v1/runs/{run_id}/grades",
+            json={"grades": [{"sample_id": sample, "criterion": "would_ship", "grade": 6}]},
+        )
+        assert off_scale.status_code == 400
+        changed = _goal_body()
+        changed["criteria"][0]["rule"]["phrases"] = ["delve", "tapestry"]
+        replace_pack(
+            goals_root, slug="plain_voice", goal=changed, tasks=[_task_record(k) for k in _TASKS]
+        )
+        sync_goals(environment.database, load_goals(goals_root))
+        refused = test_client.get(f"/api/v1/runs/{run_id}/grading")
+        assert refused.status_code == 409
+        assert refused.json()["error"]["code"] == "RUN_NOT_GRADEABLE"
+
+
+class TestPromotingRunSamplesIntoCalibration:
+    """A promoted sample is FreeWeight's own stored text, from a run of the same goal."""
+
+    def test_a_promoted_sample_carries_the_stored_text_and_its_provenance(
+        self, graded_run: tuple[Any, str], written_goal: Any
+    ) -> None:
+        from freeweight.infrastructure.db.models_goals import CalibrationSample
+        from freeweight.services.calibration import add_samples
+
+        environment, run_id = graded_run
+        source = run_grading_view(environment.database, run_id).samples[0].sample_id
+        with pytest.raises(ValidationError, match="not the text FreeWeight stored"):
+            add_samples(
+                environment.database,
+                written_goal,
+                contents=[{"source_sample_id": source, "content": "Something I typed."}],
+            )
+        added = add_samples(
+            environment.database,
+            written_goal,
+            contents=[{"source_sample_id": source, "content": _ANSWER, "origin": "pasted"}],
+        )
+        assert len(added) == 1
+        with environment.database.read() as session:
+            row = session.get(CalibrationSample, added[0])
+            assert row is not None
+            assert row.content == _ANSWER
+            assert row.origin == "imported_run_sample"
+            assert row.source_sample_id == source
+            assert row.model_id is not None
+
+    def test_a_sample_that_is_not_one_of_this_goal_s_runs_is_refused(
+        self, graded_run: tuple[Any, str], written_goal: Any
+    ) -> None:
+        from freeweight.services.calibration import add_samples
+
+        environment, _run_id = graded_run
+        with pytest.raises(ValidationError, match="not a completed sample"):
+            add_samples(
+                environment.database,
+                written_goal,
+                contents=[{"source_sample_id": "01J00000000000000000000000"}],
+            )

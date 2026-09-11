@@ -281,10 +281,10 @@ def export(
     """
     from pathlib import Path as _Path
 
-    from freeweight.services.goals import export_bundle
+    from freeweight.services.goals import bundle_text
 
     goal = _load(_goals_root(config), slug)
-    document = json.dumps(export_bundle(goal), indent=2, ensure_ascii=False) + "\n"
+    document = bundle_text(goal)
     if output is None:
         typer.echo(document, nl=False)
         return
@@ -578,6 +578,16 @@ def calibrate(
     graded_by: Annotated[
         str, typer.Option("--graded-by", help="Who graded these samples.")
     ] = "unknown",
+    progress: Annotated[
+        bool,
+        typer.Option(
+            "--progress",
+            help=(
+                "Print one JSON line per event as the jury works: started, each holdout sample "
+                "judged, completed. How far it has got, never what it graded."
+            ),
+        ),
+    ] = False,
     config: _ConfigOption = None,
     json_output: _JsonOption = False,
 ) -> None:
@@ -585,6 +595,9 @@ def calibrate(
 
     The jury never sees the holdout before this: the anchors are the only samples that reach a
     judge prompt, and the split that decides which is which is seeded and recorded.
+
+    ``--progress`` is how a caller follows a calibration live (WeightRoomGym's capped job reads
+    these lines as they are printed); the lines name no jury grade.
 
     Exits ``5`` when there are too few grades (``CALIBRATION_INSUFFICIENT``) — which is work still
     to do, not a rubric that failed to measure. A rubric that *did* fail to measure exits ``0``
@@ -632,6 +645,7 @@ def calibrate(
                 jury=jury,
                 n_holdout_target=settings.calibration.n_holdout_target,
                 graded_by=graded_by,
+                progress=(lambda event: typer.echo(json.dumps(event))) if progress else None,
             )
         except SuiteError as exc:
             typer.echo(f"Error: {exc.message} ({exc.code})", err=True)

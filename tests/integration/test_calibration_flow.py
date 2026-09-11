@@ -857,3 +857,22 @@ def test_the_goal_models_register_the_tables_their_foreign_keys_point_at() -> No
     )
     assert result.returncode == 0, result.stderr
     assert result.stdout.strip() == "ok"
+
+
+class TestProgressNamesNoGrade:
+    def test_one_event_per_holdout_sample_between_a_start_and_a_finish(
+        self, database: Any, goal: Any
+    ) -> None:
+        truth = _seed_grades(database, goal)
+        events: list[dict[str, Any]] = []
+        run_calibration(
+            database, goal, jury=FakeJury(truth=truth), graded_by="tester", progress=events.append
+        )
+        assert events[0]["event"] == "calibration.started"
+        assert events[-1]["event"] == "calibration.completed"
+        assert events[-1]["state"] == "calibrated"
+        judged = [event for event in events if event["event"] == "calibration.sample_judged"]
+        assert len(judged) == events[0]["holdout"] > 0
+        assert [event["sample"] for event in judged] == list(range(1, len(judged) + 1))
+        assert all(event["of"] == len(judged) for event in judged)
+        assert "grade" not in json.dumps(events[:-1])

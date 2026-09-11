@@ -15,11 +15,12 @@ recording are :mod:`freeweight.services.calibration`'s.
 
 from __future__ import annotations
 
-from typing import Annotated, Any
+from typing import TYPE_CHECKING, Annotated, Any
 
 from baseaicore import SuiteError
 from fastapi import APIRouter, Form, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
+from pydantic import BaseModel, ConfigDict, Field
 from weightsdb import DatabaseError
 
 from freeweight.__about__ import __version__
@@ -30,7 +31,10 @@ from freeweight.services.calibration import (
 )
 from freeweight.web.rendering import render
 
-__all__ = ["router"]
+if TYPE_CHECKING:
+    from freeweight.services.calibration import RunGradingView
+
+__all__ = ["api_router", "router"]
 
 router = APIRouter(include_in_schema=False)
 
@@ -112,3 +116,116 @@ def run_grade_submit(  # noqa: PLR0913 — one grade is exactly these fields
         message = f"{exc.message} ({exc.code})" if isinstance(exc, SuiteError) else str(exc)
         return _page(view, run_id=run_id, error=message, status_code=400)
     return RedirectResponse(f"/runs/{run_id}/grade", status_code=303)
+
+
+# ---------------------------------------------------------------------------------------------
+# The same screen over the API (api.md §4)
+#
+# The view and the recording above, for a client that grades away from this page. The view carries
+# exactly what the screen shows — no more — so the blinding holds for a client too.
+# ---------------------------------------------------------------------------------------------
+
+api_router = APIRouter(tags=["runs"])
+
+
+class RunGradeBody(BaseModel):
+    """One grade for one of the run's samples on one human criterion."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    sample_id: str = Field(min_length=1)
+    criterion: str = Field(min_length=1)
+    grade: int = Field(ge=1, le=7)
+    note: str = ""
+
+
+class RunGradesBody(BaseModel):
+    """A batch of grades. Partial submission is normal; each is upserted on its own row."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    grades: list[RunGradeBody] = Field(default_factory=list)
+    graded_by: str = Field(default="unknown", min_length=1)
+
+
+def _view_json(view: RunGradingView) -> dict[str, Any]:
+    """The grading screen's view as JSON: the samples' text and grades, never the model."""
+    return {
+        "run_id": view.run_id,
+        "goal_slug": view.goal_slug,
+        "goal_name": view.goal_name,
+        "criteria": [
+            {
+                "key": criterion.key,
+                "name": criterion.name,
+                "weight": criterion.weight,
+                "scale_points": criterion.scale_points,
+                "descriptors": dict(criterion.descriptors),
+            }
+            for criterion in view.criteria
+        ],
+        "samples": [
+            {
+                "sample_id": sample.sample_id,
+                "case_id": sample.case_id,
+                "response_text": sample.response_text,
+                "grades": {key: dict(value) for key, value in sample.grades.items()},
+            }
+            for sample in view.samples
+        ],
+        "expected_grades": view.expected,
+        "recorded_grades": view.recorded,
+        "complete": view.complete,
+    }
+
+
+@api_router.get("/runs/{run_id}/grading", summary="A goal run's blinded grading view")
+def run_grading_endpoint(request: Request, run_id: str) -> dict[str, Any]:
+    """The samples a person grades on a completed goal run's human criteria, blinded and shuffled.
+
+    Raises:
+        RunNotFound: No run has this id.
+        RunNotGradeable: ``409``: not a completed goal run with a human criterion, or its goal's
+            rubric has changed since the run.
+    """
+    return _view_json(run_grading_view(request.app.state.database, run_id))
+
+
+@api_router.post("/runs/{run_id}/grades", summary="Grade a goal run's samples")
+def run_grades_endpoint(request: Request, run_id: str, body: RunGradesBody) -> dict[str, Any]:
+    """Record grades on the run's samples; composites, aggregates and evidence follow.
+
+    Upserted per ``(sample, criterion)``, so a batch sent twice — a client retrying after a dropped
+    connection — replaces rather than duplicates.
+
+    Raises:
+        RunNotFound: No run has this id.
+        RunNotGradeable: See :func:`run_grading_endpoint`.
+        ValidationError: A sample outside the run, a criterion that is not a human one, or a grade
+            outside the criterion's scale — and then no grade of the batch lands.
+    """
+    database = request.app.state.database
+    recorded = record_run_grades(
+        database,
+        run_id,
+        [
+            RunGradeSubmission(
+                sample_id=grade.sample_id,
+                criterion_key=grade.criterion,
+                grade=grade.grade,
+                note=grade.note,
+            )
+            for grade in body.grades
+        ],
+        graded_by=body.graded_by,
+        registry=request.app.state.registry,
+        evidence_settings=request.app.state.settings.evidence,
+    )
+    view = run_grading_view(database, run_id)
+    return {
+        "run_id": run_id,
+        "recorded": recorded,
+        "expected_grades": view.expected,
+        "recorded_grades": view.recorded,
+        "complete": view.complete,
+    }

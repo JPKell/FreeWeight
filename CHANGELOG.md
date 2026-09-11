@@ -9,6 +9,44 @@ packaging and release standards §3.
 
 ### Added
 
+- **Goal authoring, grading and calibration over the API** (row WP4; `api.md` §3a, §4, §6). The
+  console is how a LAN operator reaches FreeWeight, and it calls `/api/v1` only, so every goal
+  flow FreeWeight's own pages offer is now on the API. All additive:
+  - The wizard's drafts: `GET`/`POST /goals/drafts`, `GET`/`DELETE /goals/drafts/{id}` and
+    `POST …/criteria`, `…/rules`, `…/tasks`, `…/save` — the same rows and service calls the
+    wizard pages use. A starter is customised as `POST /goals/drafts {"starter": key}`.
+  - `GET /goals/{slug}` carries `pack` (`goal.json` and the task records as they are on disk,
+    the body `PUT` takes) and `calibration` (the stored report); `GET /goals` carries
+    `kappa_w`, `n_holdout`, `calibrated_at` and `calibration_stale`, and its `calibration_state`
+    now reads the stored report, as api.md said it did.
+  - `GET /goals/{slug}/bundle` — the bundle `freeweight goals export` writes, byte for byte.
+  - `POST /goals/{slug}/suggest-rules` carries `items`, each proposal with its pre-filled
+    parameters and explanation.
+  - `GET /goals/{slug}/calibration/grading` — the blinded grading view, never a sample's origin,
+    partition, model or jury grade.
+  - `GET /runs/{id}/grading` and `POST /runs/{id}/grades` — `/runs/{id}/grade` as an API;
+    `RUN_NOT_GRADEABLE` is `409`.
+  - A calibration sample promoted by `source_sample_id` takes FreeWeight's stored response text
+    and the run's model, and is refused unless it is a completed sample of a run of the same goal.
+  - `GET /judges` carries each model's latest `native.judge` bias figures (`judge_results`).
+  - `GET /evidence` carries `explanations` beside the envelopes: each record's staleness and
+    confidence factors, which the Evidence page showed and the API did not.
+  - `freeweight goals calibrate --progress` prints one JSON line per holdout sample as the jury
+    grades it, naming no grade — how the console follows a calibration live.
+
+### Fixed
+
+- `PUT /goals/{slug}` deleted every file of the pack but `goal.json` and `tasks/`: a pack's own
+  judge rubric (which moves `goal_hash`), its calibration files and `pack.json`. They are carried
+  over.
+- A calibration grade naming a sample of another goal, or no sample at all, reached the database;
+  it is refused by name.
+- The calibration grading page offered only judged criteria while its progress counted human ones
+  too, so a goal with a human criterion never showed its grading complete.
+- An answer to step 2's questions about a criterion the draft does not have was silently dropped.
+
+### Added
+
 - **The read surface WeightRoomGym's FreeWeight pages need** (row WP3; `api.md` §2, §2a, §4, §5).
   FreeWeight binds loopback, so the console is how a LAN operator reaches it, and the console
   calls `/api/v1` only. All additive:

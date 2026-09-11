@@ -113,13 +113,18 @@ def list_evidence(  # noqa: PLR0913 — every argument is a documented query par
         cursor: Opaque continuation token.
 
     Returns:
-        The collection envelope: ``items`` and ``page``.
+        The collection envelope: ``items`` and ``page``, and ``explanations`` — one per item, in
+        the same order: its staleness as of this request under this installation's policy, and
+        the confidence factors it was computed from. Beside the envelopes rather than inside them,
+        because staleness is a reading of a record at one instant and not part of the record.
 
     Raises:
         ValidationError: The cursor was not issued here, or ``model`` is an ambiguous prefix.
         NotFoundError: ``model`` matches nothing.
     """
     database: Database = request.app.state.database
+    policy = policy_for(request.app.state.settings.evidence)
+    now = utc_now()
     page = query_evidence(
         database,
         EvidenceQuery(
@@ -132,7 +137,17 @@ def list_evidence(  # noqa: PLR0913 — every argument is a documented query par
             cursor=cursor,
         ),
     )
-    return page.as_json()
+    return {
+        **page.as_json(),
+        "explanations": [
+            {
+                "capability_id": record.capability_id,
+                "staleness": staleness_of(record, now=now, policy=policy).as_json(),
+                "confidence_factors": dict(record.factors),
+            }
+            for record in page.records
+        ],
+    }
 
 
 @api_router.get("/evidence/export", summary="Export the evidence bundle")

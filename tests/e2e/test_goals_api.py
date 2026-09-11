@@ -206,6 +206,10 @@ class TestValidateAndSuggest:
         )
         body = client.post("/api/v1/goals/house_voice/suggest-rules").json()
         assert "forbidden_phrases" in body["proposals"]["not_linkedin"]
+        offered = [item for item in body["items"] if item["rule_type"] == "forbidden_phrases"]
+        assert offered[0]["criterion"] == "not_linkedin"
+        assert offered[0]["parameters"]["phrases"], "a proposal arrives with its parameters"
+        assert "No corporate hedging" in offered[0]["explanation"]
         # And the goal is unchanged: proposals are proposals.
         stored = client.get("/api/v1/goals/house_voice").json()
         assert stored["criteria"][0]["rung"] == "judge"
@@ -455,6 +459,64 @@ class TestCalibrationEndpoints:
         )
         assert response.status_code == 400
 
+    def test_the_grading_view_is_blinded_and_holds_what_was_graded(
+        self, client: TestClient
+    ) -> None:
+        self._judged(client)
+        ids = client.post(
+            "/api/v1/goals/house_voice/calibration/samples",
+            json={"samples": [{"content": f"sample {index}"} for index in range(8)]},
+        ).json()["added"]
+        client.post(
+            "/api/v1/goals/house_voice/calibration/grades",
+            json={
+                "grades": [{"sample_id": ids[2], "criterion": "wit", "grade": 4, "note": "wry"}],
+                "graded_by": "tester",
+            },
+        )
+        body = client.get("/api/v1/goals/house_voice/calibration/grading").json()
+        assert [criterion["key"] for criterion in body["criteria"]] == ["wit"]
+        assert body["criteria"][0]["descriptors"] == {"5": "Wry.", "3": "Flat.", "1": "Earnest."}
+        order = [sample["sample_id"] for sample in body["samples"]]
+        assert sorted(order) == sorted(ids)
+        assert order != ids, "the grading order is not the order the samples were added in"
+        assert all(set(sample) == {"sample_id", "content", "grades"} for sample in body["samples"])
+        graded = next(sample for sample in body["samples"] if sample["sample_id"] == ids[2])
+        assert graded["grades"] == {"wit": {"grade": 4, "note": "wry"}}
+        assert body["progress"]["recorded_grades"] == 1
+        assert "partition" not in json.dumps(body["samples"])
+        assert "origin" not in json.dumps(body["samples"])
+        again = client.get("/api/v1/goals/house_voice/calibration/grading").json()
+        assert again["samples"] == body["samples"], "the order holds across reloads"
+
+    def test_a_grade_for_a_sample_this_goal_does_not_have_lands_nothing(
+        self, client: TestClient
+    ) -> None:
+        self._judged(client)
+        response = client.post(
+            "/api/v1/goals/house_voice/calibration/grades",
+            json={
+                "grades": [
+                    {"sample_id": "01J00000000000000000000000", "criterion": "wit", "grade": 3}
+                ]
+            },
+        )
+        assert response.status_code == 400
+        assert response.json()["error"]["code"] == "VALIDATION_ERROR"
+
+    def test_a_promotion_names_a_real_run_sample_and_a_paste_carries_text(
+        self, client: TestClient
+    ) -> None:
+        self._judged(client)
+        promoted = client.post(
+            "/api/v1/goals/house_voice/calibration/samples",
+            json={"samples": [{"source_sample_id": "01J00000000000000000000000"}]},
+        )
+        assert promoted.status_code == 400
+        assert "not a completed sample" in promoted.json()["error"]["message"]
+        empty = client.post("/api/v1/goals/house_voice/calibration/samples", json={"samples": [{}]})
+        assert empty.status_code == 400
+
 
 class TestJudgeEndpoints:
     def test_the_judge_listing_names_every_refusal(self, client: TestClient) -> None:
@@ -504,3 +566,207 @@ class TestJudgeEndpoints:
     def test_an_unknown_field_is_refused(self, client: TestClient) -> None:
         response = client.post("/api/v1/judges/validate", json={"goal": "x", "nope": 1})
         assert response.status_code == 400
+
+    def test_a_juror_s_bias_figures_are_its_latest_judge_run(
+        self, client: TestClient, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from datetime import UTC, datetime
+        from types import SimpleNamespace
+
+        import freeweight.services.results as results
+
+        def row(run_id: str, key: str, value: float, *, test: str | None = None) -> Any:
+            return SimpleNamespace(
+                run_id=run_id,
+                run_test_id=test,
+                metric_key=key,
+                numeric_value=value,
+                run_created_at=datetime(2026, 9, 2 if run_id == "new" else 1, tzinfo=UTC),
+            )
+
+        rows = (
+            row("new", "swap_consistency", 0.5, test="t1"),
+            row("new", "swap_consistency", 0.9),
+            row("new", "pairwise_accuracy", 0.8, test="t1"),
+            row("new", "not_a_bias_figure", 1.0),
+            row("old", "transitivity_violation_rate", 0.4),
+        )
+        asked: list[tuple[str | None, str | None]] = []
+
+        def query(database: Any, wanted: Any) -> Any:
+            asked.append((wanted.model, wanted.suite))
+            return SimpleNamespace(rows=rows)
+
+        monkeypatch.setattr(results, "query_results", query)
+        items = client.get("/api/v1/judges").json()["items"]
+        figures = items[0]["judge_results"]
+        assert figures["run_id"] == "new"
+        assert figures["created_at"] == "2026-09-02T00:00:00.000Z"
+        assert figures["metrics"]["swap_consistency"] == 0.9, "the run's roll-up wins"
+        assert figures["metrics"]["pairwise_accuracy"] == 0.8
+        assert figures["metrics"]["transitivity_violation_rate"] is None, "another run's figure"
+        assert "not_a_bias_figure" not in figures["metrics"]
+        assert asked[0] == (items[0]["model"], "native.judge")
+
+    def test_a_model_never_measured_as_a_judge_has_no_figures(self, client: TestClient) -> None:
+        items = client.get("/api/v1/judges").json()["items"]
+        assert items
+        assert all(item["judge_results"] is None for item in items)
+
+
+class TestDraftsOverTheApi:
+    """The wizard's drafts, driven over the API as the pages drive them (api.md §3a)."""
+
+    def _draft(self, client: TestClient) -> dict[str, Any]:
+        response = client.post(
+            "/api/v1/goals/drafts",
+            json={"intent": "Essays that sound like me.", "name": "My voice"},
+        )
+        assert response.status_code == 201, response.text
+        body: dict[str, Any] = response.json()
+        return body
+
+    def test_a_draft_is_authored_step_by_step_and_written_once(self, client: TestClient) -> None:
+        base = f"/api/v1/goals/drafts/{self._draft(client)['draft_id']}"
+        added = client.post(
+            f"{base}/criteria", json={"action": "add", "name": "Dry wit", "intent": "Wry."}
+        ).json()
+        assert [criterion["key"] for criterion in added["criteria"]] == ["dry_wit"]
+        assert added["criteria"][0]["needs_descriptors"] is True
+        described = client.post(
+            f"{base}/criteria",
+            json={
+                "action": "describe", "criterion": "dry_wit", "points": 5,
+                "top": "Wry.", "middle": "Flat.", "bottom": "Earnest.",
+            },
+        ).json()  # fmt: skip
+        assert described["criteria"][0]["descriptors"] == {
+            "5": "Wry.",
+            "3": "Flat.",
+            "1": "Earnest.",
+        }
+        answered = client.post(
+            f"{base}/criteria",
+            json={"action": "answer", "criterion": "dry_wit", "graded_alike": False},
+        ).json()
+        assert answered["criteria"][0]["needs_attention"] is True
+        client.post(f"{base}/criteria", json={"action": "add", "name": "No LLM tells"})
+        before = client.get(base).json()
+        assert not any(proposal["accepted"] for proposal in before["proposals"])
+        assert before["weight_shift"]["deterministic"] == 0
+        accepted = client.post(
+            f"{base}/rules",
+            json={
+                "criterion": "no_llm_tells",
+                "rule_type": "forbidden_phrases",
+                "parameters": {"phrases": ["delve"]},
+            },
+        ).json()
+        assert [p["criterion"] for p in accepted["proposals"] if p["accepted"]] == ["no_llm_tells"]
+        assert accepted["weight_shift"]["deterministic"] == 0.5
+        tasked = client.post(
+            f"{base}/tasks", json={"name": "Warehouse", "prompt_text": "Write about the night."}
+        ).json()
+        assert [task["key"] for task in tasked["tasks"]] == ["warehouse"]
+
+        saved = client.post(f"{base}/save", json={})
+        assert saved.status_code == 200, saved.text
+        assert saved.json()["goal"]["slug"] == "my_voice"
+        assert client.get("/api/v1/goals/my_voice").status_code == 200
+        again = client.post(f"{base}/save", json={"slug": "another_name"})
+        assert again.json()["goal"]["slug"] == "my_voice", "a saved draft answers its own pack"
+        listed = client.get("/api/v1/goals/drafts").json()["items"]
+        assert listed[0]["saved_slug"] == "my_voice"
+
+    def test_a_starter_arrives_as_a_draft_of_starter_tasks(self, client: TestClient) -> None:
+        response = client.post("/api/v1/goals/drafts", json={"starter": "creative_voice"})
+        assert response.status_code == 201
+        draft = response.json()
+        assert draft["forked_from"] == "creative_voice"
+        assert draft["criteria"]
+        assert draft["tasks"] and all(task["is_starter"] for task in draft["tasks"])
+        unknown = client.post("/api/v1/goals/drafts", json={"starter": "no_such_starter"})
+        assert unknown.status_code == 404
+
+    def test_the_list_names_live_drafts_and_an_abandoned_one_is_gone(
+        self, client: TestClient
+    ) -> None:
+        draft_id = self._draft(client)["draft_id"]
+        listed = client.get("/api/v1/goals/drafts").json()
+        assert [item["draft_id"] for item in listed["items"]] == [draft_id]
+        assert listed["items"][0]["criteria"] == 0
+        assert listed["items"][0]["expires_at"]
+        assert client.delete(f"/api/v1/goals/drafts/{draft_id}").status_code == 204
+        assert client.get(f"/api/v1/goals/drafts/{draft_id}").status_code == 404
+        assert client.delete(f"/api/v1/goals/drafts/{draft_id}").status_code == 404
+        assert client.get("/api/v1/goals/drafts").json()["items"] == []
+
+    def test_refusals_are_the_service_s_own(self, client: TestClient) -> None:
+        base = f"/api/v1/goals/drafts/{self._draft(client)['draft_id']}"
+        client.post(f"{base}/criteria", json={"action": "add", "name": "Dry wit"})
+        thin = client.post(
+            f"{base}/criteria",
+            json={"action": "describe", "criterion": "dry_wit", "points": 5, "top": "Wry."},
+        )
+        assert thin.status_code == 400
+        nobody = client.post(f"{base}/criteria", json={"action": "answer", "criterion": "nope"})
+        assert nobody.status_code == 400
+        unanchored = client.post(f"{base}/save", json={})
+        assert unanchored.status_code == 400
+        assert client.post("/api/v1/goals/drafts", json={"intent": "  "}).status_code == 400
+        assert client.post(f"{base}/criteria", json={"action": "shout"}).status_code == 400
+
+
+class TestThePackIsServedWhole:
+    """The documents `PUT` takes, the bundle that round-trips, and the calibration fields."""
+
+    def test_the_detail_carries_the_documents_put_takes(self, client: TestClient) -> None:
+        created = _create(client)
+        body = client.get("/api/v1/goals/house_voice").json()
+        assert body["pack"] == {"goal": _goal_body(), "tasks": [_task_record()]}
+        assert body["calibration"] is None
+        replaced = client.put("/api/v1/goals/house_voice", json=body["pack"]).json()
+        assert replaced["hash_change"]["separates"] is False
+        assert replaced["goal_hash"] == created["goal_hash"]
+
+    def test_a_replacement_carries_the_pack_s_other_files_over(
+        self, client: TestClient, tmp_path: Path
+    ) -> None:
+        _create(client)
+        kept = tmp_path / "goals" / "house_voice" / "calibration" / "notes.json"
+        kept.parent.mkdir(parents=True)
+        kept.write_text('{"kept": true}\n', encoding="utf-8")
+        pack = client.get("/api/v1/goals/house_voice").json()["pack"]
+        pack["goal"]["name"] = "House voice, renamed"
+        assert client.put("/api/v1/goals/house_voice", json=pack).status_code == 200
+        assert kept.read_text(encoding="utf-8") == '{"kept": true}\n'
+
+    def test_the_bundle_is_the_cli_s_document_and_imports_back_to_the_same_hash(
+        self, client: TestClient, tmp_path: Path
+    ) -> None:
+        from freeweight.services.goals import bundle_text, get_goal
+
+        created = _create(client)
+        response = client.get("/api/v1/goals/house_voice/bundle")
+        assert response.status_code == 200
+        assert response.headers["content-disposition"] == (
+            'attachment; filename="house_voice.goal-bundle.json"'
+        )
+        assert response.text == bundle_text(get_goal(tmp_path / "goals", "house_voice"))
+        bundle = response.json()
+        collision = client.post("/api/v1/goals/import", json={"bundle": bundle})
+        assert collision.status_code == 409
+        assert collision.json()["error"]["details"]["existing_goal_hash"] == created["goal_hash"]
+        assert client.delete("/api/v1/goals/house_voice?dry_run=false").status_code == 200
+        imported = client.post("/api/v1/goals/import", json={"bundle": bundle})
+        assert imported.status_code == 201
+        assert imported.json()["goal_hash"] == created["goal_hash"]
+
+    def test_the_listing_carries_the_calibration_fields(self, client: TestClient) -> None:
+        _create(client)
+        item = client.get("/api/v1/goals").json()["items"][0]
+        assert item["calibration_state"] == "calibrated", "a rules-only goal needs no calibration"
+        assert item["kappa_w"] is None
+        assert item["n_holdout"] is None
+        assert item["calibrated_at"] is None
+        assert item["calibration_stale"] is False

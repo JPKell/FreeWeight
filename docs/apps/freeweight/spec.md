@@ -144,8 +144,16 @@ POST   /api/v1/goals/{slug}/suggest-rules    GET    /api/v1/goals/{slug}/tasks
 GET    /api/v1/goals/{slug}/calibration      POST   /api/v1/goals/{slug}/calibration/samples
 POST   /api/v1/goals/{slug}/calibration/grades
 POST   /api/v1/goals/{slug}/calibration/run  GET    /api/v1/goals/{slug}/calibration/report
+GET    /api/v1/goals/{slug}/calibration/grading
 GET    /api/v1/goals/{slug}/export           POST   /api/v1/goals/import
+GET    /api/v1/goals/{slug}/bundle
 GET    /api/v1/goals/starters                POST   /api/v1/goals/starters/{key}/fork
+GET    /api/v1/goals/drafts                  POST   /api/v1/goals/drafts
+GET    /api/v1/goals/drafts/{draft_id}       DELETE /api/v1/goals/drafts/{draft_id}
+POST   /api/v1/goals/drafts/{draft_id}/criteria
+POST   /api/v1/goals/drafts/{draft_id}/rules POST   /api/v1/goals/drafts/{draft_id}/tasks
+POST   /api/v1/goals/drafts/{draft_id}/save
+GET    /api/v1/runs/{id}/grading             POST   /api/v1/runs/{id}/grades
 GET    /api/v1/judges                        POST   /api/v1/judges/validate
 ```
 
@@ -228,7 +236,7 @@ document rather than a shared contract
 | Artifact | Produced by | Contains | Read by |
 |---|---|---|---|
 | `benchmark.goal_pack` | `GET /api/v1/goals/{slug}/export` | One SetSpec envelope: the pack's *definition* — identity, criteria, weights, judge config, gate, hashes | Anything that wants to read what a goal measures |
-| **Goal pack bundle** | `freeweight goals export` | Every file of the pack directory, hash-pinned — `goal.json`, `tasks/`, `prompts/`, `pack.json`, and the user's calibration samples and grades where present | `freeweight goals import` and `POST /api/v1/goals/import` |
+| **Goal pack bundle** | `freeweight goals export`, `GET /api/v1/goals/{slug}/bundle` | Every file of the pack directory, hash-pinned — `goal.json`, `tasks/`, `prompts/`, `pack.json`, and the user's calibration samples and grades where present | `freeweight goals import` and `POST /api/v1/goals/import` |
 
 The envelope is a description; the bundle is the pack itself, and only the bundle round-trips
 ([ADR-0031 §6](../../adr/0031-user-defined-goal-benchmarks.md)). Its format is described in
@@ -574,6 +582,7 @@ GOAL_PATH_UNSAFE          GOAL_HASH_MISMATCH        PROMPT_OVERRIDE_REFUSED
 CALIBRATION_REQUIRED      CALIBRATION_INSUFFICIENT  JUDGE_UNAVAILABLE
 JUDGE_SELF_JUDGING_REFUSED                          REMOTE_JUDGE_NOT_PERMITTED
 COMPARISON_SUBJECT_NOT_FOUND                        COMPARISON_REFUSED
+RUN_NOT_GRADEABLE
 ```
 
 Five of these name refusals that the shared set cannot describe usefully, and each exists because

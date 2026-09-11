@@ -21,12 +21,13 @@ out-of-order submission. The draft in the settings store holds only what is not 
 
 from __future__ import annotations
 
-import hashlib
-from typing import TYPE_CHECKING, Annotated, Any
+from dataclasses import replace
+from typing import TYPE_CHECKING, Annotated, Any, Literal
 
 from baseaicore import SuiteError
-from fastapi import APIRouter, Form, Request
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi import APIRouter, Form, Request, status
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
+from pydantic import BaseModel, ConfigDict, Field
 
 from freeweight.__about__ import __version__
 from freeweight.services import wizard as wizard_service
@@ -40,7 +41,7 @@ if TYPE_CHECKING:
     from freeweight.services.database import Database
     from freeweight.services.wizard import WizardDraft
 
-__all__ = ["router"]
+__all__ = ["api_router", "router"]
 
 router = APIRouter(include_in_schema=False)
 
@@ -237,11 +238,9 @@ def wizard_criteria_submit(  # noqa: PLR0913 — one handler, one form, its fiel
                 draft,
                 criterion,
                 points=scale,
-                descriptors={
-                    str(scale): top,
-                    str((scale + 1) // 2): middle,
-                    "1": bottom,
-                },
+                descriptors=wizard_service.scale_descriptors(
+                    scale, top=top, middle=middle, bottom=bottom
+                ),
             )
         elif action == "split":
             draft = wizard_service.split_criterion(draft, criterion, first=first, second=second)
@@ -411,8 +410,6 @@ def wizard_save_submit(
     read again later. A collision is an error they can fix here, not a generated suffix they
     would have to discover.
     """
-    from dataclasses import replace
-
     database = _database(request)
     draft = wizard_service.load_draft(database, draft_id)
     if slug.strip() or name.strip():
@@ -445,20 +442,6 @@ def wizard_save_submit(
     )
 
 
-def _blinded_order(slug: str, sample_ids: list[str]) -> list[str]:
-    """A stable, per-goal shuffle of the calibration samples.
-
-    Stable so that a refresh shows the same order — an order that changed under the user would
-    make "the third one" meaningless mid-sitting — and derived from the goal's slug rather than
-    from a clock so it is reproducible. The point is only that the order is not the order the
-    models were run in, so it carries no signal about which model produced what.
-    """
-    return sorted(
-        sample_ids,
-        key=lambda sample_id: hashlib.sha256(f"{slug}:{sample_id}".encode()).hexdigest(),
-    )
-
-
 @router.get("/goals/{slug}/grade", response_class=HTMLResponse)
 def grade_page(request: Request, slug: str) -> HTMLResponse:
     """Step 5: grade the calibration samples, blinded and shuffled.
@@ -467,54 +450,22 @@ def grade_page(request: Request, slug: str) -> HTMLResponse:
     anywhere else: the model that produced a sample is not shown, the order is not the order they
     were generated in, and every grade is saved the moment it is submitted rather than at the end.
     """
-    from freeweight.services.calibration import grading_progress
+    from freeweight.services.calibration import blinded_samples, graded_criteria, grading_progress
     from freeweight.services.goals import get_goal
 
     database = _database(request)
     goal = get_goal(_goals_root(request), slug)
-    progress = grading_progress(database, goal)
-    samples = _stored_samples(database, goal)
-    order = _blinded_order(slug, [sample["id"] for sample in samples])
-    by_id = {sample["id"]: sample for sample in samples}
     return _page(
         "goals/grade.html",
         step=WizardStep.GRADE,
         goal=goal,
-        progress=progress,
-        samples=[by_id[sample_id] for sample_id in order],
-        criteria=goal.pack.judged_criteria,
+        progress=grading_progress(database, goal),
+        samples=blinded_samples(database, goal),
+        # Every criterion the progress counts: a human criterion is graded here too, and offering
+        # only the judged ones left such a goal's grading forever short of complete.
+        criteria=graded_criteria(goal),
         error=None,
     )
-
-
-def _stored_samples(database: Database, goal: Any) -> list[dict[str, Any]]:  # noqa: ANN401
-    """This goal's calibration samples, with the grades already recorded against them.
-
-    The model that produced a sample is deliberately **not** read: blinding is enforced by not
-    fetching the identity rather than by not rendering it, so a template change cannot leak it.
-    """
-    from freeweight.infrastructure.db.repositories.calibration import (
-        CalibrationGradeRepository,
-        CalibrationSampleRepository,
-    )
-    from freeweight.infrastructure.db.repositories.goals import GoalRepository
-
-    with database.read() as session:
-        row = GoalRepository().get_by_slug(session, goal.pack.slug)
-        if row is None:
-            return []
-        criterion_keys = {
-            value: key for key, value in GoalRepository().criterion_ids(session, row.id).items()
-        }
-        grades: dict[str, dict[str, Any]] = {}
-        for grade in CalibrationGradeRepository().list_for_goal(session, row.id):
-            grades.setdefault(grade.calibration_sample_id, {})[
-                criterion_keys.get(grade.goal_criterion_id, "")
-            ] = {"grade": grade.grade, "note": grade.note or ""}
-        return [
-            {"id": sample.id, "content": sample.content, "grades": grades.get(sample.id, {})}
-            for sample in CalibrationSampleRepository().list_for_goal(session, row.id)
-        ]
 
 
 @router.post("/goals/{slug}/grade")
@@ -596,3 +547,240 @@ BAND_TABLE: tuple[tuple[str, str, str], ...] = (
 
 Words first, coefficient second. The consequence is part of the band because a user reading
 "0.41" needs to know that it is the difference between evidence and no evidence."""
+
+
+# ---------------------------------------------------------------------------------------------
+# The same drafts over the API (api.md §3a)
+#
+# A draft belongs to FreeWeight (spec §10), so a client that authors a goal away from these pages —
+# WeightRoomGym's console, on the LAN this process does not bind — drives the same rows through the
+# same service functions the pages above call, and never keeps a second copy. Every handler is one
+# service call and a render, as above.
+# ---------------------------------------------------------------------------------------------
+
+api_router = APIRouter(tags=["goals"])
+
+
+class DraftStartBody(BaseModel):
+    """Step 1's answer, or the starter a draft customises."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    intent: str = ""
+    name: str = ""
+    starter: str | None = None
+
+
+class CriteriaActionBody(BaseModel):
+    """One of step 2's four actions, and the fields that action reads."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    action: Literal["add", "answer", "describe", "split"]
+    name: str = ""
+    intent: str = ""
+    criterion: str = ""
+    graded_alike: bool | None = None
+    one_quality: bool | None = None
+    points: int = 5
+    top: str = ""
+    middle: str = ""
+    bottom: str = ""
+    first: str = ""
+    second: str = ""
+
+
+class RuleAcceptBody(BaseModel):
+    """One proposal accepted, with its parameters as the author left them."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    criterion: str = Field(min_length=1)
+    rule_type: str = Field(min_length=1)
+    parameters: dict[str, Any] | None = None
+
+
+class DraftTaskBody(BaseModel):
+    """One of the author's own prompts."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    name: str = ""
+    prompt_text: str = ""
+
+
+class DraftSaveBody(BaseModel):
+    """The name the pack is written under; blank keeps the draft's own."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    slug: str = ""
+    name: str = ""
+
+
+def draft_json(draft: WizardDraft) -> dict[str, Any]:
+    """One draft as the API answers it: the stored form, and what each step shows beside it."""
+    body = draft.as_json()
+    for entry, criterion in zip(body["criteria"], draft.criteria, strict=True):
+        entry["needs_descriptors"] = criterion.needs_descriptors
+        entry["needs_attention"] = criterion.needs_attention
+    shift = wizard_service.weight_shift(draft)
+    return {
+        **body,
+        "questions": list(wizard_service.SPLIT_QUESTIONS),
+        "proposals": [proposal.as_json() for proposal in wizard_service.propose_rules(draft)],
+        "weight_shift": {
+            "deterministic": shift.deterministic,
+            "judged": shift.judged,
+            "sentence": shift.sentence(),
+        },
+        "grading_cost": wizard_service.grading_cost_sentence(draft),
+    }
+
+
+@api_router.get("/goals/drafts", summary="The authoring wizard's live drafts")
+def list_drafts_endpoint(request: Request) -> dict[str, Any]:
+    """Every draft still live, the most recently changed first; an expired one is collected."""
+    items = wizard_service.list_drafts(_database(request))
+    return {
+        "items": items,
+        "page": {"limit": len(items), "next_cursor": None, "has_more": False},
+        "total": len(items),
+    }
+
+
+@api_router.post("/goals/drafts", status_code=status.HTTP_201_CREATED, summary="Begin a draft")
+def start_draft_endpoint(request: Request, body: DraftStartBody) -> JSONResponse:
+    """Begin a draft at step 2: from step 1's intent, or from a starter to customise.
+
+    Raises:
+        ValidationError: No starter was named and the intent is empty.
+        StarterNotFound: No starter has that key.
+    """
+    database = _database(request)
+    if body.starter:
+        draft = wizard_service.starter_draft(database, body.starter)
+    else:
+        draft = wizard_service.start_draft(database, intent=body.intent, name=body.name)
+    return JSONResponse(draft_json(draft), status_code=status.HTTP_201_CREATED)
+
+
+@api_router.get("/goals/drafts/{draft_id}", summary="One draft")
+def get_draft_endpoint(request: Request, draft_id: str) -> dict[str, Any]:
+    """One draft with its proposals, its weight shift and what grading it will cost.
+
+    Raises:
+        DraftNotFound: No draft has that id, or it has expired.
+    """
+    return draft_json(wizard_service.load_draft(_database(request), draft_id))
+
+
+@api_router.post("/goals/drafts/{draft_id}/criteria", summary="Step 2: one action on the criteria")
+def draft_criteria_endpoint(
+    request: Request, draft_id: str, body: CriteriaActionBody
+) -> dict[str, Any]:
+    """Add a criterion, answer its two questions, describe its scale, or split it in two.
+
+    Raises:
+        DraftNotFound: No draft has that id.
+        ValidationError: The service's own refusal — an unnamed criterion, a key that collides,
+            an unknown criterion, a scale that is not 3, 5 or 7 points or describes fewer than
+            three of them, a half with no name.
+    """
+    database = _database(request)
+    draft = wizard_service.load_draft(database, draft_id)
+    if body.action == "add":
+        draft = wizard_service.add_criterion(draft, name=body.name, intent=body.intent)
+    elif body.action == "answer":
+        draft = wizard_service.answer_questions(
+            draft, body.criterion, graded_alike=body.graded_alike, one_quality=body.one_quality
+        )
+    elif body.action == "describe":
+        draft = wizard_service.set_scale(
+            draft,
+            body.criterion,
+            points=body.points,
+            descriptors=wizard_service.scale_descriptors(
+                body.points, top=body.top, middle=body.middle, bottom=body.bottom
+            ),
+        )
+    else:
+        draft = wizard_service.split_criterion(
+            draft, body.criterion, first=body.first, second=body.second
+        )
+    return draft_json(wizard_service.save_draft(database, draft))
+
+
+@api_router.post("/goals/drafts/{draft_id}/rules", summary="Step 3: accept one proposed rule")
+def draft_rules_endpoint(request: Request, draft_id: str, body: RuleAcceptBody) -> dict[str, Any]:
+    """Accept one rule for one criterion — the only way a draft's criterion leaves the judge.
+
+    Raises:
+        DraftNotFound: No draft has that id.
+        ValidationError: The criterion does not exist, or the rule type is not one this build runs.
+    """
+    database = _database(request)
+    draft = wizard_service.accept_rule(
+        wizard_service.load_draft(database, draft_id),
+        body.criterion,
+        rule_type=body.rule_type,
+        parameters=body.parameters,
+    )
+    return draft_json(wizard_service.save_draft(database, draft))
+
+
+@api_router.post("/goals/drafts/{draft_id}/tasks", summary="Step 4: add a task")
+def draft_tasks_endpoint(request: Request, draft_id: str, body: DraftTaskBody) -> dict[str, Any]:
+    """Add one of the author's own prompts.
+
+    Raises:
+        DraftNotFound: No draft has that id.
+        ValidationError: The name or the prompt is empty, or the name collides.
+    """
+    database = _database(request)
+    draft = wizard_service.add_task(
+        wizard_service.load_draft(database, draft_id), name=body.name, prompt_text=body.prompt_text
+    )
+    return draft_json(wizard_service.save_draft(database, draft))
+
+
+@api_router.post("/goals/drafts/{draft_id}/save", summary="Step 7: write the pack")
+def draft_save_endpoint(request: Request, draft_id: str, body: DraftSaveBody) -> dict[str, Any]:
+    """Write the draft as a goal pack, under the name given or the draft's own.
+
+    A draft already saved answers the pack it wrote rather than writing a second — a client that
+    retries after a dropped response gets the goal, not a collision with itself.
+
+    Raises:
+        DraftNotFound: No draft has that id.
+        ValidationError: No criterion, no task, or a judged criterion with no descriptors.
+        GoalSlugCollision: A goal with that slug already exists.
+    """
+    from freeweight.web.routes.goals import goal_json
+
+    database = _database(request)
+    draft = wizard_service.load_draft(database, draft_id)
+    if not draft.saved_slug and (body.slug.strip() or body.name.strip()):
+        draft = wizard_service.save_draft(
+            database,
+            replace(
+                draft, slug=body.slug.strip() or draft.slug, name=body.name.strip() or draft.name
+            ),
+        )
+    draft, goal = wizard_service.save_pack(database, _goals_root(request), draft)
+    return {"draft": draft_json(draft), "goal": goal_json(goal, outcome=None)}
+
+
+@api_router.delete(
+    "/goals/drafts/{draft_id}", status_code=status.HTTP_204_NO_CONTENT, summary="Abandon a draft"
+)
+def delete_draft_endpoint(request: Request, draft_id: str) -> Response:
+    """Abandon one draft. A pack it already wrote stays: the goal is the author's, not the draft's.
+
+    Raises:
+        DraftNotFound: No draft has that id.
+    """
+    database = _database(request)
+    wizard_service.load_draft(database, draft_id)
+    wizard_service.delete_draft(database, draft_id)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)

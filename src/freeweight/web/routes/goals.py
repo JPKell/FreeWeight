@@ -25,6 +25,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
+from baseaicore import to_rfc3339
 from fastapi import APIRouter, Request, status
 from fastapi.responses import JSONResponse, Response
 from pydantic import BaseModel, ConfigDict, Field
@@ -32,24 +33,30 @@ from setspec.envelope import GeneratorInfo, SchemaVersion
 
 from freeweight.__about__ import __version__
 from freeweight.config import Settings
+from freeweight.domain.calibration import CalibrationState
+from freeweight.services.calibration import latest_outcome
 from freeweight.services.goals import (
+    bundle_text,
     delete_goal,
     get_goal,
     goal_hash_change,
     import_bundle,
     list_goals,
+    pack_documents,
     replace_pack,
     suggest_rules_for_pack,
     summarize,
     write_pack,
 )
+from freeweight.services.wizard import default_rule_parameters, rule_explanation
 
 if TYPE_CHECKING:
     from pathlib import Path
 
+    from freeweight.services.calibration import CalibrationOutcome
     from freeweight.services.goals import LoadedGoal
 
-__all__ = ["api_router"]
+__all__ = ["api_router", "goal_json"]
 
 api_router = APIRouter(tags=["goals"])
 
@@ -86,9 +93,20 @@ def _root(request: Request) -> Path:
     return settings.goals.root_path
 
 
-def _goal_json(goal: LoadedGoal) -> dict[str, Any]:
-    """Render one goal as the API returns it — the same field names the CLI's ``--json`` uses."""
+def _outcome(request: Request, goal: LoadedGoal) -> CalibrationOutcome | None:
+    """The goal's stored calibration report, or ``None`` when it has never been calibrated."""
+    return latest_outcome(request.app.state.database, goal)
+
+
+def goal_json(goal: LoadedGoal, *, outcome: CalibrationOutcome | None) -> dict[str, Any]:
+    """Render one goal as the API returns it — the same field names the CLI's ``--json`` uses.
+
+    Args:
+        goal: The loaded goal.
+        outcome: Its stored calibration report, or ``None``; the calibration fields read from it.
+    """
     summary = summarize(goal)
+    measured = outcome is not None and outcome.verdict.state is not CalibrationState.NOT_REQUIRED
     return {
         "slug": summary.slug,
         "name": summary.name,
@@ -99,7 +117,15 @@ def _goal_json(goal: LoadedGoal) -> dict[str, Any]:
         "contributes_to": summary.contributes_to,
         "score_method_mix": dict(summary.score_method_mix),
         "unforked": summary.unforked,
-        "calibration_state": _calibration_state(goal),
+        "calibration_state": _calibration_state(goal, outcome),
+        "kappa_w": outcome.verdict.weighted_kappa_w if outcome is not None and measured else None,
+        "n_holdout": outcome.verdict.n_holdout if outcome is not None and measured else None,
+        "calibrated_at": (
+            to_rfc3339(outcome.measured_at)
+            if outcome is not None and measured and outcome.measured_at
+            else None
+        ),
+        "calibration_stale": outcome is not None and outcome.goal_hash != goal.goal_hash,
         "criteria": [
             {
                 "key": criterion.key,
@@ -118,17 +144,19 @@ def _goal_json(goal: LoadedGoal) -> dict[str, Any]:
     }
 
 
-def _calibration_state(goal: LoadedGoal) -> str:
-    """Whether this goal needs calibration at all, before any has happened.
+def _calibration_state(goal: LoadedGoal, outcome: CalibrationOutcome | None) -> str:
+    """Where this goal stands, in api.md's three words.
 
-    Phase 8A knows only two of api.md's three states: a goal with no judged criterion needs no
-    calibration and is ``"calibrated"`` by construction — there is nothing to calibrate, so
-    nothing failed to. One with judged criteria is ``"insufficient"`` until the grades exist,
-    which is Phase 8B's business and is deliberately *not* reported as ``"uncalibrated"``: that
-    word means "measured, and the agreement was too low", and saying it before any measurement
-    would be a claim about a jury nobody has run.
+    From the stored report when there is one: ``calibrated`` or ``uncalibrated`` is what the jury's
+    agreement was measured to be. Without one, a goal with no judged criterion needs no calibration
+    and is ``"calibrated"`` by construction — there is nothing to calibrate, so nothing failed to —
+    and one with judged criteria is ``"insufficient"`` until the grades have been measured, never
+    ``"uncalibrated"``: that word means "measured, and the agreement was too low", and saying it
+    before any measurement would be a claim about a jury nobody has run.
     """
-    return "insufficient" if goal.pack.judged_criteria else "calibrated"
+    if outcome is None or outcome.verdict.state is CalibrationState.NOT_REQUIRED:
+        return "insufficient" if goal.pack.judged_criteria else "calibrated"
+    return outcome.verdict.state.value
 
 
 def _task_json(goal: LoadedGoal, index: int) -> dict[str, Any]:
@@ -156,7 +184,7 @@ def list_goals_endpoint(request: Request) -> dict[str, Any]:
     """
     goals = list_goals(_root(request))
     return {
-        "items": [_goal_json(goal) for goal in goals],
+        "items": [goal_json(goal, outcome=_outcome(request, goal)) for goal in goals],
         "page": {"limit": len(goals), "next_cursor": None, "has_more": False},
         "total": len(goals),
     }
@@ -170,7 +198,9 @@ def create_goal_endpoint(request: Request, body: GoalPackBody) -> JSONResponse:
     such a pack could not be run at all.
     """
     goal = write_pack(_root(request), goal=body.goal, tasks=body.tasks)
-    return JSONResponse(_goal_json(goal), status_code=status.HTTP_201_CREATED)
+    return JSONResponse(
+        goal_json(goal, outcome=_outcome(request, goal)), status_code=status.HTTP_201_CREATED
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -226,13 +256,26 @@ def fork_starter_endpoint(request: Request, key: str, body: ForkBody | None = No
     from freeweight.goals.starters import fork_starter
 
     goal = fork_starter(_root(request), key, slug=(body.slug if body else None))
-    return JSONResponse(_goal_json(goal), status_code=status.HTTP_201_CREATED)
+    return JSONResponse(
+        goal_json(goal, outcome=_outcome(request, goal)), status_code=status.HTTP_201_CREATED
+    )
 
 
 @api_router.get("/goals/{slug}", summary="One goal")
 def get_goal_endpoint(request: Request, slug: str) -> dict[str, Any]:
-    """Return one goal as loaded, with its lint findings."""
-    return _goal_json(get_goal(_root(request), slug))
+    """Return one goal as loaded: its lint findings, its pack and its calibration report.
+
+    ``pack`` is ``goal.json`` and the task records exactly as they are on disk — the body ``PUT``
+    takes — so an editor starts from the documents rather than from this summary, which would drop
+    whatever the summary does not carry. ``calibration`` is the stored report, or ``null``.
+    """
+    goal = get_goal(_root(request), slug)
+    outcome = _outcome(request, goal)
+    return {
+        **goal_json(goal, outcome=outcome),
+        "pack": pack_documents(goal),
+        "calibration": outcome.as_json() if outcome is not None else None,
+    }
 
 
 @api_router.put("/goals/{slug}", summary="Replace a goal")
@@ -257,7 +300,7 @@ def replace_goal_endpoint(
         request.app.state.database, slug=slug, existing=previous, replacement=current
     )
     return {
-        **_goal_json(current),
+        **goal_json(current, outcome=_outcome(request, current)),
         "dry_run": dry_run,
         "hash_change": {
             "previous_goal_hash": change.previous,
@@ -295,9 +338,29 @@ def validate_goal_endpoint(request: Request, slug: str) -> dict[str, Any]:
 
 @api_router.post("/goals/{slug}/suggest-rules", summary="Rules that could carry a criterion")
 def suggest_rules_endpoint(request: Request, slug: str) -> dict[str, Any]:
-    """Propose rung-2 rules for this goal's criteria. **Proposals only** — never applied."""
+    """Propose rung-2 rules for this goal's criteria. **Proposals only** — never applied.
+
+    ``proposals`` names the rule types per criterion; ``items`` carries each one with the wizard's
+    own pre-filled parameters and its explanation, so a client can show a proposal a person can
+    read, disagree with and edit — and accepting one stays that person's act.
+    """
     goal = get_goal(_root(request), slug)
-    return {"slug": goal.pack.slug, "proposals": suggest_rules_for_pack(goal)}
+    proposals = suggest_rules_for_pack(goal)
+    names = {criterion.key: criterion.name for criterion in goal.pack.criteria}
+    return {
+        "slug": goal.pack.slug,
+        "proposals": proposals,
+        "items": [
+            {
+                "criterion": key,
+                "rule_type": rule_type,
+                "parameters": default_rule_parameters(rule_type),
+                "explanation": rule_explanation(names.get(key, key), rule_type),
+            }
+            for key, rule_types in proposals.items()
+            for rule_type in rule_types
+        ],
+    }
 
 
 @api_router.get("/goals/{slug}/tasks", summary="One goal's tasks")
@@ -320,7 +383,7 @@ def export_goal_endpoint(request: Request, slug: str) -> Response:
     (API standards §3): a pack is one document. It carries the goal's *definition* — criteria,
     weights, rungs, task prompt identities and hashes — which is what a consumer needs to decide
     comparability. The portable *bundle*, which carries the files an importer would need, is
-    ``freeweight goals export`` on the CLI.
+    ``GET /goals/{slug}/bundle`` and ``freeweight goals export`` on the CLI.
 
     The document itself is :func:`~freeweight.services.export.iter_goal_export`'s, so this
     endpoint and ``freeweight results export`` cannot come to emit different bytes for one pack.
@@ -330,6 +393,24 @@ def export_goal_endpoint(request: Request, slug: str) -> Response:
     goal = get_goal(_root(request), slug)
     body = "".join(iter_goal_export(request.app.state.database, goal, document="goal_pack"))
     return Response(content=body, media_type="application/json; charset=utf-8")
+
+
+@api_router.get("/goals/{slug}/bundle", summary="Export the portable bundle")
+def bundle_endpoint(request: Request, slug: str) -> Response:
+    """Return one goal as the bundle ``freeweight goals export`` writes — the round-trip form.
+
+    Every file of the pack, hash-pinned, which is what ``POST /goals/import`` reads back. Byte for
+    byte the CLI's document (:func:`~freeweight.services.goals.bundle_text`), so the two cannot
+    come to differ, and served as an attachment because it is a file to keep.
+    """
+    goal = get_goal(_root(request), slug)
+    return Response(
+        content=bundle_text(goal),
+        media_type="application/json; charset=utf-8",
+        headers={
+            "Content-Disposition": f'attachment; filename="{goal.pack.slug}.goal-bundle.json"'
+        },
+    )
 
 
 @api_router.get(
@@ -372,4 +453,6 @@ def import_goal_endpoint(request: Request, body: GoalBundleBody) -> JSONResponse
         max_bytes=settings.goals.max_pack_bytes,
         slug=body.slug,
     )
-    return JSONResponse(_goal_json(goal), status_code=status.HTTP_201_CREATED)
+    return JSONResponse(
+        goal_json(goal, outcome=_outcome(request, goal)), status_code=status.HTTP_201_CREATED
+    )
