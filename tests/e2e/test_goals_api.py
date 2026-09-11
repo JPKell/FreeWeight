@@ -833,6 +833,9 @@ class TestAGoalWrittenWhileServingIsRunnable:
             second = run_to_the_end({"measured_repetitions": 1})
             assert second["status"] == "completed", second.get("error")
             assert second["suite"]["version"].endswith(edited["goal_hash"][7:15])
+            # A deletion orphans the run measured before the edit as well as the one after it
+            # (the preview counted only the current hash's runs; found by row WP4's demonstration).
+            assert client.delete("/api/v1/goals/house_voice").json()["orphaned_runs"] == 2
 
 
 class TestAForkLosesItsBadgeWhenItsContentIsEdited:

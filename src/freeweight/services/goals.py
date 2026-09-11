@@ -643,23 +643,30 @@ def goal_hash_change(
     )
 
 
-def _runs_for_goal(database: Database, *, slug: str, goal_hash: str) -> int:
-    """Count the runs recorded against one goal hash."""
+def _runs_for_goal(database: Database, *, slug: str, goal_hash: str | None) -> int:
+    """Count the runs recorded against one goal hash, or against every hash the goal has had.
+
+    Args:
+        database: The database handle.
+        slug: The goal.
+        goal_hash: The hash an edit would separate runs from, or ``None`` for every run of
+            ``goal.<slug>`` — what a deletion orphans, since runs measured before an earlier edit
+            lose their goal too.
+    """
     from sqlalchemy import func, select
 
     from freeweight.infrastructure.db.models_runs import BenchmarkSuite, Run
 
+    query = (
+        select(func.count())
+        .select_from(Run)
+        .join(BenchmarkSuite, BenchmarkSuite.id == Run.suite_id)
+        .where(BenchmarkSuite.key == f"goal.{slug}")
+    )
+    if goal_hash is not None:
+        query = query.where(BenchmarkSuite.goal_hash == goal_hash)
     with database.read() as session:
-        return int(
-            session.scalar(
-                select(func.count())
-                .select_from(Run)
-                .join(BenchmarkSuite, BenchmarkSuite.id == Run.suite_id)
-                .where(BenchmarkSuite.key == f"goal.{slug}")
-                .where(BenchmarkSuite.goal_hash == goal_hash)
-            )
-            or 0
-        )
+        return int(session.scalar(query) or 0)
 
 
 def _member_relative_path(name: str) -> Path:
@@ -1122,8 +1129,7 @@ def delete_goal(
                 )
                 or 0
             )
-        goal_hash = row.goal_hash if row is not None else ""
-    runs = _runs_for_goal(database, slug=slug, goal_hash=goal_hash) if goal_hash else 0
+    runs = _runs_for_goal(database, slug=slug, goal_hash=None)
     preview = {
         "slug": slug,
         "dry_run": dry_run,
