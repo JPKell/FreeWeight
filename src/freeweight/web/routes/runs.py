@@ -41,11 +41,14 @@ from freeweight.services.runs import (
     ExecutionConfig,
     RunDetail,
     RunNotFound,
+    RunsQuery,
     cancel_run,
     create_run,
     get_run,
     list_runs,
     list_samples,
+    query_runs,
+    sample_page,
 )
 from freeweight.services.telemetry_recording import TelemetrySeries, load_series
 from freeweight.web.rendering import render
@@ -99,6 +102,9 @@ def _summary_json(summary: Any) -> dict[str, Any]:  # noqa: ANN401 — a RunSumm
             if summary.error_code is None
             else {"code": summary.error_code, "message": summary.error_text}
         ),
+        "machine_fingerprint": summary.machine_fingerprint,
+        "runtime_profile_hash": summary.runtime_profile_hash,
+        "adapter": summary.adapter_name,
     }
 
 
@@ -249,14 +255,47 @@ def create_run_endpoint(request: Request, body: dict[str, Any]) -> JSONResponse:
 
 
 @api_router.get("/runs", summary="List runs")
-def list_runs_endpoint(
+def list_runs_endpoint(  # noqa: PLR0913 — every argument is a documented query parameter
     request: Request,
     run_status: Annotated[str | None, Query(alias="status")] = None,
+    model: Annotated[str | None, Query(description="Canonical ID, ULID, prefix or name.")] = None,
+    suite: Annotated[str | None, Query(description="Benchmark suite key.")] = None,
+    machine: Annotated[str | None, Query(description="Machine fingerprint.")] = None,
+    label: Annotated[str | None, Query(description="Exact label.")] = None,
+    adapter: Annotated[str | None, Query(description="Adapter name or artifact digest.")] = None,
+    since: Annotated[str | None, Query(description="RFC 3339; created at or after.")] = None,
+    until: Annotated[str | None, Query(description="RFC 3339; created strictly before.")] = None,
     limit: Annotated[int, Query(ge=1, le=500)] = 50,
+    cursor: Annotated[str | None, Query(description="The previous page's next_cursor.")] = None,
 ) -> dict[str, Any]:
-    """Return runs newest-first, optionally filtered by status."""
-    runs = list_runs(request.app.state.database, status=run_status, limit=limit)
-    return {"runs": [_summary_json(run) for run in runs]}
+    """Return runs newest first, filtered, one page at a time (api.md §4).
+
+    Raises:
+        ModelNotFound: ``model`` matches nothing.
+        ValidationError: A timestamp is malformed, ``model`` is an ambiguous prefix, or the cursor
+            was not issued here.
+    """
+    from freeweight.web.query import parse_instant
+
+    page = query_runs(
+        request.app.state.database,
+        RunsQuery(
+            status=run_status,
+            model=model,
+            suite=suite,
+            machine=machine,
+            label=label,
+            adapter=adapter,
+            since=parse_instant(since, field="since"),
+            until=parse_instant(until, field="until"),
+            limit=limit,
+            cursor=cursor,
+        ),
+    )
+    return {
+        "runs": [_summary_json(run) for run in page.runs],
+        "page": {"limit": page.limit, "next_cursor": page.next_cursor, "has_more": page.has_more},
+    }
 
 
 @api_router.get("/runs/{run_id}", summary="One run with its tests and metrics")
@@ -346,6 +385,7 @@ def run_samples_endpoint(
     run_id: str,
     run_test_id: str,
     limit: Annotated[int, Query(ge=1, le=1000)] = 500,
+    cursor: Annotated[str | None, Query(description="The previous page's next_cursor.")] = None,
 ) -> dict[str, Any]:
     """Return one test's raw samples — the rows every headline number drills to.
 
@@ -361,8 +401,9 @@ def run_samples_endpoint(
             f"Run {detail.run.id!r} has no test {run_test_id!r}.",
             details={"run": detail.run.id, "run_test": run_test_id},
         )
-    samples = list_samples(request.app.state.database, run_test_id, limit=limit)
+    page = sample_page(request.app.state.database, run_test_id, limit=limit, cursor=cursor)
     return {
+        "page": {"limit": page.limit, "next_cursor": page.next_cursor, "has_more": page.has_more},
         "samples": [
             {
                 "id": sample.id,
@@ -385,9 +426,47 @@ def run_samples_endpoint(
                     else {"code": sample.error_code, "message": sample.error_text}
                 ),
                 "detail": sample.detail,
+                "prompt_id": sample.prompt_id,
+                "prompt_version": sample.prompt_version,
+                "client_ttft_ms": sample.client_ttft_ms,
             }
-            for sample in samples
-        ]
+            for sample in page.samples
+        ],
+    }
+
+
+@api_router.get("/runs/{run_id}/telemetry", summary="One run's telemetry as series")
+def run_telemetry_endpoint(request: Request, run_id: str) -> dict[str, Any]:
+    """Return one run's persisted telemetry as parallel series (api.md §4).
+
+    The series the run page draws. A ``null`` in a series is a reading this machine could not take
+    at that instant — a gap in the chart, never a zero (ADR-0016).
+
+    Raises:
+        RunNotFound: Nothing matches ``run_id``.
+    """
+    from baseaicore.timeutil import to_rfc3339
+
+    database: Database = request.app.state.database
+    run = get_run(database, run_id).run
+    series = load_series(database, run.id)
+    return {
+        "run_id": run.id,
+        "sample_count": series.sample_count,
+        "timestamps": [to_rfc3339(stamp) for stamp in series.timestamps],
+        "cpu_percent": list(series.cpu_percent),
+        "ram_used_bytes": list(series.ram_used_bytes),
+        "gpus": [
+            {
+                "gpu_index": gpu.gpu_index,
+                "gpu_uuid": gpu.gpu_uuid,
+                "utilization_percent": list(gpu.utilization_percent),
+                "vram_used_bytes": list(gpu.vram_used_bytes),
+                "power_watts": list(gpu.power_watts),
+                "temperature_c": list(gpu.temperature_c),
+            }
+            for gpu in series.gpus
+        ],
     }
 
 

@@ -46,6 +46,7 @@ from freeweight.services.results import (
     DEFAULT_RESULTS_LIMIT,
     ResultsQuery,
     inspect_case,
+    inspection_json,
     query_results,
 )
 from freeweight.web.query import parse_instant
@@ -74,6 +75,9 @@ _StatusQuery = Annotated[
 ]
 _LimitQuery = Annotated[int, Query(ge=1, le=500, description="Page size; clamped to 500.")]
 _CursorQuery = Annotated[str | None, Query(description="Opaque cursor from a previous page.")]
+_AdapterQuery = Annotated[
+    str | None, Query(description="Adapter name or artifact digest: runs measured under it.")
+]
 
 
 def _query_from(  # noqa: PLR0913 — this *is* the documented filter set
@@ -88,9 +92,11 @@ def _query_from(  # noqa: PLR0913 — this *is* the documented filter set
     status: str | None,
     limit: int,
     cursor: str | None,
+    adapter: str | None = None,
 ) -> ResultsQuery:
     """Build the service query from the parsed parameters."""
     return ResultsQuery(
+        adapter=adapter,
         model=model,
         suite=suite,
         metric_key=metric_key,
@@ -117,6 +123,7 @@ def list_results(  # noqa: PLR0913 — every argument is a documented query para
     status: _StatusQuery = None,
     limit: _LimitQuery = DEFAULT_RESULTS_LIMIT,
     cursor: _CursorQuery = None,
+    adapter: _AdapterQuery = None,
 ) -> dict[str, Any]:
     """Return stored metric rows, newest run first (API §5).
 
@@ -136,6 +143,7 @@ def list_results(  # noqa: PLR0913 — every argument is a documented query para
         status: Run status, or ``"any"``.
         limit: Page size, clamped to 500.
         cursor: Opaque continuation token.
+        adapter: An adapter's name or artifact digest: only runs measured under it.
 
     Returns:
         The collection envelope: ``items`` and ``page``.
@@ -159,9 +167,20 @@ def list_results(  # noqa: PLR0913 — every argument is a documented query para
             status=status,
             limit=limit,
             cursor=cursor,
+            adapter=adapter,
         ),
     )
     return page.as_json()
+
+
+@api_router.get("/samples/{sample_id}", summary="One sample, exactly as recorded")
+def sample_endpoint(request: Request, sample_id: str) -> dict[str, Any]:
+    """Return the case inspector's document for one sample (api.md §4).
+
+    Raises:
+        SampleNotFound: No sample has this id, answered ``404 NOT_FOUND``.
+    """
+    return inspection_json(inspect_case(request.app.state.database, sample_id))
 
 
 _FormatQuery = Annotated[

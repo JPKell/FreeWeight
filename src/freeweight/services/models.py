@@ -165,6 +165,10 @@ class ModelListRow:
     enabled: bool = True
     """Whether an operator permits this model to be measured (ADR-0118). Discovery never writes
     it, so a model disabled here stays disabled across rescans."""
+    family: str | None = None
+    """The latest descriptor's family, which ``GET /models?family=`` filters on."""
+    has_results: bool = False
+    """Whether any run of this model stored a metric — ``GET /models?has_results=``."""
 
 
 def set_model_enabled(database: Database, *, model_ref: str, enabled: bool) -> str:
@@ -214,8 +218,17 @@ def list_models_with_latest_descriptor(database: Database) -> tuple[ModelListRow
     Raises:
         DatabaseUnavailable: The database could not be read.
     """
+    from sqlalchemy import select
+
+    from freeweight.infrastructure.db.models_runs import MetricValue, Run
+
     descriptor_repo = ModelDescriptorRepository()
     with _translated(), database.read() as session:
+        measured = set(
+            session.scalars(
+                select(Run.model_id).join(MetricValue, MetricValue.run_id == Run.id).distinct()
+            )
+        )
         rows = []
         for model in ModelRepository().list_all(session):
             latest = descriptor_repo.latest_for_model(session, model.id)
@@ -233,6 +246,8 @@ def list_models_with_latest_descriptor(database: Database) -> tuple[ModelListRow
                     parameter_count=latest.parameter_count if latest is not None else None,
                     max_context=latest.max_context if latest is not None else None,
                     enabled=model.enabled,
+                    family=latest.family if latest is not None else None,
+                    has_results=model.id in measured,
                 )
             )
     return tuple(rows)
@@ -288,6 +303,8 @@ class ModelDetail:
     """The alias this particular lookup resolved and recorded, or ``None`` if ``reference`` was
     already the stored ULID, canonical ID or provider name — set only on the call that observed it,
     never derived from ``aliases`` (which may hold others from earlier lookups)."""
+    enabled: bool = True
+    """Whether an operator permits this model to be measured (ADR-0118)."""
 
 
 def _to_optional_int(value: Measurement) -> int | None:
@@ -601,6 +618,7 @@ def _to_detail(
         latest_descriptor=summarize(latest) if latest is not None else None,
         descriptor_history=tuple(summarize(row) for row in history),
         resolved_alias=resolved_alias,
+        enabled=bool(model.enabled),
     )
 
 

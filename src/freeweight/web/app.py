@@ -37,6 +37,7 @@ from freeweight.web.csrf import CsrfCookieMiddleware
 from freeweight.web.errors import register_exception_handlers
 from freeweight.web.middleware import BodySizeLimitMiddleware
 from freeweight.web.rendering import configure_shell, render, templates
+from freeweight.web.routes import adapters as adapters_routes
 from freeweight.web.routes import benchmarks as benchmarks_routes
 from freeweight.web.routes import calibration as calibration_routes
 from freeweight.web.routes import compare as compare_routes
@@ -240,6 +241,7 @@ def create_app(
     app.include_router(providers_routes.api_router, prefix="/api/v1")
     app.include_router(benchmarks_routes.api_router, prefix="/api/v1")
     app.include_router(evidence_routes.api_router, prefix="/api/v1")
+    app.include_router(adapters_routes.api_router, prefix="/api/v1")
     app.include_router(machines_routes.router)
     app.include_router(models_routes.router)
     app.include_router(providers_routes.router)

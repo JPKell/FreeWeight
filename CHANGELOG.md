@@ -9,6 +9,31 @@ packaging and release standards §3.
 
 ### Added
 
+- **The read surface WeightRoomGym's FreeWeight pages need** (row WP3; `api.md` §2, §2a, §4, §5).
+  FreeWeight binds loopback, so the console is how a LAN operator reaches it, and the console
+  calls `/api/v1` only. All additive:
+  - `GET /runs` filters by `model`, `suite`, `machine`, `label`, `adapter`, `since` and `until`
+    and pages by `cursor` over `(created_at, id)`, as api.md already said it did; the body gains
+    `page`, and each run names its `machine_fingerprint`, `runtime_profile_hash` and `adapter`.
+  - `GET /runs/{id}/tests/{test_id}/samples` pages by `cursor`, and each sample names
+    `prompt_id`, `prompt_version` and `client_ttft_ms`.
+  - `GET /runs/{id}/telemetry` — the run page's charts as series; `GET /samples/{sample_id}` —
+    the case inspector as a document.
+  - `GET /models` gains `has_results` and `sort`, and each item says its `family`, `enabled` and
+    `has_results`; `GET /models/{ref}` says `enabled`.
+  - `POST /api/v1/models/{ref}/enabled` with a JSON body `{"enabled": …}`. api.md had declared
+    it since ADR-0118, but only the page's form route existed, so the console's catalog switch
+    for FreeWeight answered `404`.
+  - `GET /results` filters by `adapter`; `GET /adapters` reads the adapter directory beside the
+    `adapters` table, with each adapter's runs and, per base, its measured scores beside the bare
+    base's.
+
+### Fixed
+
+- `GET /models?family=` matched nothing: it filtered on a field the row did not carry.
+
+### Added
+
 - **MirrorWall 0.3 adopted on the pages that want it** (row WM2, `apps/weightroom/design.md`
   §6): the run, model and results lists render dense (`data-density="dense"`); the System page
   shows each health component with the suite's status dot beside its own word; the telemetry

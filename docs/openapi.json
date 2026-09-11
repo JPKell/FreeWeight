@@ -83,6 +83,21 @@
         "title": "DeletionScope",
         "type": "string"
       },
+      "EnabledBody": {
+        "additionalProperties": false,
+        "description": "``POST /api/v1/models/{model_ref}/enabled``'s body (ADR-0118).",
+        "properties": {
+          "enabled": {
+            "title": "Enabled",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "enabled"
+        ],
+        "title": "EnabledBody",
+        "type": "object"
+      },
       "ForkBody": {
         "additionalProperties": false,
         "description": "What to call the forked goal.",
@@ -455,6 +470,30 @@
   },
   "openapi": "3.1.0",
   "paths": {
+    "/api/v1/adapters": {
+      "get": {
+        "description": "Return the adapter directory's reading joined with the ``adapters`` table (api.md §2a).\n\nAlways ``200``: adapters being off, or the directory missing, is the body's ``note``.",
+        "operationId": "list_adapters_endpoint_api_v1_adapters_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response List Adapters Endpoint Api V1 Adapters Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "The LoRA adapters, and what was measured under each",
+        "tags": [
+          "adapters"
+        ]
+      }
+    },
     "/api/v1/benchmarks": {
       "get": {
         "description": "Return every suite this build can run, in key order.\n\nRead from the registry the run engine executes from, deliberately: a suite listed here is a\nsuite that can be run, and a listing assembled separately would eventually disagree with what\n``POST /runs`` accepts. Goal suites appear alongside the shipped ones, because to a client\nthey are ordinary suites — what makes them different is who authored them\n([ADR-0031](../../../../docs/adr/)).\n\nReturns:\n    ``{\"items\": [...]}`` with each suite's manifest identity and its test count.",
@@ -1982,7 +2021,7 @@
     },
     "/api/v1/models": {
       "get": {
-        "description": "Return every stored model identity with its latest descriptor.\n\nA pure database read: staleness comes from the last recorded discovery attempt and the\nprovider is never probed here, so listing models cannot hang on a provider that is down.\n\n``canonical_id`` is the identity lookup (api.md §2). It is a **query parameter and never a\npath segment**, because a canonical ID contains ``/``, ``:`` and ``@``, and a percent-encoded\n``/`` does not survive common reverse proxies ([ADR-0024](../../../../docs/adr/)).\n\nArgs:\n    request: The incoming request.\n    provider_kind: Filter by provider kind.\n    family: Filter by descriptor family.\n    quantization: Filter by weight quantization.\n    canonical_id: Return only the model with this exact canonical ID.\n\nReturns:\n    ``{\"items\": [...]}`` — newest sighting first, as the list page orders them.",
+        "description": "Return every stored model identity with its latest descriptor.\n\nA pure database read: staleness comes from the last recorded discovery attempt and the\nprovider is never probed here, so listing models cannot hang on a provider that is down.\n\n``canonical_id`` is the identity lookup (api.md §2). It is a **query parameter and never a\npath segment**, because a canonical ID contains ``/``, ``:`` and ``@``, and a percent-encoded\n``/`` does not survive common reverse proxies ([ADR-0024](../../../../docs/adr/)).\n\nArgs:\n    request: The incoming request.\n    provider_kind: Filter by provider kind.\n    family: Filter by descriptor family.\n    quantization: Filter by weight quantization.\n    canonical_id: Return only the model with this exact canonical ID.\n    has_results: Only models any of whose runs stored a metric, or only those none did.\n    sort: ``last_seen_at`` or ``canonical_id``, ``-`` for descending.\n\nReturns:\n    ``{\"items\": [...]}`` — newest sighting first unless ``sort`` says otherwise.\n\nRaises:\n    ValidationError: ``sort`` names neither key.",
         "operationId": "list_models_endpoint_api_v1_models_get",
         "parameters": [
           {
@@ -2047,6 +2086,38 @@
                 }
               ],
               "title": "Canonical Id"
+            }
+          },
+          {
+            "in": "query",
+            "name": "has_results",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "boolean"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Has Results"
+            }
+          },
+          {
+            "in": "query",
+            "name": "sort",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Sort"
             }
           }
         ],
@@ -2144,6 +2215,61 @@
           }
         },
         "summary": "One model's identity and descriptor history",
+        "tags": [
+          "models"
+        ]
+      }
+    },
+    "/api/v1/models/{model_ref}/enabled": {
+      "post": {
+        "description": "Disable or enable one model for measurement, as the Models page's button does (ADR-0118).\n\nJSON, not the page's form field: a form post to ``/api/v1`` carries no CSRF token and the\nCSRF middleware refuses it, where a JSON body cannot be sent cross-origin at all.\n\nRaises:\n    ModelNotFound: No stored model matches ``model_ref``.\n    ValidationError: ``model_ref`` is an ambiguous prefix.",
+        "operationId": "set_enabled_endpoint_api_v1_models__model_ref__enabled_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "model_ref",
+            "required": true,
+            "schema": {
+              "title": "Model Ref",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EnabledBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Set Enabled Endpoint Api V1 Models  Model Ref  Enabled Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Permit or refuse one model",
         "tags": [
           "models"
         ]
@@ -2314,7 +2440,7 @@
     },
     "/api/v1/results": {
       "get": {
-        "description": "Return stored metric rows, newest run first (API §5).\n\nOnly *completed* runs by default. A metric from a run that stopped halfway measured a\ndifferent set of cases than the row beside it, and returning both under one filter would put\nthe difference nowhere a caller could see it; ``status=any`` asks for them anyway.\n\nArgs:\n    request: The incoming request; the database handle lives on its application state.\n    model: Model canonical ID, ULID or unambiguous prefix.\n    suite: Benchmark suite key.\n    metric_key: Exact metric key.\n    machine: Machine fingerprint.\n    runtime_profile: Runtime profile hash.\n    since: RFC 3339 lower bound on run creation, inclusive.\n    until: RFC 3339 upper bound on run creation, exclusive.\n    status: Run status, or ``\"any\"``.\n    limit: Page size, clamped to 500.\n    cursor: Opaque continuation token.\n\nReturns:\n    The collection envelope: ``items`` and ``page``.\n\nRaises:\n    ValidationError: A timestamp is malformed, the cursor was not issued here, or ``model`` is\n        an ambiguous prefix.\n    NotFoundError: ``model`` matches nothing.",
+        "description": "Return stored metric rows, newest run first (API §5).\n\nOnly *completed* runs by default. A metric from a run that stopped halfway measured a\ndifferent set of cases than the row beside it, and returning both under one filter would put\nthe difference nowhere a caller could see it; ``status=any`` asks for them anyway.\n\nArgs:\n    request: The incoming request; the database handle lives on its application state.\n    model: Model canonical ID, ULID or unambiguous prefix.\n    suite: Benchmark suite key.\n    metric_key: Exact metric key.\n    machine: Machine fingerprint.\n    runtime_profile: Runtime profile hash.\n    since: RFC 3339 lower bound on run creation, inclusive.\n    until: RFC 3339 upper bound on run creation, exclusive.\n    status: Run status, or ``\"any\"``.\n    limit: Page size, clamped to 500.\n    cursor: Opaque continuation token.\n    adapter: An adapter's name or artifact digest: only runs measured under it.\n\nReturns:\n    The collection envelope: ``items`` and ``page``.\n\nRaises:\n    ValidationError: A timestamp is malformed, the cursor was not issued here, or ``model`` is\n        an ambiguous prefix.\n    NotFoundError: ``model`` matches nothing.",
         "operationId": "list_results_api_v1_results_get",
         "parameters": [
           {
@@ -2491,6 +2617,24 @@
               ],
               "description": "Opaque cursor from a previous page.",
               "title": "Cursor"
+            }
+          },
+          {
+            "description": "Adapter name or artifact digest: runs measured under it.",
+            "in": "query",
+            "name": "adapter",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Adapter name or artifact digest: runs measured under it.",
+              "title": "Adapter"
             }
           }
         ],
@@ -2738,7 +2882,7 @@
     },
     "/api/v1/runs": {
       "get": {
-        "description": "Return runs newest-first, optionally filtered by status.",
+        "description": "Return runs newest first, filtered, one page at a time (api.md §4).\n\nRaises:\n    ModelNotFound: ``model`` matches nothing.\n    ValidationError: A timestamp is malformed, ``model`` is an ambiguous prefix, or the cursor\n        was not issued here.",
         "operationId": "list_runs_endpoint_api_v1_runs_get",
         "parameters": [
           {
@@ -2758,6 +2902,132 @@
             }
           },
           {
+            "description": "Canonical ID, ULID, prefix or name.",
+            "in": "query",
+            "name": "model",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Canonical ID, ULID, prefix or name.",
+              "title": "Model"
+            }
+          },
+          {
+            "description": "Benchmark suite key.",
+            "in": "query",
+            "name": "suite",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Benchmark suite key.",
+              "title": "Suite"
+            }
+          },
+          {
+            "description": "Machine fingerprint.",
+            "in": "query",
+            "name": "machine",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Machine fingerprint.",
+              "title": "Machine"
+            }
+          },
+          {
+            "description": "Exact label.",
+            "in": "query",
+            "name": "label",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Exact label.",
+              "title": "Label"
+            }
+          },
+          {
+            "description": "Adapter name or artifact digest.",
+            "in": "query",
+            "name": "adapter",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Adapter name or artifact digest.",
+              "title": "Adapter"
+            }
+          },
+          {
+            "description": "RFC 3339; created at or after.",
+            "in": "query",
+            "name": "since",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "RFC 3339; created at or after.",
+              "title": "Since"
+            }
+          },
+          {
+            "description": "RFC 3339; created strictly before.",
+            "in": "query",
+            "name": "until",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "RFC 3339; created strictly before.",
+              "title": "Until"
+            }
+          },
+          {
             "in": "query",
             "name": "limit",
             "required": false,
@@ -2767,6 +3037,24 @@
               "minimum": 1,
               "title": "Limit",
               "type": "integer"
+            }
+          },
+          {
+            "description": "The previous page's next_cursor.",
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The previous page's next_cursor.",
+              "title": "Cursor"
             }
           }
         ],
@@ -3050,6 +3338,51 @@
         ]
       }
     },
+    "/api/v1/runs/{run_id}/telemetry": {
+      "get": {
+        "description": "Return one run's persisted telemetry as parallel series (api.md §4).\n\nThe series the run page draws. A ``null`` in a series is a reading this machine could not take\nat that instant — a gap in the chart, never a zero (ADR-0016).\n\nRaises:\n    RunNotFound: Nothing matches ``run_id``.",
+        "operationId": "run_telemetry_endpoint_api_v1_runs__run_id__telemetry_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "run_id",
+            "required": true,
+            "schema": {
+              "title": "Run Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Run Telemetry Endpoint Api V1 Runs  Run Id  Telemetry Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "One run's telemetry as series",
+        "tags": [
+          "runs"
+        ]
+      }
+    },
     "/api/v1/runs/{run_id}/tests": {
       "get": {
         "description": "Return one run's tests, as the drill-down list.",
@@ -3129,6 +3462,24 @@
               "title": "Limit",
               "type": "integer"
             }
+          },
+          {
+            "description": "The previous page's next_cursor.",
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The previous page's next_cursor.",
+              "title": "Cursor"
+            }
           }
         ],
         "responses": {
@@ -3158,6 +3509,51 @@
         "summary": "One test's raw samples",
         "tags": [
           "runs"
+        ]
+      }
+    },
+    "/api/v1/samples/{sample_id}": {
+      "get": {
+        "description": "Return the case inspector's document for one sample (api.md §4).\n\nRaises:\n    SampleNotFound: No sample has this id, answered ``404 NOT_FOUND``.",
+        "operationId": "sample_endpoint_api_v1_samples__sample_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "sample_id",
+            "required": true,
+            "schema": {
+              "title": "Sample Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Sample Endpoint Api V1 Samples  Sample Id  Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "One sample, exactly as recorded",
+        "tags": [
+          "results"
         ]
       }
     },

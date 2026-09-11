@@ -163,7 +163,7 @@ from freeweight.services.telemetry_recording import (
 )
 
 if TYPE_CHECKING:
-    from collections.abc import Iterator, Mapping, Sequence
+    from collections.abc import Callable, Iterator, Mapping, Sequence
 
     from baseaicore.timeutil import Clock
     from modelrack.provider import Provider
@@ -473,6 +473,10 @@ class RunSummary:
     prompt_pack_hash: str | None = None
     degradations: tuple[Mapping[str, Any], ...] = ()
     fingerprint_document: Mapping[str, Any] = field(default_factory=dict)
+    machine_fingerprint: str | None = None
+    runtime_profile_hash: str | None = None
+    adapter_name: str | None = None
+    """The LoRA adapter the run measures under, or ``None`` for the bare base."""
 
     @property
     def is_terminal(self) -> bool:
@@ -775,9 +779,16 @@ def _resolve_run(session: Session, run_ref: str) -> Any:  # noqa: ANN401 — an 
 
 def _summarize_run(session: Session, run: Any) -> RunSummary:  # noqa: ANN401 — an ORM row
     """Build a :class:`RunSummary` from a run row, joining in the names a person reads."""
+    from freeweight.infrastructure.db.models import Machine, RuntimeProfile
+
     suite = session.get(_suite_model(), run.suite_id)
     model = ModelRepository().get_by_id(session, run.model_id)
+    machine = session.get(Machine, run.machine_id)
+    profile = session.get(RuntimeProfile, run.runtime_profile_id)
     return RunSummary(
+        machine_fingerprint=machine.machine_fingerprint if machine is not None else None,
+        runtime_profile_hash=profile.profile_hash if profile is not None else None,
+        adapter_name=_stored_adapter_name(session, run.adapter_id),
         id=run.id,
         status=run.status,
         suite_key=suite.key if suite is not None else "unknown",
@@ -1331,6 +1342,140 @@ def list_runs(
         return tuple(_summarize_run(session, row) for row in rows)
 
 
+@dataclass(frozen=True, slots=True)
+class RunsQuery:
+    """Filters and the page request for ``GET /api/v1/runs`` (api.md §4).
+
+    Attributes:
+        status: Only runs in this state.
+        model: A model's canonical ID, ULID, unambiguous prefix or provider name.
+        suite: A suite key.
+        machine: A machine fingerprint.
+        label: An exact label.
+        adapter: An adapter's name or artifact digest.
+        since: Only runs created at or after this instant.
+        until: Only runs created strictly before this instant.
+        limit: The page size; the route bounds it to 500.
+        cursor: The previous page's ``next_cursor``.
+    """
+
+    status: str | None = None
+    model: str | None = None
+    suite: str | None = None
+    machine: str | None = None
+    label: str | None = None
+    adapter: str | None = None
+    since: datetime | None = None
+    until: datetime | None = None
+    limit: int = 50
+    cursor: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class RunsPage:
+    """One page of runs, newest first.
+
+    Attributes:
+        runs: The runs.
+        limit: The page size applied.
+        next_cursor: The token for the following page, or ``None`` at the end.
+        has_more: Whether a following page exists.
+    """
+
+    runs: tuple[RunSummary, ...]
+    limit: int
+    next_cursor: str | None
+    has_more: bool
+
+
+def _encode_cursor(key: Mapping[str, Any]) -> str:
+    """An opaque cursor over one row's sort key (API standards §6)."""
+    import base64
+    import json
+
+    payload = json.dumps(dict(key), sort_keys=True, separators=(",", ":"))
+    return base64.urlsafe_b64encode(payload.encode("utf-8")).decode("ascii").rstrip("=")
+
+
+def _decode_cursor[T](cursor: str, read: Callable[[dict[str, Any]], T]) -> T:
+    """Decode a cursor this module issued into the sort key ``read`` builds from it.
+
+    Raises:
+        ValidationError: The cursor is not one of ours.
+    """
+    import base64
+    import json
+
+    try:
+        padding = "=" * (-len(cursor) % 4)
+        return read(json.loads(base64.urlsafe_b64decode(cursor + padding).decode("utf-8")))
+    except Exception as exc:  # noqa: BLE001 — every malformed cursor is one validation error
+        raise ValidationError(
+            "That cursor was not issued by this API. Drop it and start from the first page.",
+            details={"field": "cursor"},
+        ) from exc
+
+
+def query_runs(database: Database, query: RunsQuery) -> RunsPage:
+    """Return one page of runs, newest first, filtered (``GET /api/v1/runs``).
+
+    One run more than the page is read to decide ``has_more`` without a count.
+
+    Args:
+        database: The application's database handle.
+        query: The filters and the page request.
+
+    Returns:
+        The page.
+
+    Raises:
+        ModelNotFound: ``query.model`` matches no model.
+        ValidationError: ``query.model`` is an ambiguous prefix, or ``query.cursor`` was not
+            issued by this API.
+    """
+    from datetime import datetime as instant
+
+    from freeweight.services.results import resolve_model_id
+
+    limit = max(1, query.limit)
+    after = (
+        None
+        if query.cursor is None
+        else _decode_cursor(
+            query.cursor,
+            lambda key: (instant.fromisoformat(str(key["created_at"])), str(key["id"])),
+        )
+    )
+    with _translated(), database.read() as session:
+        model_id = resolve_model_id(session, query.model) if query.model else None
+        rows = RunRepository().list_runs(
+            session,
+            status=query.status,
+            limit=limit + 1,
+            model_id=model_id,
+            suite_key=query.suite,
+            machine_fingerprint=query.machine,
+            label=query.label,
+            adapter=query.adapter,
+            since=query.since,
+            until=query.until,
+            after=after,
+        )
+        runs = tuple(_summarize_run(session, row) for row in rows[:limit])
+    has_more = len(rows) > limit
+    last = rows[limit - 1] if has_more else None
+    return RunsPage(
+        runs=runs,
+        limit=limit,
+        next_cursor=(
+            None
+            if last is None
+            else _encode_cursor({"created_at": last.created_at.isoformat(), "id": last.id})
+        ),
+        has_more=has_more,
+    )
+
+
 def get_run(database: Database, run_ref: str) -> RunDetail:
     """Return one run with its tests and aggregate metrics.
 
@@ -1420,14 +1565,62 @@ def list_samples(
         RunNotFound: No run test has this id — the same code as a missing run, because from a
             caller's point of view a test id that resolves to nothing is a run it cannot reach.
     """
+    return sample_page(database, run_test_id, limit=limit).samples
+
+
+@dataclass(frozen=True, slots=True)
+class SamplePage:
+    """One page of a test's samples, in declaration order.
+
+    Attributes:
+        samples: The samples.
+        limit: The page size applied.
+        next_cursor: The token for the following page, or ``None`` at the end.
+        has_more: Whether a following page exists.
+    """
+
+    samples: tuple[SampleSummary, ...]
+    limit: int
+    next_cursor: str | None
+    has_more: bool
+
+
+def sample_page(
+    database: Database, run_test_id: str, *, limit: int = 500, cursor: str | None = None
+) -> SamplePage:
+    """Return one page of a test's samples, ordered by ``(ordinal, repetition)``.
+
+    Args:
+        database: The application's database handle.
+        run_test_id: The ``run_tests`` row to drill into.
+        limit: The page size.
+        cursor: The previous page's ``next_cursor``, or ``None`` for the first page.
+
+    Returns:
+        The page.
+
+    Raises:
+        RunNotFound: No run test has this id.
+        ValidationError: ``cursor`` was not issued by this API.
+    """
+    limit = max(1, limit)
+    after = (
+        None
+        if cursor is None
+        else _decode_cursor(
+            cursor, lambda key: (int(key["ordinal"]), int(key["repetition"]), str(key["id"]))
+        )
+    )
     with _translated(), database.read() as session:
         run_test = RunTestRepository().get_by_id(session, run_test_id)
         if run_test is None:
             raise RunNotFound(
                 f"No run test matches {run_test_id!r}.", details={"run_test": run_test_id}
             )
-        rows = SampleRepository().list_for_run_test(session, run_test_id, limit=limit)
-        return tuple(
+        rows = SampleRepository().list_for_run_test(
+            session, run_test_id, limit=limit + 1, after=after
+        )
+        samples = tuple(
             SampleSummary(
                 id=row.id,
                 case_id=row.case_id,
@@ -1450,8 +1643,22 @@ def list_samples(
                 prompt_version=row.prompt_version,
                 client_ttft_ms=row.client_ttft_ms,
             )
-            for row in rows
+            for row in rows[:limit]
         )
+    has_more = len(rows) > limit
+    last = samples[-1] if has_more else None
+    return SamplePage(
+        samples=samples,
+        limit=limit,
+        next_cursor=(
+            None
+            if last is None
+            else _encode_cursor(
+                {"ordinal": last.ordinal, "repetition": last.repetition, "id": last.id}
+            )
+        ),
+        has_more=has_more,
+    )
 
 
 def cancel_run(

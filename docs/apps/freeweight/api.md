@@ -21,10 +21,10 @@ Everything here is additive within v1. The committed OpenAPI snapshot is diff-ch
 | Endpoint | Notes |
 |---|---|
 | `GET /machines` · `GET /machines/{id}` | Static profiles; the current machine is flagged. **Never writes** — machines are recorded when a run is created, so polling this cannot make one look freshly used, and the list is legitimately empty before anything has been measured |
-| `GET /models` | Filter by `provider_kind`, `family`, `quantization`, `has_results`; sort by `last_seen_at`, `canonical_id` |
+| `GET /models` | Filter by `provider_kind`, `family`, `quantization`, `has_results` (`true` or `false`: whether any of its runs stored a metric); `sort` is `last_seen_at` or `canonical_id`, with a leading `-` for descending — `-last_seen_at`, the newest sighting first, when omitted; any other `sort` is `400 VALIDATION_ERROR` naming it. Each item carries `family`, `enabled` and `has_results` beside its identity |
 | `POST /models/discover` | Re-discovers through ModelRack; returns added/updated/unchanged/total counts. The counts, not the models: a client that wants the list asks for it, and a discovery that returned every model would bury *what changed* |
-| `POST /models/{model_ref}/enabled` | The Models page's Disable/Enable button. Form field `enabled` is `true` or `false` — an operator's decision that this model may not be measured ([ADR-0118](../../adr/0118-a-discovered-model-can-be-disabled.md)). The row, its descriptors and every result measured under it stay; a new run naming a disabled model is refused by name, and discovery never writes the flag, so a rescan does not undo it |
-| `GET /models/{model_ref}` | Identity, latest descriptor, descriptor history, evidence summary |
+| `POST /models/{model_ref}/enabled` | Disable or enable one model — an operator's decision that this model may not be measured ([ADR-0118](../../adr/0118-a-discovered-model-can-be-disabled.md)). The body is JSON, `{"enabled": true}` or `{"enabled": false}`; the answer is `{"canonical_id", "enabled"}`. The Models page's button posts the same decision as the form field `enabled` to the page's own route, because a form post to `/api/v1` carries no CSRF token and is refused. The row, its descriptors and every result measured under it stay; a new run naming a disabled model is refused by name, and discovery never writes the flag, so a rescan does not undo it |
+| `GET /models/{model_ref}` | Identity with `enabled`, latest descriptor, descriptor history. The model's evidence is `GET /evidence?model=…` (§6) |
 | `GET /models/{model_ref}/results` | Paginated results for this model, filterable by suite and runtime profile |
 | `GET /models?canonical_id=…` | Lookup by identity; `?provider_kind=&provider_model_name=&artifact_digest=` is the exact-triple form |
 
@@ -33,6 +33,29 @@ returns 400 listing the candidates. **The canonical ID is never a path segment**
 `:` and `@`, and a percent-encoded `/` does not survive common reverse proxies
 ([ADR-0024](../../adr/0024-canonical-id-and-model-references.md)). Request bodies and CLI arguments
 still accept a canonical ID, a bare name or an unambiguous prefix.
+
+## 2a. Adapters
+
+| Endpoint | Notes |
+|---|---|
+| `GET /adapters` | The LoRA adapters this installation knows: the operator's `[adapters] directory` read once ([ADR-0061](../../adr/0061-the-adapter-registry-is-a-directory-and-a-manifest.md)), joined with FreeWeight's own `adapters` table, which outlives the directory. The same reading `freeweight adapters list --json` prints, plus what was measured |
+
+The body carries `enabled` (whether `[adapters] directory` is set), `directory`, `note` (why the
+directory could not be read, or `null`), `invalid`, `drafts` and `unmanifested` as the CLI prints
+them, and `adapters`, keyed by artifact digest. Each adapter is the directory's entry
+(`in_directory: true`) or, for an adapter measured once and since removed from the directory, the
+table's row (`in_directory: false`, `available: false`). Beside it:
+
+* `run_count` and `last_run_at` — the runs created under it (`GET /runs?adapter=…` lists them);
+* `subjects` — one per base it was measured on: `base` (the base's canonical ID), `subject` (the
+  adapter subject's canonical ID, `null` until evidence exists for it), `measured` (`{capability_id: score}` measured **on that
+  subject**) and `base_measured` (the same, measured on the bare base). The two are reported side
+  by side and never merged: an adapter subject inherits nothing from its base
+  ([ADR-0059](../../adr/0059-adapter-evidence-is-measured-never-inherited.md)), and an empty
+  `measured` is an unmeasured subject, not a score of zero.
+
+With adapters off the answer is still `200`: `enabled: false`, the note naming the key, and the
+table's rows, because a measured adapter's history does not disappear when the directory is unset.
 
 ## 3. Benchmarks
 
@@ -121,12 +144,14 @@ selected test requires a sandbox).
 
 | Endpoint | Notes |
 |---|---|
-| `GET /runs` | Filter by `status`, `model`, `suite`, `machine`, `label`, date range; cursor pagination |
+| `GET /runs` | Filter by `status`, `model` (canonical ID, ULID, unambiguous prefix or provider name), `suite`, `machine` (fingerprint), `label` (exact), `adapter` (name or artifact digest) and `since`/`until` (RFC 3339 on creation time, half-open as the export's window is); newest first, `limit` (default 50, at most 500) and `cursor`. The body is `runs` plus `page` (`limit`, `next_cursor`, `has_more`); each run names its `machine_fingerprint`, `runtime_profile_hash` and `adapter` (`null` for a bare base) |
 | `GET /runs/{id}` | Run with tests, aggregate metrics, degradations and the fingerprint document. A metric row names its key `metric_key`, as every other surface does (§11) |
 | `POST /runs/{id}/cancel` | 202 when accepted; 409 `RUN_NOT_CANCELLABLE` for terminal runs |
 | `POST /runs/{id}/repeat` | Creates a new run with the identical effective config, reusing the original's frozen `ExecutionConfig` and runtime profile rather than re-resolving them; `?force=true` proceeds past a blocker and records the divergence; `?label=` names the new run |
 | `GET /runs/{id}/events` | SSE with `Last-Event-ID` replay |
-| `GET /runs/{id}/tests` · `GET /runs/{id}/tests/{test_id}/samples` | Drill-down; samples are cursor-paginated |
+| `GET /runs/{id}/tests` · `GET /runs/{id}/tests/{test_id}/samples` | Drill-down. Samples come in `(ordinal, repetition)` order with `limit` (default 500, at most 1000) and `cursor`; the body is `samples` plus `page`, and each sample names `prompt_id`, `prompt_version` and `client_ttft_ms` beside its score |
+| `GET /runs/{id}/telemetry` | The run's persisted telemetry as parallel series for a chart: `timestamps`, `cpu_percent`, `ram_used_bytes`, and `gpus`, one entry per device with `utilization_percent`, `vram_used_bytes`, `power_watts` and `temperature_c`. Every series shares the timestamps' index; a `null` is a reading this machine could not take at that instant — a gap, never a zero ([ADR-0016](../../adr/0016-unavailable-is-not-zero.md)). Empty series for a run that recorded none |
+| `GET /samples/{sample_id}` | The case inspector: one sample exactly as recorded — prompt identity and hashes, the response (when the run stored it), score and method, tokens and timings, the scorer's `result`, `tool_calls`, `criterion_scores` with each juror's `verdicts`, and the `telemetry` observations inside the sample's reconstructed window — with its `run_id`, `run_status`, `run_test_id` and `run_test_key`. `404 NOT_FOUND` for an unknown id |
 
 ### Run events
 
@@ -141,7 +166,7 @@ run.failed         test.skipped                          run.interrupted
 
 | Endpoint | Notes |
 |---|---|
-| `GET /results` | Metric-level query: filter by model, suite, metric key, machine, runtime profile, date |
+| `GET /results` | Metric-level query: filter by model, suite, metric key, machine, runtime profile, `adapter` (name or artifact digest: only runs measured under it), date |
 | `GET /results/compare` | `?subjects=a,b,c&suite=…` — aligned metrics with comparability verdicts and, where a comparison is not permitted, the reason |
 | `GET /results/export` | `?format=json|jsonl|csv&scope=run|model|suite|comparison|all&include_samples=…&include_prompts=…&include_prompt_text=…&since=…&until=…` — streams; JSON/JSONL are wrapped in a `freeweight.export` envelope (§12) |
 

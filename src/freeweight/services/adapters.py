@@ -40,6 +40,7 @@ __all__ = [
     "AdapterOverview",
     "AdaptersDisabled",
     "SubjectPanel",
+    "adapter_catalog",
     "adapter_overview",
     "adapter_row_for",
     "measured_scores",
@@ -184,6 +185,124 @@ def adapter_overview(database: Database, adapters: AdapterSettings) -> AdapterOv
             str(digest) for (digest,) in session.query(Adapter.artifact_sha256).all()
         )
     return AdapterOverview(reading=reading, measured=measured)
+
+
+def adapter_catalog(database: Database, adapters: AdapterSettings) -> dict[str, Any]:
+    """Everything ``GET /api/v1/adapters`` answers: the directory, and what was measured under each.
+
+    The directory is read once (:func:`adapter_overview`) and joined with the ``adapters`` table,
+    which outlives it (ADR-0080): an adapter measured once and since removed from the directory is
+    still listed, ``in_directory: false``. For each adapter with a row, the runs created under it
+    are counted and, per base it was measured on, the scores **measured on the adapter subject**
+    are set beside the bare base's — side by side, never merged (ADR-0059).
+
+    Args:
+        database: The application's database handle.
+        adapters: ``settings.adapters``.
+
+    Returns:
+        The document api.md §2a describes. Adapters being off, or the directory missing, is a
+        ``note`` beside the table's rows rather than an error.
+    """
+    from baseaicore import to_rfc3339
+    from sqlalchemy import func, select
+
+    from freeweight.infrastructure.adapters import AdapterDirectoryMissing
+    from freeweight.infrastructure.db.models import Adapter, Model
+    from freeweight.infrastructure.db.models_evidence import CapabilityEvidence
+    from freeweight.infrastructure.db.models_runs import Run
+
+    reading: DirectoryReading | None = None
+    note: str | None = None
+    try:
+        reading = adapter_overview(database, adapters).reading
+    except (AdaptersDisabled, AdapterDirectoryMissing) as exc:
+        note = exc.message
+    entries: dict[str, dict[str, Any]] = {
+        entry.artifact_sha256: {
+            **entry.as_json(),
+            "in_directory": True,
+            "measured": False,
+            "run_count": 0,
+            "last_run_at": None,
+            "subjects": [],
+        }
+        for entry in (reading.entries if reading is not None else ())
+    }
+    with database.read() as session:
+        for row in session.scalars(select(Adapter).order_by(Adapter.name)):
+            declared = row.declared_capabilities_json
+            entry = entries.setdefault(
+                row.artifact_sha256,
+                {
+                    "name": row.name,
+                    "artifact_sha256": row.artifact_sha256,
+                    "artifact_path": row.artifact_path,
+                    "manifest_path": None,
+                    "source_sha256": row.source_sha256,
+                    "base_model_name": row.base_model_name,
+                    "base_artifact_digest": row.base_artifact_digest,
+                    "base_confidence": row.base_confidence,
+                    "declared_capabilities": (
+                        [str(one) for one in declared] if isinstance(declared, list) else []
+                    ),
+                    "data_classification": row.data_classification,
+                    "notes": row.notes,
+                    "available": False,
+                    "unavailable_reason": "no longer in the adapter directory",
+                    "in_directory": False,
+                },
+            )
+            count, last = session.execute(
+                select(func.count(Run.id), func.max(Run.created_at)).where(Run.adapter_id == row.id)
+            ).one()
+            evidence = list(
+                session.scalars(
+                    select(CapabilityEvidence).where(CapabilityEvidence.adapter_id == row.id)
+                )
+            )
+            bases = set(session.scalars(select(Run.model_id).where(Run.adapter_id == row.id)))
+            bases.update(one.model_id for one in evidence)
+            subjects = []
+            for model_id in sorted(bases):
+                model = session.get(Model, model_id)
+                mine = [one for one in evidence if one.model_id == model_id]
+                bare = session.scalars(
+                    select(CapabilityEvidence).where(
+                        CapabilityEvidence.model_id == model_id,
+                        CapabilityEvidence.adapter_id.is_(None),
+                    )
+                )
+                subjects.append(
+                    {
+                        "base": model.canonical_id if model is not None else model_id,
+                        "subject": mine[0].subject_canonical_id if mine else None,
+                        "measured": {one.capability_id: one.score for one in mine},
+                        "base_measured": {one.capability_id: one.score for one in bare},
+                    }
+                )
+            entry.update(
+                measured=True,
+                run_count=int(count),
+                last_run_at=None if last is None else to_rfc3339(last),
+                subjects=subjects,
+            )
+    return {
+        "enabled": adapters.enabled,
+        "directory": str(reading.directory) if reading is not None else None,
+        "note": note,
+        "adapters": sorted(
+            entries.values(), key=lambda one: (str(one["name"]), str(one["artifact_sha256"]))
+        ),
+        "invalid": [
+            {"path": str(path), "problem": problem}
+            for path, problem in (reading.invalid if reading is not None else ())
+        ],
+        "drafts": [str(path) for path in (reading.drafts if reading is not None else ())],
+        "unmanifested": [
+            str(path) for path in (reading.unmanifested if reading is not None else ())
+        ],
+    }
 
 
 def _identity_of(model: Any) -> ModelIdentity:  # noqa: ANN401 — an ORM row

@@ -193,6 +193,7 @@ class ResultsQuery:
             nothing to distinguish them, is the quiet kind of lie.
         limit: Page size, clamped to :data:`MAX_RESULTS_LIMIT`.
         cursor: Opaque continuation token from a previous page.
+        adapter: An adapter's name or artifact digest: only runs measured under it.
     """
 
     model: str | None = None
@@ -205,6 +206,7 @@ class ResultsQuery:
     status: str | None = "completed"
     limit: int = DEFAULT_RESULTS_LIMIT
     cursor: str | None = None
+    adapter: str | None = None
 
     def clamped_limit(self) -> int:
         """The effective page size, clamped into ``[1, MAX_RESULTS_LIMIT]``."""
@@ -343,6 +345,15 @@ def _base_statement(session: Session, query: ResultsQuery) -> Any:  # noqa: ANN4
     if query.model:
         model_id = resolve_model_id(session, query.model)
         statement = statement.where(Run.model_id == model_id)
+    if query.adapter:
+        from sqlalchemy import or_
+
+        from freeweight.infrastructure.db.models import Adapter
+
+        adapters = select(Adapter.id).where(
+            or_(Adapter.name == query.adapter, Adapter.artifact_sha256 == query.adapter)
+        )
+        statement = statement.where(Run.adapter_id.in_(adapters))
     return statement
 
 
@@ -1318,6 +1329,111 @@ def inspect_case(database: Database, sample_id: str) -> CaseInspection:
         prompt_text=None,
         judge_verdicts=verdicts,
     )
+
+
+def inspection_json(inspection: CaseInspection) -> dict[str, Any]:
+    """The case inspector as ``GET /api/v1/samples/{sample_id}`` returns it (api.md §4).
+
+    Every value is the stored fact and nothing is aggregated. A value the run did not store is
+    ``null``: a response kept only as its hash has ``response_text: null`` beside the hash.
+
+    Args:
+        inspection: What :func:`inspect_case` read.
+
+    Returns:
+        The document, JSON-safe throughout.
+    """
+    sample = inspection.sample
+    run = inspection.run
+
+    def instant(value: datetime | None) -> str | None:
+        return None if value is None else to_rfc3339(value)
+
+    return {
+        "sample": {
+            "id": sample.id,
+            "case_id": sample.case_id,
+            "ordinal": sample.ordinal,
+            "repetition": sample.repetition,
+            "status": sample.status,
+            "created_at": instant(sample.created_at),
+            "started_at": instant(sample.started_at),
+            "finish_reason": sample.finish_reason,
+            "error": (
+                None
+                if sample.error_code is None
+                else {"code": sample.error_code, "message": sample.error_text}
+            ),
+            "prompt_id": sample.prompt_id,
+            "prompt_version": sample.prompt_version,
+            "prompt_hash": sample.prompt_hash,
+            "rendered_prompt_hash": sample.rendered_prompt_hash,
+            "response_hash": sample.response_hash,
+            "response_text": sample.response_text,
+            "score": sample.score,
+            "score_method": sample.score_method,
+            "input_tokens": sample.input_tokens,
+            "output_tokens": sample.output_tokens,
+            "thinking_tokens": sample.thinking_tokens,
+            "output_chars": sample.output_chars,
+            "client_wall_ms": sample.client_wall_ms,
+            "client_ttft_ms": sample.client_ttft_ms,
+            "result": sample.result_json,
+        },
+        "run_id": None if run is None else run.id,
+        "run_status": None if run is None else run.status,
+        "run_test_id": inspection.run_test_id,
+        "run_test_key": inspection.run_test_key,
+        "tool_calls": [
+            {
+                "turn_index": call.turn_index,
+                "call_index": call.call_index,
+                "tool_name": call.tool_name,
+                "expected_tool": call.expected_tool,
+                "schema_valid": call.schema_valid,
+                "correct_tool": call.correct_tool,
+                "correct_arguments": call.correct_arguments,
+                "status": call.status,
+                "latency_ms": call.latency_ms,
+                "arguments": call.arguments_json,
+            }
+            for call in inspection.tool_calls
+        ],
+        "criterion_scores": [
+            {
+                "criterion_key": score.criterion_key,
+                "rung": score.rung,
+                "raw_score": score.raw_score,
+                "weight": score.weight,
+                "gated": score.gated,
+                "status": score.status,
+                "skip_reason": score.skip_reason,
+                "verdicts": [
+                    {
+                        "juror_canonical_id": verdict.juror_canonical_id,
+                        "repetition": verdict.repetition,
+                        "grade": verdict.grade,
+                        "pairwise_choice": verdict.pairwise_choice,
+                        "rationale": verdict.rationale,
+                        "refused_reason": verdict.refused_reason,
+                        "remote": verdict.remote,
+                    }
+                    for verdict in inspection.judge_verdicts.get(score.criterion_key, ())
+                ],
+            }
+            for score in inspection.criterion_scores
+        ],
+        "telemetry": [
+            {
+                "gpu_index": observation.gpu_index,
+                "gpu_utilization_percent": observation.gpu_utilization_percent,
+                "vram_used_bytes": observation.vram_used_bytes,
+                "gpu_power_watts": observation.gpu_power_watts,
+                "gpu_temperature_c": observation.gpu_temperature_c,
+            }
+            for observation in inspection.telemetry
+        ],
+    }
 
 
 def _telemetry_in_window(session: Session, run_id: str, sample: Any) -> tuple[Any, ...]:  # noqa: ANN401

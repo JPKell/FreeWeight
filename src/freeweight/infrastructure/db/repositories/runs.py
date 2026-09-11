@@ -20,9 +20,9 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any, cast
 
-from sqlalchemy import delete, func, select, update
+from sqlalchemy import delete, func, or_, select, update
 
-from freeweight.infrastructure.db.models import RuntimeProfile
+from freeweight.infrastructure.db.models import Adapter, Machine, RuntimeProfile
 from freeweight.infrastructure.db.models_runs import (
     BenchmarkSuite,
     BenchmarkTestRow,
@@ -383,17 +383,55 @@ class RunRepository:
             session.scalars(select(Run).where(Run.id.startswith(prefix)).order_by(Run.id)).all()
         )
 
-    def list_runs(
-        self, session: Session, *, status: str | None = None, limit: int = 50
+    def list_runs(  # noqa: PLR0913 — one keyword per filter api.md §4 documents
+        self,
+        session: Session,
+        *,
+        status: str | None = None,
+        limit: int = 50,
+        model_id: str | None = None,
+        suite_key: str | None = None,
+        machine_fingerprint: str | None = None,
+        label: str | None = None,
+        adapter: str | None = None,
+        since: datetime | None = None,
+        until: datetime | None = None,
+        after: tuple[datetime, str] | None = None,
     ) -> list[Run]:
-        """Return runs newest-first, optionally filtered by status.
+        """Return runs newest-first, filtered by every argument that is not ``None``.
 
-        Ordered by ``(status, created_at DESC)`` when filtered so the query uses
-        ``ix_runs_status_created_at`` (data model §5).
+        Ordered by ``(created_at DESC, id DESC)``, a total order: ``after`` is the last run of the
+        previous page, and resuming strictly after it neither repeats nor skips a run created in
+        the same instant. ``adapter`` matches an adapter's name or its artifact digest; ``since``
+        is inclusive and ``until`` exclusive, the export's half-open window.
         """
         statement = select(Run)
         if status is not None:
             statement = statement.where(Run.status == status)
+        if model_id is not None:
+            statement = statement.where(Run.model_id == model_id)
+        if suite_key is not None:
+            suites = select(BenchmarkSuite.id).where(BenchmarkSuite.key == suite_key)
+            statement = statement.where(Run.suite_id.in_(suites))
+        if machine_fingerprint is not None:
+            machines = select(Machine.id).where(Machine.machine_fingerprint == machine_fingerprint)
+            statement = statement.where(Run.machine_id.in_(machines))
+        if label is not None:
+            statement = statement.where(Run.label == label)
+        if adapter is not None:
+            adapters = select(Adapter.id).where(
+                or_(Adapter.name == adapter, Adapter.artifact_sha256 == adapter)
+            )
+            statement = statement.where(Run.adapter_id.in_(adapters))
+        if since is not None:
+            statement = statement.where(Run.created_at >= since)
+        if until is not None:
+            statement = statement.where(Run.created_at < until)
+        if after is not None:
+            created_at, run_id = after
+            statement = statement.where(
+                or_(Run.created_at < created_at, (Run.created_at == created_at) & (Run.id < run_id))
+            )
         return list(
             session.scalars(statement.order_by(Run.created_at.desc(), Run.id.desc()).limit(limit))
             .unique()
@@ -705,17 +743,31 @@ class SampleRepository:
         )
 
     def list_for_run_test(
-        self, session: Session, run_test_id: str, *, limit: int = 500
+        self,
+        session: Session,
+        run_test_id: str,
+        *,
+        limit: int = 500,
+        after: tuple[int, int, str] | None = None,
     ) -> list[Sample]:
-        """Return this test's samples in declaration order (``ix_samples_run_test_id_ordinal``)."""
-        return list(
-            session.scalars(
-                select(Sample)
-                .where(Sample.run_test_id == run_test_id)
-                .order_by(Sample.ordinal.asc(), Sample.repetition.asc())
-                .limit(limit)
-            ).all()
-        )
+        """Return this test's samples in declaration order (``ix_samples_run_test_id_ordinal``).
+
+        ``(ordinal, repetition, id)`` is a total order; ``after`` is the last sample of the
+        previous page, and the page starts strictly after it.
+        """
+        statement = select(Sample).where(Sample.run_test_id == run_test_id)
+        if after is not None:
+            ordinal, repetition, sample_id = after
+            same_case = Sample.ordinal == ordinal
+            statement = statement.where(
+                or_(
+                    Sample.ordinal > ordinal,
+                    same_case & (Sample.repetition > repetition),
+                    same_case & (Sample.repetition == repetition) & (Sample.id > sample_id),
+                )
+            )
+        ordered = statement.order_by(Sample.ordinal.asc(), Sample.repetition.asc(), Sample.id.asc())
+        return list(session.scalars(ordered.limit(limit)).all())
 
     def scores_for_run_test(self, session: Session, run_test_id: str) -> tuple[list[float], int]:
         """Return this test's usable scores and the count of samples excluded from them.

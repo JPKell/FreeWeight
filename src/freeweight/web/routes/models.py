@@ -21,6 +21,7 @@ from baseaicore import ValidationError, to_rfc3339
 from fastapi import APIRouter, Query, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from modelrack.errors import ModelNotFound, ProviderError
+from pydantic import BaseModel, ConfigDict
 from weightsdb import DatabaseError
 
 from freeweight.__about__ import __version__
@@ -198,13 +199,44 @@ def _descriptor_json(descriptor: Any) -> dict[str, Any] | None:
     }
 
 
+_SORT_KEYS = ("last_seen_at", "canonical_id")
+
+
+def _sorted(rows: tuple[Any, ...], sort: str | None) -> tuple[Any, ...]:
+    """``rows`` in the order ``sort`` names; unchanged — newest sighting first — for ``None``.
+
+    Raises:
+        ValidationError: ``sort`` is not one of the two keys, optionally prefixed with ``-``.
+    """
+    if sort is None:
+        return rows
+    key = sort.removeprefix("-")
+    if key not in _SORT_KEYS:
+        raise ValidationError(
+            "sort must be last_seen_at or canonical_id, optionally with a leading '-'; "
+            f"got {sort!r}.",
+            details={"field": "sort", "value": sort},
+        )
+    return tuple(sorted(rows, key=lambda row: getattr(row, key), reverse=sort.startswith("-")))
+
+
+class EnabledBody(BaseModel):
+    """``POST /api/v1/models/{model_ref}/enabled``'s body (ADR-0118)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    enabled: bool
+
+
 @api_router.get("/models", summary="Every known model identity")
-def list_models_endpoint(
+def list_models_endpoint(  # noqa: PLR0913 — every argument is a documented query parameter
     request: Request,
     provider_kind: Annotated[str | None, Query()] = None,
     family: Annotated[str | None, Query()] = None,
     quantization: Annotated[str | None, Query()] = None,
     canonical_id: Annotated[str | None, Query()] = None,
+    has_results: Annotated[bool | None, Query()] = None,
+    sort: Annotated[str | None, Query()] = None,
 ) -> dict[str, Any]:
     """Return every stored model identity with its latest descriptor.
 
@@ -221,21 +253,26 @@ def list_models_endpoint(
         family: Filter by descriptor family.
         quantization: Filter by weight quantization.
         canonical_id: Return only the model with this exact canonical ID.
+        has_results: Only models any of whose runs stored a metric, or only those none did.
+        sort: ``last_seen_at`` or ``canonical_id``, ``-`` for descending.
 
     Returns:
-        ``{"items": [...]}`` — newest sighting first, as the list page orders them.
+        ``{"items": [...]}`` — newest sighting first unless ``sort`` says otherwise.
+
+    Raises:
+        ValidationError: ``sort`` names neither key.
     """
     rows = list_models_with_latest_descriptor(request.app.state.database)
     filters = {
         "provider_kind": provider_kind,
         "canonical_id": canonical_id,
         "quantization": quantization,
+        "family": family,
+        "has_results": has_results,
     }
     for field, wanted in filters.items():
         if wanted is not None:
             rows = tuple(row for row in rows if getattr(row, field) == wanted)
-    if family is not None:
-        rows = tuple(row for row in rows if getattr(row, "family", None) == family)
     return {
         "items": [
             {
@@ -243,10 +280,30 @@ def list_models_endpoint(
                 "quantization": row.quantization,
                 "parameter_count": row.parameter_count,
                 "max_context": row.max_context,
+                "family": row.family,
+                "enabled": row.enabled,
+                "has_results": row.has_results,
             }
-            for row in rows
+            for row in _sorted(rows, sort)
         ]
     }
+
+
+@api_router.post("/models/{model_ref}/enabled", summary="Permit or refuse one model")
+def set_enabled_endpoint(request: Request, model_ref: str, body: EnabledBody) -> dict[str, Any]:
+    """Disable or enable one model for measurement, as the Models page's button does (ADR-0118).
+
+    JSON, not the page's form field: a form post to ``/api/v1`` carries no CSRF token and the
+    CSRF middleware refuses it, where a JSON body cannot be sent cross-origin at all.
+
+    Raises:
+        ModelNotFound: No stored model matches ``model_ref``.
+        ValidationError: ``model_ref`` is an ambiguous prefix.
+    """
+    canonical_id = set_model_enabled(
+        request.app.state.database, model_ref=model_ref, enabled=body.enabled
+    )
+    return {"canonical_id": canonical_id, "enabled": body.enabled}
 
 
 @api_router.post("/models/discover", summary="Re-discover models through ModelRack")
@@ -293,6 +350,7 @@ def get_model_endpoint(request: Request, model_ref: str) -> dict[str, Any]:
     )
     return {
         **_identity_json(detail),
+        "enabled": detail.enabled,
         "aliases": [dict(alias) for alias in detail.aliases],
         "resolved_alias": detail.resolved_alias,
         "latest_descriptor": _descriptor_json(detail.latest_descriptor),
