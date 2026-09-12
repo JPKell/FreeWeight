@@ -14,8 +14,11 @@ packaging and release standards §3.
   `output_truncated` — a different event from a juror that answered something unusable, with a
   different remedy — and the reason reaches the calibration report's `excluded` entries and the
   `judge_verdicts` rows unchanged. Beside it the report carries a warning in words: which jurors
-  ran out, that the samples are unmeasured rather than disagreed with, and the two things that
-  change it.
+  ran out, that the samples are unmeasured rather than disagreed with, **which setting bounded
+  the juror** — `runtime.context_size` when no budget is set, because the prompt and the answer
+  share the served window, else `judge.max_output_tokens` — and the two things that change it.
+  The same event is logged as `goal.juror_truncated` with the spend and the bound (operator
+  decision, 2026-09-12).
 - **`[judge] max_output_tokens`** (ADR-0141), which bounds every juror's call. **Unset by
   default** — the provider's own limit, exactly as before — because a 2 048-token default was
   measured costing a working 12 B instruct juror a sample it had been grading. Set it to make a

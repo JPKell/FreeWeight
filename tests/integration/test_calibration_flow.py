@@ -789,6 +789,7 @@ class _PartiallyRefusingJury:
     truth: dict[str, int]
     refuse_first: int
     reason: str = "protocol_error"
+    max_output_tokens: int | None = None
     assembly: Any = field(default_factory=lambda: assemble_jury(["a"], candidate=None, jury_size=1))
     anchors: dict[str, Any] = field(default_factory=dict)
     seen: list[str] = field(default_factory=list)
@@ -876,13 +877,26 @@ class TestAJurorThatNeverAnswered:
 
         warning = next((one for one in outcome.warnings if "output budget" in one), "")
         assert warning, outcome.warnings
-        assert "judge.max_output_tokens" in warning
+        # No budget was set, so the served window is what bounded the juror — and the setting the
+        # warning points at is the window, not a budget the operator never set.
+        assert "runtime.context_size" in warning
+        assert "Raise judge.max_output_tokens" not in warning
         assert "a" in jury.assembly.jurors and "a" in warning, "the warning names who ran out"
 
         # And it survives the round trip, because a warning nobody rereads is not a report.
         read_back = latest_outcome(database, goal)
         assert read_back is not None
         assert warning in read_back.warnings
+
+    def test_a_set_budget_is_the_bound_the_warning_names(self, database: Any, goal: Any) -> None:
+        truth = _seed_grades(database, goal)
+        jury = _PartiallyRefusingJury(
+            truth=truth, refuse_first=2, reason="output_truncated", max_output_tokens=2048
+        )
+        outcome = run_calibration(database, goal, jury=jury, graded_by="tester")
+        warning = next((one for one in outcome.warnings if "output budget" in one), "")
+        assert "judge.max_output_tokens (2048)" in warning
+        assert "runtime.context_size" not in warning
 
     def test_a_protocol_error_raises_no_budget_warning(self, database: Any, goal: Any) -> None:
         truth = _seed_grades(database, goal)

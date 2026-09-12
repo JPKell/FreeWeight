@@ -51,7 +51,7 @@ if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence
 
     from baseaicore import ModelIdentity
-    from modelrack import Provider
+    from modelrack import GenerationResult, Provider
 
     from freeweight.config import JudgeSettings
     from freeweight.domain.benchmark import BenchmarkCase
@@ -339,7 +339,7 @@ class JuryService:
             repetition=repetition,
             grade=grade,
             rationale=None if reason is None else reason[:_RATIONALE_CHARACTERS],
-            refused_reason=None if grade is not None else _refusal_for(result.finish_reason),
+            refused_reason=None if grade is not None else self._refusal(juror, criterion, result),
             latency_ms=latency,
             remote=juror.remote,
             input_tokens=_reported(result.usage.tokens.input_tokens),
@@ -407,12 +407,45 @@ class JuryService:
             pairwise_choice=chosen,
             presentation_order="candidate_first" if candidate_first else "reference_first",
             rationale=result.text[:_RATIONALE_CHARACTERS],
-            refused_reason=None if chosen is not None else _refusal_for(result.finish_reason),
+            refused_reason=None if chosen is not None else self._refusal(juror, criterion, result),
             latency_ms=elapsed_ms(started),
             remote=juror.remote,
             input_tokens=_reported(result.usage.tokens.input_tokens),
             output_tokens=_reported(result.usage.tokens.output_tokens),
         )
+
+    def _refusal(self, juror: JurorModel, criterion: Criterion, result: GenerationResult) -> str:
+        """Name a verdict's refusal, and say so in the log when the juror was cut off.
+
+        A truncation is the one refusal an operator can act on from a setting, so it is logged
+        as ``goal.juror_truncated`` with the spend and the bound that applied — the served window
+        when no budget is set, the budget otherwise (ADR-0141).
+
+        Args:
+            juror: The juror whose answer yielded no verdict.
+            criterion: The criterion it was judging.
+            result: The generation as the provider returned it.
+
+        Returns:
+            :data:`REFUSED_TRUNCATED` or :data:`REFUSED_PROTOCOL`, per :func:`_refusal_for`.
+        """
+        reason = _refusal_for(result.finish_reason)
+        if reason == REFUSED_TRUNCATED:
+            logger.warning(
+                "goal.juror_truncated",
+                extra={
+                    "juror": juror.canonical_id,
+                    "criterion": criterion.key,
+                    "input_tokens": _reported(result.usage.tokens.input_tokens),
+                    "output_tokens": _reported(result.usage.tokens.output_tokens),
+                    "bound": "judge.max_output_tokens"
+                    if self.max_output_tokens is not None
+                    else "runtime.context_size",
+                    "max_output_tokens": self.max_output_tokens,
+                    "context_size": self.runtime_profile.context_size,
+                },
+            )
+        return reason
 
     def _request(self, juror: JurorModel, system: str | None, user: str) -> GenerationRequest:
         """Build one juror's request under the jury's own frozen sampling parameters."""

@@ -723,17 +723,26 @@ def _exclusion_reason(result: JudgedCriterionResult) -> str:
 
 
 def _truncation_warning(
-    judge_exclusions: Mapping[str, Mapping[str, str]], *, jurors: Sequence[str]
+    judge_exclusions: Mapping[str, Mapping[str, str]],
+    *,
+    jurors: Sequence[str],
+    max_output_tokens: int | None,
+    context_size: int | None,
 ) -> str:
     """Say, in words, that the jury ran out of output budget rather than failing the rubric.
 
     ``excluded`` already names every dropped sample with its reason, but a reason code in a table
-    is not advice. This is the sentence beside it — what happened, and the two things that change
-    it (ADR-0141).
+    is not advice. This is the sentence beside it — what happened, **which setting bounded the
+    juror**, and the two things that change it (ADR-0141). With no ``[judge] max_output_tokens``
+    the only bound is the served window, which the prompt and the answer share, so the setting to
+    raise is ``runtime.context_size``; with one set, it is the budget.
 
     Args:
         judge_exclusions: ``{sample_id: {criterion_key: reason}}`` as the run collected them.
         jurors: The jury's canonical IDs, so the sentence names who ran out.
+        max_output_tokens: The budget the jury was polled under, or ``None`` for none.
+        context_size: The served window the jury was polled at, or ``None`` when the provider's
+            own default was used (then the sentence cannot name a figure, and says so).
 
     Returns:
         The warning, or ``""`` when no sample was dropped for a spent output budget.
@@ -748,13 +757,24 @@ def _truncation_warning(
     if not samples:
         return ""
     who = ", ".join(jurors) if jurors else "the jury"
+    if max_output_tokens is None:
+        window = f"{context_size} tokens" if context_size else "the provider's default"
+        bound = (
+            f"What bounded it was the served context window (runtime.context_size, {window}), "
+            "which the prompt and the answer share. Raise runtime.context_size"
+        )
+    else:
+        bound = (
+            f"What bounded it was judge.max_output_tokens ({max_output_tokens}). Raise "
+            "judge.max_output_tokens"
+        )
     return (
         f"{len(samples)} held-out sample(s) were dropped because the jury ran out of output "
         f"budget before it answered ({who}). That is not a juror that failed your rubric — it "
         "never reached an answer at all, which is what a model that reasons at length does when "
-        "nothing bounds it. Raise judge.max_output_tokens if you want to keep this juror, or pin "
-        "the goal to one that answers the rubric directly; either way the samples below are "
-        "unmeasured, not disagreed with."
+        f"nothing bounds it. {bound} if you want to keep this juror, or pin the goal to one that "
+        "answers the rubric directly; either way the samples below are unmeasured, not disagreed "
+        "with."
     )
 
 
@@ -1140,7 +1160,15 @@ def run_calibration(  # noqa: PLR0913 — a calibration run needs all of its col
             f"{jury.assembly.requested_size} this goal asks for. Inter-juror agreement is weaker "
             "or absent, and the result says so."
         )
-    truncated = _truncation_warning(judge_exclusions, jurors=jury.assembly.jurors)
+    # ponytail: the two bounds are read off the jury when it has them (JuryService does); a
+    # double that has neither is treated as unbounded, which is what a test double is.
+    profile = getattr(jury, "runtime_profile", None)
+    truncated = _truncation_warning(
+        judge_exclusions,
+        jurors=jury.assembly.jurors,
+        max_output_tokens=getattr(jury, "max_output_tokens", None),
+        context_size=getattr(profile, "context_size", None),
+    )
     if truncated:
         warnings.append(truncated)
     judge_set = _judge_set(jury)
