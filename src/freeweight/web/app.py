@@ -251,6 +251,7 @@ def create_app(
     app.include_router(benchmarks_routes.api_router, prefix="/api/v1")
     app.include_router(evidence_routes.api_router, prefix="/api/v1")
     app.include_router(adapters_routes.api_router, prefix="/api/v1")
+    app.include_router(dashboard_routes.api_router, prefix="/api/v1")
     app.include_router(machines_routes.router)
     app.include_router(models_routes.router)
     app.include_router(providers_routes.router)

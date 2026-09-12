@@ -16,7 +16,7 @@ what every figure is, and this function turns a query string into a filter and r
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Annotated
+from typing import TYPE_CHECKING, Annotated, Any
 
 from baseaicore import NotFoundError, ValidationError, from_rfc3339
 from fastapi import APIRouter, Query, Request
@@ -24,20 +24,64 @@ from fastapi.responses import HTMLResponse
 from weightsdb import DatabaseError
 
 from freeweight.__about__ import __version__
-from freeweight.services.results import DashboardFilter, build_dashboard
+from freeweight.services.results import DashboardFilter, build_dashboard, dashboard_summary_json
+from freeweight.web.query import parse_instant
 from freeweight.web.rendering import render
 
 if TYPE_CHECKING:
     from freeweight.services.database import Database
 
-__all__ = ["router"]
+__all__ = ["api_router", "router"]
 
+api_router = APIRouter(tags=["dashboard"])
 router = APIRouter(include_in_schema=False)
 
 _SuiteQuery = Annotated[str | None, Query(description="Restrict to one benchmark suite key.")]
 _ModelQuery = Annotated[str | None, Query(description="Restrict to one model.")]
 _MachineQuery = Annotated[str | None, Query(description="Restrict to one machine fingerprint.")]
 _SinceQuery = Annotated[str | None, Query(description="RFC 3339; runs created at or after.")]
+
+
+@api_router.get("/dashboard", summary="Cross-model summary and comparison heatmap")
+def dashboard_summary(
+    request: Request,
+    suite: _SuiteQuery = None,
+    model: _ModelQuery = None,
+    machine: _MachineQuery = None,
+    since: _SinceQuery = None,
+) -> dict[str, Any]:
+    """Return the dashboard's summary cards and comparison heatmap (api.md §5a).
+
+    The console's Dashboard page (row WPF5) renders this rather than recomputing FreeWeight's own
+    comparability rules and *separated* marking a second time — the same reason
+    ``GET /results/compare`` exists instead of a client-side regrouping. Scatter panels and the
+    per-metric panel tables stay HTML-only: nothing outside FreeWeight's own page reads them yet.
+
+    Args:
+        request: The incoming request; the database handle lives on its application state.
+        suite: Restrict to one benchmark suite key.
+        model: Restrict to one model.
+        machine: Restrict to one machine fingerprint.
+        since: RFC 3339; runs created at or after.
+
+    Returns:
+        ``{"filter", "cards", "heatmap"}`` — the same figures ``GET /dashboard`` renders.
+
+    Raises:
+        ValidationError: ``since`` is not RFC 3339, or ``model`` is an ambiguous prefix.
+        NotFoundError: ``model`` matches no model.
+    """
+    database: Database = request.app.state.database
+    dashboard = build_dashboard(
+        database,
+        DashboardFilter(
+            suite=suite,
+            model=model,
+            machine=machine,
+            since=parse_instant(since, field="since"),
+        ),
+    )
+    return dashboard_summary_json(dashboard)
 
 
 @router.get("/dashboard", response_class=HTMLResponse)

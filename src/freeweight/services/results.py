@@ -780,6 +780,65 @@ class Dashboard:
         return self.cards.completed_runs == 0
 
 
+def _heatmap_cell_json(model: str, suite: str, cell: HeatmapCell) -> dict[str, Any]:
+    """One heatmap cell's wire form, keyed loose since JSON has no tuple keys."""
+    return {
+        "model": model,
+        "suite": suite,
+        "metric_key": cell.metric_key,
+        "run_id": cell.run_id,
+        "run_test_id": cell.run_test_id,
+        "value": "unsupported" if cell.value is None else cell.value,
+        "unavailable_reason": cell.unavailable_reason,
+        "unit": cell.unit,
+        "higher_is_better": cell.higher_is_better,
+        "sample_count": cell.sample_count,
+        "excluded_count": cell.excluded_count,
+        "machine_fingerprint": cell.machine_fingerprint,
+        "suite_version": cell.suite_version,
+    }
+
+
+def dashboard_summary_json(dashboard: Dashboard) -> dict[str, Any]:
+    """The wire form ``GET /api/v1/dashboard`` returns (api.md §5a).
+
+    Only the summary cards and the comparison heatmap — the scatter panels and the per-metric
+    panel tables stay HTML-only, since nothing outside FreeWeight's own page reads them yet. A
+    sparse list of cells, since JSON has no tuple keys and most (model, suite) pairs are unfilled.
+    """
+    cards = dashboard.cards
+    heatmap = dashboard.heatmap
+    return {
+        "filter": {
+            "suite": dashboard.filter.suite,
+            "model": dashboard.filter.model,
+            "machine": dashboard.filter.machine,
+            "since": None if dashboard.filter.since is None else to_rfc3339(dashboard.filter.since),
+        },
+        "cards": {
+            "completed_runs": cards.completed_runs,
+            "models_measured": cards.models_measured,
+            "suites_run": cards.suites_run,
+            "samples_stored": cards.samples_stored,
+            "unsupported_metrics": cards.unsupported_metrics,
+            "machines": cards.machines,
+            "latest_run_at": (
+                None if cards.latest_run_at is None else to_rfc3339(cards.latest_run_at)
+            ),
+        },
+        "heatmap": {
+            "models": list(heatmap.models),
+            "suites": list(heatmap.suites),
+            "headline_metric": dict(heatmap.headline_metric),
+            "separated": heatmap.separated,
+            "cells": [
+                _heatmap_cell_json(model, suite, cell)
+                for (model, suite), cell in heatmap.cells.items()
+            ],
+        },
+    }
+
+
 GOAL_HEADLINE_METRIC = "composite_score"
 """The headline of any user-authored goal suite.
 
