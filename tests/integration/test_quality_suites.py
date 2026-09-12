@@ -15,7 +15,9 @@ Covers the Phase 7 assertions that need a database or a provider:
 * the tool loop actually loops, and the toolbox's answers reach the model
   (:class:`TestTheToolLoop`);
 * the structured-output corrective retry is measured as its own figure
-  (:class:`TestStructuredOutputRetry`).
+  (:class:`TestStructuredOutputRetry`);
+* every provider call a multi-turn suite makes carries the run's own runtime profile, so one run
+  is one launch and one argv (:class:`TestOneRunIsOneLaunch`, row WPF10).
 """
 
 from __future__ import annotations
@@ -42,7 +44,7 @@ from sqlalchemy import delete
 from freeweight.benchmarks.interaction import ToolSession
 from freeweight.benchmarks.tool_use.benchmark import build as build_tool_use
 from freeweight.benchmarks.tool_use.benchmark import toolbox_for
-from freeweight.config import ExecutionSettings
+from freeweight.config import ExecutionSettings, RuntimeSettings
 
 # Aliased: pytest tries to collect any module-level name beginning with ``Test``.
 from freeweight.domain.run_state import RunStatus
@@ -663,3 +665,73 @@ class TestCapabilityNamesAreValidatedAtStartup:
     def test_the_shipped_registry_declares_only_real_capabilities(self) -> None:
         # The positive case is that ``build_registry`` returns at all — it runs the check.
         assert build_registry().keys()
+
+
+class TestOneRunIsOneLaunch:
+    """Row WPF10: a multi-turn suite's turns run under the run's profile, not under defaults.
+
+    Every suite here except ``native.instruction_following`` reaches the provider through an
+    interaction — a tool loop or a corrective retry — and that path built its own request. Under
+    llama.cpp the profile is the server's command line (``--ctx-size``, and ``--fit off`` from
+    ADR-0121) and ModelRack keys its supervised server on those flags, so a turn stating a
+    *different* profile restarts the server under its own and the rest of the run is measured
+    there: WPF2's Gate C read three runs recording ``8192 (configured)`` while the warm server
+    answered ``/props`` with 32 768. The flags are asserted rather than the profile object, because
+    the flags are what the live proof reads out of ``ps``.
+    """
+
+    @staticmethod
+    def _flags(request: Any) -> tuple[str, ...]:
+        from modelrack.providers._llamacpp_wire import launch_flags  # noqa: PLC2701 — the argv
+
+        return launch_flags(request.runtime_profile)
+
+    @pytest.mark.parametrize("suite", ["native.structured_output", "native.tool_use"])
+    def test_every_turn_of_a_run_would_launch_the_same_server(
+        self, environment: Any, suite: str
+    ) -> None:
+        profile = RuntimeSettings(context_size=8192).to_profile(provider_kind="llamacpp")
+        provider = _RecordingProvider(environment.provider)
+
+        summary = create_run(
+            environment.database,
+            provider,
+            environment.collector,
+            environment.registry,
+            model_ref=environment.model_ref,
+            suite_key=suite,
+            execution=_execution(warmup_repetitions=1),
+            runtime_profile=profile,
+        )
+        RunScheduler(environment.database, provider, registry=environment.registry).run_once()
+
+        assert get_run(environment.database, summary.id).run.status == RunStatus.COMPLETED.value
+        # The warm-up plus at least one measured turn: if the interaction never ran, this test
+        # would pass on the single-call path alone and prove nothing.
+        assert len(provider.requests) > 1
+        argv = {self._flags(request) for request in provider.requests}
+        assert argv == {("--ctx-size", "8192", "--fit", "off")}
+
+
+class _RecordingProvider:
+    """Wraps a provider and keeps every request it was asked to answer.
+
+    The recorded requests are what a llama.cpp server would be launched from, which is why this
+    asserts on them rather than on the stored profile: the stored profile was already right when
+    the run's own turns were being served at four times its context.
+    """
+
+    def __init__(self, inner: Any) -> None:
+        self._inner = inner
+        self.requests: list[Any] = []
+
+    def __getattr__(self, name: str) -> Any:  # noqa: ANN401 — provider passthrough
+        return getattr(self._inner, name)
+
+    def generate(self, request: Any) -> Any:  # noqa: ANN401 — modelrack.GenerationResult
+        self.requests.append(request)
+        return self._inner.generate(request)
+
+    def stream(self, request: Any) -> Any:  # noqa: ANN401 — an iterator of stream events
+        self.requests.append(request)
+        return self._inner.stream(request)

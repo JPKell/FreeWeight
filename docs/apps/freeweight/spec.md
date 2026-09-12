@@ -515,6 +515,11 @@ sent, and the served value is then resolved from what the provider reports or, f
 assumed. `freeweight run start --context-size` overrides it per run, and `POST /api/v1/runs` takes
 the same shape as a `runtime` block. A repeat reuses the original run's stored profile rather than
 re-resolving from current configuration, for the same reason it reuses the frozen `ExecutionConfig`.
+**One run is one launch and one argv:** every provider call the run makes carries that one profile —
+the warm-up, each measured call, and every turn of a multi-turn suite (a tool loop, a corrective
+retry). Under `llamacpp` the profile *is* the server's command line and ModelRack keys its
+supervised server on those flags, so a single call that stated a different profile would not borrow
+the run's server, it would restart it under its own and serve the rest of the run there (row WPF10).
 
 `context_size` is the one that matters most on a memory-constrained machine, because the provider's
 own default may be the model's advertised maximum: a 15.7B model asked for a 112 K slot allocates a

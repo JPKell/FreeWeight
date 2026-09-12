@@ -61,6 +61,18 @@ packaging and release standards §3.
 
 ### Fixed
 
+- **A multi-turn suite's turns are served under the run's own runtime profile** (row WPF10). Every
+  suite that reaches the provider through an interaction — a tool loop or a corrective retry, so
+  `native.structured_output`, `native.tool_use`, `native.tool_recovery`, `native.agent` and the
+  judge suite — built its own provider request and left the profile out of it. Under llama.cpp the
+  profile *is* the server's command line, and ModelRack keys its supervised server on those flags,
+  so the first turn restarted the run's `llama-server` with neither `--ctx-size` nor `--fit off`
+  and every measured call of the run was served at the model's trained context while the record
+  said `8192 (configured)` — on a memory-capped machine (ADR-0119, ADR-0121) a KV cache four times
+  the size the record implies, and the `served_context_assumed_incorrectly` degradation WPF2 made
+  legible was right to fire. One request builder now serves the warm-up, the single-call path and
+  every interaction turn alike, so a run is one launch and one argv. Found by WPF2's Gate C on the
+  reference machine.
 - **`docs/configuration.md` regenerated.** The committed reference had drifted from the settings
   model's own docstrings, so `scripts/generate_config_reference.py --check` — which CI runs — was
   failing before this change. Found at row WPF9.
