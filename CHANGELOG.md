@@ -16,10 +16,11 @@ packaging and release standards §3.
   `judge_verdicts` rows unchanged. Beside it the report carries a warning in words: which jurors
   ran out, that the samples are unmeasured rather than disagreed with, and the two things that
   change it.
-- **`[judge] max_output_tokens`** (default `2048`, `null` for the provider's own; ADR-0141). A
-  judge answer is one small JSON object; unbounded, a juror that reasons spends the whole served
-  window and returns nothing — measured at 7 012 output tokens and empty text on the reference
-  machine. Raise it to keep a juror that needs room.
+- **`[judge] max_output_tokens`** (ADR-0141), which bounds every juror's call. **Unset by
+  default** — the provider's own limit, exactly as before — because a 2 048-token default was
+  measured costing a working 12 B instruct juror a sample it had been grading. Set it to make a
+  juror that reasons fail fast instead of spending the whole served window: on the reference
+  machine one such juror burned 7 012 output tokens and returned empty text.
 - **`POST /runs` takes an `adapter`** (row WPF2; `api.md` §4), the same argument
   `run start --adapter` takes, so an adapter subject can be measured over HTTP and not only from the
   CLI. Refused by name — never a run of the bare base under the adapter's name (ADR-0058).

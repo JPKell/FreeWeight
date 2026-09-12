@@ -926,15 +926,15 @@ class JudgeSettings(BaseModel):
         examples=[0.0],
     )
     max_output_tokens: int | None = Field(
-        default=2048,
+        default=None,
         ge=1,
         description=(
-            "Output limit every juror is polled under; null lets the provider decide. A judge "
-            "answer is one small JSON object, so a juror that cannot produce it inside this "
-            "budget is refused output_truncated rather than left to spend the served window "
-            "(ADR-0141)."
+            "Output limit every juror is polled under. Null — the default — lets the provider "
+            "decide, which is the served context. Set it to make a juror that reasons fail fast "
+            "instead of spending the whole window; measured too tight at 2048, where a 12B "
+            "instruct juror lost samples it had been answering (ADR-0141)."
         ),
-        examples=[2048],
+        examples=[4096],
     )
 
     _split_models = field_validator("models", mode="before")(_split_csv)

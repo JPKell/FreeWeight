@@ -608,10 +608,10 @@
                 "type": "null"
               }
             ],
-            "default": 2048,
-            "description": "Output limit every juror is polled under; null lets the provider decide. A judge answer is one small JSON object, so a juror that cannot produce it inside this budget is refused output_truncated rather than left to spend the served window (ADR-0141).",
+            "default": null,
+            "description": "Output limit every juror is polled under. Null \u2014 the default \u2014 lets the provider decide, which is the served context. Set it to make a juror that reasons fail fast instead of spending the whole window; measured too tight at 2048, where a 12B instruct juror lost samples it had been answering (ADR-0141).",
             "examples": [
-              2048
+              4096
             ],
             "title": "Max Output Tokens"
           },

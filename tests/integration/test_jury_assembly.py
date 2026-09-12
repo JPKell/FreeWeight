@@ -423,7 +423,10 @@ class TestAJurorThatRanOutOfBudget:
         result = jury.grade_all(list(pack.judged_criteria), "An answer.", _case())[0]
         assert result.outcome.detail["refusals"] == ["protocol_error"]
 
-    def test_the_budget_is_left_to_the_provider_when_it_is_unset(self) -> None:
+    def test_the_budget_is_left_to_the_provider_by_default(self) -> None:
+        # The default, not merely a settable value: WPF9's Gate B measured a 2048-token default
+        # truncating a 12B *instruct* juror on samples it had been answering, which narrows a
+        # measurement rather than speeding one up (ADR-0141).
         script = FakeScript(
             models=(FakeModel(name="alpha"),),
             generations=(FakeGeneration(text=json.dumps({"grade": 4, "reason": "ok"})),),
@@ -433,11 +436,12 @@ class TestAJurorThatRanOutOfBudget:
             provider,
             pack=_pack(),
             library=load_pack(),
-            settings=JudgeSettings(jury_size=1, repetitions=1, max_output_tokens=None),
+            settings=JudgeSettings(jury_size=1, repetitions=1),
             candidate_canonical_id="",
             available=_canonical(provider),
             allow_remote_provider=False,
         )
+        assert JudgeSettings().max_output_tokens is None
         assert jury.max_output_tokens is None
         pack = _pack()
         result = jury.grade_all(list(pack.judged_criteria), "An answer.", _case())[0]

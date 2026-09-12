@@ -177,7 +177,7 @@ The default jury a goal's judged criteria are scored by (spec §12).
 | `judge.refuse_self_judging` | `FREEWEIGHT_JUDGE__REFUSE_SELF_JUDGING` | boolean | `true` | — | no — file or environment, then restart | — | `true` | A juror never judges its own output. |
 | `judge.allow_remote` | `FREEWEIGHT_JUDGE__ALLOW_REMOTE` | boolean | `false` | — | no — file or environment, then restart | Config only. Lets a candidate's output leave this machine to be judged. | `false` | Permit a remote juror. Requires providers.allow_remote as well. |
 | `judge.temperature` | `FREEWEIGHT_JUDGE__TEMPERATURE` | number | `0.0` | ≥ 0.0, ≤ 2.0 | no — file or environment, then restart | — | `0.0` | Sampling temperature every juror is polled at. |
-| `judge.max_output_tokens` | `FREEWEIGHT_JUDGE__MAX_OUTPUT_TOKENS` | integer, optional | `2048` | ≥ 1 | no — file or environment, then restart | — | `2048` | Output limit every juror is polled under; null lets the provider decide. A judge answer is one small JSON object, so a juror that cannot produce it inside this budget is refused output_truncated rather than left to spend the served window (ADR-0141). |
+| `judge.max_output_tokens` | `FREEWEIGHT_JUDGE__MAX_OUTPUT_TOKENS` | integer, optional | unset | ≥ 1 | no — file or environment, then restart | — | `4096` | Output limit every juror is polled under. Null — the default — lets the provider decide, which is the served context. Set it to make a juror that reasons fail fast instead of spending the whole window; measured too tight at 2048, where a 12B instruct juror lost samples it had been answering (ADR-0141). |
 
 ## `[calibration]`
 
