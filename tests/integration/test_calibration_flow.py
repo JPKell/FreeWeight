@@ -788,6 +788,7 @@ class _PartiallyRefusingJury:
 
     truth: dict[str, int]
     refuse_first: int
+    reason: str = "protocol_error"
     assembly: Any = field(default_factory=lambda: assemble_jury(["a"], candidate=None, jury_size=1))
     anchors: dict[str, Any] = field(default_factory=dict)
     seen: list[str] = field(default_factory=list)
@@ -813,7 +814,7 @@ class _PartiallyRefusingJury:
         results: list[JudgedCriterionResult] = []
         for criterion in criteria:
             if refuse:
-                verdicts = [JurorVerdict("a", 0, 1, refused_reason="protocol_error")]
+                verdicts = [JurorVerdict("a", 0, 1, refused_reason=self.reason)]
             else:
                 grade = self.truth.get(response_text, 3)
                 verdicts = [
@@ -857,6 +858,37 @@ class TestTheReportCountsWhatItJudged:
             (entry.sample_id, entry.reason) for entry in item.excluded
         }
         assert read_back.verdict.n_judged == outcome.verdict.n_judged
+
+
+class TestAJurorThatNeverAnswered:
+    """WPF9: a sample dropped because the jury ran out of output budget says so — in the
+    exclusion's reason and in words beside the report (ADR-0141)."""
+
+    def test_the_exclusion_names_the_spent_budget_and_the_report_warns_in_words(
+        self, database: Any, goal: Any
+    ) -> None:
+        truth = _seed_grades(database, goal)
+        jury = _PartiallyRefusingJury(truth=truth, refuse_first=2, reason="output_truncated")
+        outcome = run_calibration(database, goal, jury=jury, graded_by="tester")
+
+        item = outcome.criteria[0]
+        assert {entry.reason for entry in item.excluded} == {"output_truncated"}
+
+        warning = next((one for one in outcome.warnings if "output budget" in one), "")
+        assert warning, outcome.warnings
+        assert "judge.max_output_tokens" in warning
+        assert "a" in jury.assembly.jurors and "a" in warning, "the warning names who ran out"
+
+        # And it survives the round trip, because a warning nobody rereads is not a report.
+        read_back = latest_outcome(database, goal)
+        assert read_back is not None
+        assert warning in read_back.warnings
+
+    def test_a_protocol_error_raises_no_budget_warning(self, database: Any, goal: Any) -> None:
+        truth = _seed_grades(database, goal)
+        jury = _PartiallyRefusingJury(truth=truth, refuse_first=2)
+        outcome = run_calibration(database, goal, jury=jury, graded_by="tester")
+        assert not [one for one in outcome.warnings if "output budget" in one]
 
 
 class TestAJudgedGoalThatCouldNotBeGradedIsUncalibrated:

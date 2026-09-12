@@ -925,6 +925,17 @@ class JudgeSettings(BaseModel):
         description="Sampling temperature every juror is polled at.",
         examples=[0.0],
     )
+    max_output_tokens: int | None = Field(
+        default=2048,
+        ge=1,
+        description=(
+            "Output limit every juror is polled under; null lets the provider decide. A judge "
+            "answer is one small JSON object, so a juror that cannot produce it inside this "
+            "budget is refused output_truncated rather than left to spend the served window "
+            "(ADR-0141)."
+        ),
+        examples=[2048],
+    )
 
     _split_models = field_validator("models", mode="before")(_split_csv)
 

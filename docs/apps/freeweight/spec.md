@@ -470,6 +470,7 @@ verification I18 exists to make.
               refuse_self_judging = true           # a juror never judges its own output
               allow_remote = false                 # requires providers.allow_remote too
               temperature = 0.0
+              max_output_tokens = 2048             # null = the provider's own; spent = output_truncated
 [calibration] target_samples = 12   min_samples = 8
               holdout_fraction = 0.4   partition_seed = 0
               min_agreement = 0.40                 # weighted kappa_w gate for emitting evidence

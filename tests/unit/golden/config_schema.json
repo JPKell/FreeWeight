@@ -33,6 +33,7 @@
     "goals.rule_timeout_ms",
     "judge.blind_candidate_identity",
     "judge.jury_size",
+    "judge.max_output_tokens",
     "judge.models",
     "judge.randomize_order",
     "judge.refuse_self_judging",
@@ -596,6 +597,23 @@
             "minimum": 1,
             "title": "Jury Size",
             "type": "integer"
+          },
+          "max_output_tokens": {
+            "anyOf": [
+              {
+                "minimum": 1,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": 2048,
+            "description": "Output limit every juror is polled under; null lets the provider decide. A judge answer is one small JSON object, so a juror that cannot produce it inside this budget is refused output_truncated rather than left to spend the served window (ADR-0141).",
+            "examples": [
+              2048
+            ],
+            "title": "Max Output Tokens"
           },
           "models": {
             "default": [],
@@ -1383,6 +1401,7 @@
     "judge.allow_remote": "default",
     "judge.blind_candidate_identity": "default",
     "judge.jury_size": "default",
+    "judge.max_output_tokens": "default",
     "judge.models": "default",
     "judge.randomize_order": "default",
     "judge.refuse_self_judging": "default",

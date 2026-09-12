@@ -34,7 +34,7 @@ from baseaicore import (
     monotonic_ns,
     sha256_of,
 )
-from modelrack import GenerationRequest, Message, Role, SamplingParameters
+from modelrack import FinishReason, GenerationRequest, Message, Role, SamplingParameters
 from modelrack.errors import ProviderError
 
 from freeweight.domain.goals.criteria import CriterionOutcome
@@ -60,6 +60,7 @@ if TYPE_CHECKING:
 
 __all__ = [
     "PAIRWISE_PROMPT_ID",
+    "REFUSED_TRUNCATED",
     "RUBRIC_PROMPT_ID",
     "AnchorExemplar",
     "JuryService",
@@ -82,6 +83,15 @@ REFUSED_PROTOCOL = "protocol_error"
 
 REFUSED_PROVIDER = "provider_error"
 """The juror could not be reached at all."""
+
+REFUSED_TRUNCATED = "output_truncated"
+"""The juror ran out of output budget before it answered — it never reached a grade.
+
+Distinct from :data:`REFUSED_PROTOCOL`, which is a juror that *answered* something no grade could
+be read from. The two are different events with different remedies — one needs more room or a
+different juror, the other needs a juror that can follow the rubric — and a report that called
+both ``protocol_error`` left the author to tell them apart from nothing (ADR-0141).
+"""
 
 _RATIONALE_CHARACTERS = 200
 """How much of a juror's reason is stored (spec §14's bounded scorer-evidence exception)."""
@@ -182,6 +192,10 @@ class JuryService:
             profile is deliberately reused: judging at a different context than the answers were
             generated at would be a second, unrecorded variable.
         timeout_seconds: Per-call timeout.
+        max_output_tokens: The generation limit every juror is polled under, or ``None`` for the
+            provider's own. A judge answer is one small JSON object; unbounded, a juror that
+            reasons spends the whole served window thinking and returns nothing at all, which is
+            seven minutes spent to learn nothing (ADR-0141).
     """
 
     provider: Provider
@@ -195,6 +209,7 @@ class JuryService:
     seed: int = 0
     runtime_profile: RuntimeProfile = field(default_factory=RuntimeProfile)
     timeout_seconds: float = 300.0
+    max_output_tokens: int | None = None
 
     def score_judged(
         self,
@@ -324,7 +339,7 @@ class JuryService:
             repetition=repetition,
             grade=grade,
             rationale=None if reason is None else reason[:_RATIONALE_CHARACTERS],
-            refused_reason=None if grade is not None else REFUSED_PROTOCOL,
+            refused_reason=None if grade is not None else _refusal_for(result.finish_reason),
             latency_ms=latency,
             remote=juror.remote,
             input_tokens=_reported(result.usage.tokens.input_tokens),
@@ -392,7 +407,7 @@ class JuryService:
             pairwise_choice=chosen,
             presentation_order="candidate_first" if candidate_first else "reference_first",
             rationale=result.text[:_RATIONALE_CHARACTERS],
-            refused_reason=None if chosen is not None else REFUSED_PROTOCOL,
+            refused_reason=None if chosen is not None else _refusal_for(result.finish_reason),
             latency_ms=elapsed_ms(started),
             remote=juror.remote,
             input_tokens=_reported(result.usage.tokens.input_tokens),
@@ -409,7 +424,11 @@ class JuryService:
             identity=juror.identity,
             messages=tuple(messages),
             runtime_profile=self.runtime_profile,
-            sampling=SamplingParameters(temperature=self.temperature, seed=self.seed),
+            sampling=SamplingParameters(
+                temperature=self.temperature,
+                seed=self.seed,
+                max_output_tokens=self.max_output_tokens,
+            ),
             timeout_seconds=self.timeout_seconds,
         )
 
@@ -483,6 +502,20 @@ def _reported(value: Measurement) -> float | None:
     was free (ADR-0016).
     """
     return float(value) if is_supported(value) else None
+
+
+def _refusal_for(finish_reason: FinishReason) -> str:
+    """Name why a juror's answer yielded no verdict, from how its generation ended.
+
+    Args:
+        finish_reason: How the provider says the generation ended.
+
+    Returns:
+        :data:`REFUSED_TRUNCATED` when the juror was cut off at its output limit — it never
+        reached an answer, whatever it spent the budget on — and :data:`REFUSED_PROTOCOL`
+        otherwise, which is a juror that finished and said something unusable.
+    """
+    return REFUSED_TRUNCATED if finish_reason is FinishReason.LENGTH else REFUSED_PROTOCOL
 
 
 def _parse_grade(text: str, *, points: int) -> tuple[int | None, str | None]:
@@ -593,6 +626,7 @@ def build_jury(  # noqa: PLR0913 — a jury is assembled from exactly these fact
         anchors=dict(anchors or {}),
         repetitions=judge.repetitions if judge is not None else settings.repetitions,
         temperature=settings.temperature,
+        max_output_tokens=settings.max_output_tokens,
         seed=seed,
         runtime_profile=runtime_profile if runtime_profile is not None else RuntimeProfile(),
     )

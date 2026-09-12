@@ -9,6 +9,17 @@ packaging and release standards §3.
 
 ### Added
 
+- **A juror that never answers is named, not filed under `protocol_error`** (row WPF9; ADR-0141).
+  A verdict whose generation ended at the output limit with no readable grade now refuses
+  `output_truncated` — a different event from a juror that answered something unusable, with a
+  different remedy — and the reason reaches the calibration report's `excluded` entries and the
+  `judge_verdicts` rows unchanged. Beside it the report carries a warning in words: which jurors
+  ran out, that the samples are unmeasured rather than disagreed with, and the two things that
+  change it.
+- **`[judge] max_output_tokens`** (default `2048`, `null` for the provider's own; ADR-0141). A
+  judge answer is one small JSON object; unbounded, a juror that reasons spends the whole served
+  window and returns nothing — measured at 7 012 output tokens and empty text on the reference
+  machine. Raise it to keep a juror that needs room.
 - **`POST /runs` takes an `adapter`** (row WPF2; `api.md` §4), the same argument
   `run start --adapter` takes, so an adapter subject can be measured over HTTP and not only from the
   CLI. Refused by name — never a run of the bare base under the adapter's name (ADR-0058).
@@ -46,6 +57,9 @@ packaging and release standards §3.
 
 ### Fixed
 
+- **`docs/configuration.md` regenerated.** The committed reference had drifted from the settings
+  model's own docstrings, so `scripts/generate_config_reference.py --check` — which CI runs — was
+  failing before this change. Found at row WPF9.
 - **A provider write that is refused when the provider is re-opened no longer changes the file.**
   Switching to a provider this build cannot construct — or, before ADR-0140, to one that cannot
   serve the configured adapters — rewrote `config.toml` and moved the previous file to `.bak`, then

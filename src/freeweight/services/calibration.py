@@ -722,6 +722,42 @@ def _exclusion_reason(result: JudgedCriterionResult) -> str:
     return ", ".join(reasons) if reasons else "unparsed_grade"
 
 
+def _truncation_warning(
+    judge_exclusions: Mapping[str, Mapping[str, str]], *, jurors: Sequence[str]
+) -> str:
+    """Say, in words, that the jury ran out of output budget rather than failing the rubric.
+
+    ``excluded`` already names every dropped sample with its reason, but a reason code in a table
+    is not advice. This is the sentence beside it — what happened, and the two things that change
+    it (ADR-0141).
+
+    Args:
+        judge_exclusions: ``{sample_id: {criterion_key: reason}}`` as the run collected them.
+        jurors: The jury's canonical IDs, so the sentence names who ran out.
+
+    Returns:
+        The warning, or ``""`` when no sample was dropped for a spent output budget.
+    """
+    from freeweight.services.jury import REFUSED_TRUNCATED
+
+    samples = sorted(
+        sample_id
+        for sample_id, reasons in judge_exclusions.items()
+        if any(REFUSED_TRUNCATED in reason for reason in reasons.values())
+    )
+    if not samples:
+        return ""
+    who = ", ".join(jurors) if jurors else "the jury"
+    return (
+        f"{len(samples)} held-out sample(s) were dropped because the jury ran out of output "
+        f"budget before it answered ({who}). That is not a juror that failed your rubric — it "
+        "never reached an answer at all, which is what a model that reasons at length does when "
+        "nothing bounds it. Raise judge.max_output_tokens if you want to keep this juror, or pin "
+        "the goal to one that answers the rubric directly; either way the samples below are "
+        "unmeasured, not disagreed with."
+    )
+
+
 def _lint_for(result: AgreementResult, criterion: Criterion) -> str:
     """The lint's read on why agreement is poor (Subjective Goals §5.6).
 
@@ -1104,6 +1140,9 @@ def run_calibration(  # noqa: PLR0913 — a calibration run needs all of its col
             f"{jury.assembly.requested_size} this goal asks for. Inter-juror agreement is weaker "
             "or absent, and the result says so."
         )
+    truncated = _truncation_warning(judge_exclusions, jurors=jury.assembly.jurors)
+    if truncated:
+        warnings.append(truncated)
     judge_set = _judge_set(jury)
     outcome = CalibrationOutcome(
         goal_slug=goal.pack.slug,

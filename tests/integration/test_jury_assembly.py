@@ -26,7 +26,7 @@ from freeweight.domain.goals.criteria import CriterionStatus, SkipReason
 from freeweight.domain.goals.pack import GoalPack, GoalTask, parse_pack
 from freeweight.domain.judging import REASON_REMOTE_NOT_PERMITTED, REASON_SELF_JUDGING
 from freeweight.domain.jury import assemble_jury
-from freeweight.services.jury import build_jury
+from freeweight.services.jury import REFUSED_TRUNCATED, build_jury
 from freeweight.services.prompts import load_pack
 
 _ANCHORED = {
@@ -370,6 +370,78 @@ class TestAJurorThatAnswersBadly:
         pack = _pack()
         result = jury.grade_all(list(pack.judged_criteria), "An answer.", _case())[0]
         assert result.outcome.status is CriterionStatus.SKIPPED
+
+
+class TestAJurorThatRanOutOfBudget:
+    """WPF9: a juror cut off before it answered is a different event from one that answered
+    badly, and the report has to be able to tell them apart (ADR-0141)."""
+
+    def test_the_configured_output_budget_reaches_the_provider_and_truncation_is_named(
+        self,
+    ) -> None:
+        # One scripted answer that *would* parse, polled under a budget far too small for it —
+        # which is the reference machine's shape (7 012 output tokens, empty text, `length`)
+        # without needing a model that reasons.
+        script = FakeScript(
+            models=(FakeModel(name="alpha"),),
+            generations=(FakeGeneration(text=json.dumps({"grade": 4, "reason": "x" * 400})),),
+        )
+        provider = FakeProvider(script, seed=7)
+        jury = build_jury(
+            provider,
+            pack=_pack(),
+            library=load_pack(),
+            settings=JudgeSettings(jury_size=1, repetitions=1, max_output_tokens=2),
+            candidate_canonical_id="",
+            available=_canonical(provider),
+            allow_remote_provider=False,
+        )
+        assert jury.max_output_tokens == 2  # noqa: PLR2004 — the budget under test
+        pack = _pack()
+        result = jury.grade_all(list(pack.judged_criteria), "An answer.", _case())[0]
+        assert result.outcome.status is CriterionStatus.SKIPPED
+        assert result.outcome.detail["refusals"] == [REFUSED_TRUNCATED]
+
+    def test_an_unparsable_answer_that_finished_is_still_a_protocol_error(self) -> None:
+        # The distinction only means something if the other side of it still holds: a juror that
+        # ended its turn on its own and said something unusable is not out of budget.
+        script = FakeScript(
+            models=(FakeModel(name="alpha"),),
+            generations=(FakeGeneration(text="I think it is quite good, really."),),
+        )
+        provider = FakeProvider(script, seed=7)
+        jury = build_jury(
+            provider,
+            pack=_pack(),
+            library=load_pack(),
+            settings=JudgeSettings(jury_size=1, repetitions=1),
+            candidate_canonical_id="",
+            available=_canonical(provider),
+            allow_remote_provider=False,
+        )
+        pack = _pack()
+        result = jury.grade_all(list(pack.judged_criteria), "An answer.", _case())[0]
+        assert result.outcome.detail["refusals"] == ["protocol_error"]
+
+    def test_the_budget_is_left_to_the_provider_when_it_is_unset(self) -> None:
+        script = FakeScript(
+            models=(FakeModel(name="alpha"),),
+            generations=(FakeGeneration(text=json.dumps({"grade": 4, "reason": "ok"})),),
+        )
+        provider = FakeProvider(script, seed=7)
+        jury = build_jury(
+            provider,
+            pack=_pack(),
+            library=load_pack(),
+            settings=JudgeSettings(jury_size=1, repetitions=1, max_output_tokens=None),
+            candidate_canonical_id="",
+            available=_canonical(provider),
+            allow_remote_provider=False,
+        )
+        assert jury.max_output_tokens is None
+        pack = _pack()
+        result = jury.grade_all(list(pack.judged_criteria), "An answer.", _case())[0]
+        assert result.median_grade == 4  # noqa: PLR2004 — the scripted grade
 
 
 class TestTheJuryAppearsInTheRunRecord:
