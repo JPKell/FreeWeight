@@ -19,6 +19,7 @@ from typing import Any, Literal
 
 import pytest
 from baseaicore import UNSUPPORTED, ModelIdentity, ProviderKind, RuntimeProfile
+from modelrack import Message, Role
 
 from freeweight.config import ExecutionSettings, RuntimeSettings
 from freeweight.domain.benchmark import BenchmarkCase
@@ -26,6 +27,7 @@ from freeweight.services.runs import (
     ExecutionConfig,
     _build_request,
     _context_divergence,
+    _provider_request,
     _residency_rows,
     _RunContext,
 )
@@ -221,6 +223,53 @@ class TestTheContextSurvivesTheServingMode:
         flags = launch_flags(profile)
         assert profile.adapters_registered is registered
         assert flags[:2] == ("--ctx-size", "8192")
+
+
+class TestOneRunIsOneArgv:
+    """Row WPF10: every provider call of a run builds its request in one place.
+
+    Under llama.cpp the runtime profile *is* the server's command line, and ModelRack keys its
+    supervised server on those flags: a request stating a different profile does not borrow the
+    run's server, it restarts it under its own flags. A second request builder was therefore a
+    second argv — which is what WPF2's Gate C caught live, two servers in one sitting, one with
+    ``--ctx-size 8192 --fit off`` and one with neither, answering ``/props`` with 32 768.
+    """
+
+    def test_an_interaction_turn_carries_the_same_argv_as_a_single_call(self) -> None:
+        """The defect, at the level below the engine: the turn's profile is the run's profile."""
+        from modelrack.providers._llamacpp_wire import launch_flags  # noqa: PLC2701 — the argv
+
+        config = ExecutionConfig.resolve(ExecutionSettings())
+        profile = RuntimeSettings(context_size=8192).to_profile(provider_kind="llamacpp")
+        case = BenchmarkCase(case_id="c", ordinal=0, prompt="hello")
+
+        single = _build_request(_IDENTITY, case, config, profile, "terse")
+        turn = _provider_request(
+            identity=_IDENTITY,
+            messages=[Message(role=Role.USER, content="hello")],
+            config=config,
+            runtime_profile=profile,
+            adapter_name="terse",
+            tools=(),
+        )
+
+        assert launch_flags(turn.runtime_profile) == launch_flags(single.runtime_profile)
+        assert launch_flags(turn.runtime_profile) == ("--ctx-size", "8192", "--fit", "off")
+        assert turn.adapter == single.adapter == "terse"
+
+    def test_the_run_engine_has_exactly_one_request_builder(self) -> None:
+        """A structural guard, because the defect was a *second* builder, not a wrong value.
+
+        Reading it back from the source is crude and it is the only check that fails when someone
+        adds a third call path and hand-rolls its request — the failure mode this row exists to
+        close. A new path calls :func:`_provider_request`; nothing else constructs the type.
+        """
+        import inspect
+
+        from freeweight.services import runs
+
+        source = inspect.getsource(runs)
+        assert source.count("GenerationRequest(") == 1
 
 
 class TestWhatWasObservedIsRecorded:

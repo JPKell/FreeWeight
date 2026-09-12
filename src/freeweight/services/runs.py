@@ -2609,6 +2609,15 @@ def _context_divergence(context: _RunContext) -> list[Degradation]:
     it built. On a memory-capped machine (``MEMORY_SAFETY.md``) which one it is decides whether the
     KV cache is four times the size the record implies, so the degradation names both possibilities
     and stays silent about neither.
+
+    **Both readings stay named, and the one history had was the launch.** Row WPF10 found the lost
+    request: a multi-turn suite's turns built their own provider request without the run's profile,
+    so llama.cpp restarted the server under no flags and the rest of the run was served at the
+    model's trained context (WPF2 Gate C, 8 192 recorded against 32 768 served). ModelRack's
+    reading was right. Narrowing the wording to "the provider is misreporting" would therefore be
+    the opposite of the truth, and narrowing it to "a flag was lost" would claim this code knows
+    which side failed, which it still does not — a provider that clamps a context it accepted
+    produces the same disagreement with nothing lost anywhere.
     """
     if not is_supported(context.observed_context):
         return []
@@ -2889,6 +2898,52 @@ def _build_request(
     if getattr(case, "system_prompt", None):
         messages.append(Message(role=Role.SYSTEM, content=case.system_prompt))
     messages.append(Message(role=Role.USER, content=case.prompt))
+    return _provider_request(
+        identity=identity,
+        messages=messages,
+        config=config,
+        runtime_profile=runtime_profile,
+        adapter_name=adapter_name,
+    )
+
+
+def _provider_request(
+    *,
+    identity: ModelIdentity,
+    messages: Sequence[Message],
+    config: ExecutionConfig,
+    runtime_profile: RuntimeProfile | None,
+    adapter_name: str | None,
+    tools: Sequence[Any] = (),
+    response_format: Any = None,  # noqa: ANN401 — modelrack.ResponseFormat
+) -> GenerationRequest:
+    """Build every provider request a run makes — **the one place a run's argv is decided**.
+
+    One run is one launch and one argv (row WPF10). Under llama.cpp the runtime profile *is* the
+    server's command line — ``context_size`` becomes ``--ctx-size`` and FreeWeight's
+    ``fit_to_device = false`` becomes ``--fit off`` (ADR-0121) — and ModelRack keys its supervised
+    server on exactly those flags, so a request carrying a *different* profile does not get served
+    under the run's profile: it **restarts the server** under its own, and every later call of the
+    run is served by that one. A second place that built a request was therefore a second argv, and
+    the run was measured at whatever context that second launch chose while its record said
+    otherwise (WPF2 Gate C: two servers in one sitting, 8 192 recorded, 32 768 served). That is why
+    both the single-call path and the interaction path come through here rather than each building
+    its own :class:`~modelrack.GenerationRequest`.
+
+    Args:
+        identity: The weights to run.
+        messages: The turns to send, already in order.
+        config: The run's frozen execution parameters — the same sampling, seed and timeout on
+            every turn, so a five-turn trajectory is as reproducible as a one-turn answer.
+        runtime_profile: The profile the run was created under; ``None`` means provider defaults
+            (ADR-0023 §1), never "no profile".
+        adapter_name: The registered adapter this run measures under, or ``None`` for a bare base.
+        tools: The tools this turn may call, for an interaction that offers any.
+        response_format: The schema this turn must answer in, where the interaction asks for one.
+
+    Returns:
+        The request, naming the whole subject the run claims to be measuring.
+    """
     return GenerationRequest(
         identity=identity,
         messages=tuple(messages),
@@ -2900,6 +2955,8 @@ def _build_request(
             max_output_tokens=config.max_output_tokens,
         ),
         adapter=adapter_name,
+        tools=tuple(tools),
+        response_format=response_format,
         timeout_seconds=config.test_timeout_seconds,
     )
 
@@ -3480,23 +3537,19 @@ def _run_interactive_case(  # noqa: PLR0913 — one sample needs its whole conte
         response_format: Any = None,  # noqa: ANN401 — modelrack.ResponseFormat
     ) -> Any:  # noqa: ANN401 — modelrack.GenerationResult
         """Produce the next assistant turn under this run's frozen execution parameters."""
+        # Every turn of an interaction runs under the run's whole subject — adapter and runtime
+        # profile included: a tool-calling conversation half on the adapter and half on the bare
+        # base is not a measurement of either, and a turn that states no profile asks ModelRack
+        # for a server the run did not configure (see `_provider_request`).
         result = provider.generate(
-            GenerationRequest(
+            _provider_request(
                 identity=context.identity,
-                messages=tuple(messages),
-                sampling=SamplingParameters(
-                    temperature=config.temperature,
-                    top_p=config.top_p,
-                    seed=config.seed,
-                    max_output_tokens=config.max_output_tokens,
-                ),
-                # Every turn of an interaction runs under the run's subject, adapter included:
-                # a tool-calling conversation half on the adapter and half on the bare base is
-                # not a measurement of either.
-                adapter=context.adapter_name,
-                tools=tuple(tools),
+                messages=messages,
+                config=config,
+                runtime_profile=context.runtime_profile,
+                adapter_name=context.adapter_name,
+                tools=tools,
                 response_format=response_format,
-                timeout_seconds=config.test_timeout_seconds,
             )
         )
         results.append(result)
