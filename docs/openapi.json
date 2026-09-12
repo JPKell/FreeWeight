@@ -808,6 +808,114 @@
         ]
       }
     },
+    "/api/v1/dashboard": {
+      "get": {
+        "description": "Return the dashboard's summary cards and comparison heatmap (api.md §5a).\n\nThe console's Dashboard page (row WPF5) renders this rather than recomputing FreeWeight's own\ncomparability rules and *separated* marking a second time — the same reason\n``GET /results/compare`` exists instead of a client-side regrouping. Scatter panels and the\nper-metric panel tables stay HTML-only: nothing outside FreeWeight's own page reads them yet.\n\nArgs:\n    request: The incoming request; the database handle lives on its application state.\n    suite: Restrict to one benchmark suite key.\n    model: Restrict to one model.\n    machine: Restrict to one machine fingerprint.\n    since: RFC 3339; runs created at or after.\n\nReturns:\n    ``{\"filter\", \"cards\", \"heatmap\"}`` — the same figures ``GET /dashboard`` renders.\n\nRaises:\n    ValidationError: ``since`` is not RFC 3339, or ``model`` is an ambiguous prefix.\n    NotFoundError: ``model`` matches no model.",
+        "operationId": "dashboard_summary_api_v1_dashboard_get",
+        "parameters": [
+          {
+            "description": "Restrict to one benchmark suite key.",
+            "in": "query",
+            "name": "suite",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Restrict to one benchmark suite key.",
+              "title": "Suite"
+            }
+          },
+          {
+            "description": "Restrict to one model.",
+            "in": "query",
+            "name": "model",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Restrict to one model.",
+              "title": "Model"
+            }
+          },
+          {
+            "description": "Restrict to one machine fingerprint.",
+            "in": "query",
+            "name": "machine",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Restrict to one machine fingerprint.",
+              "title": "Machine"
+            }
+          },
+          {
+            "description": "RFC 3339; runs created at or after.",
+            "in": "query",
+            "name": "since",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "RFC 3339; runs created at or after.",
+              "title": "Since"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Dashboard Summary Api V1 Dashboard Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Cross-model summary and comparison heatmap",
+        "tags": [
+          "dashboard"
+        ]
+      }
+    },
     "/api/v1/database/backup": {
       "post": {
         "description": "Take a backup of the configured database and return where it went.",

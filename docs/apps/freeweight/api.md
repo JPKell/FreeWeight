@@ -229,6 +229,46 @@ suites rather than by reading stored text — prompt text is not stored — so i
 prompt offered under a given hash is one whose current text produces that hash. A prompt edited
 since the run simply does not appear, and the reader gets no text rather than the wrong text.
 
+## 5a. Dashboard
+
+| Endpoint | Notes |
+|---|---|
+| `GET /dashboard` | Additive, read-only. The summary cards and the comparison heatmap `GET /dashboard` (the HTML page) renders — filter by `suite`, `model`, `machine` and `since`, exactly as the page's own filter bar does |
+
+Added for WeightRoomGym's console (row WPF5): the dashboard is FreeWeight's only cross-model view
+(§5's `/results` is a metric-level query and `/results/compare` works per subject), and it was
+HTML-only until this endpoint. The route answers only the summary and the heatmap cells, with
+FreeWeight's own *separated* marking — the scatter panels and the per-metric panel tables stay
+HTML-only, since nothing outside FreeWeight's own page reads them.
+
+```json
+{
+  "filter": {"suite": null, "model": null, "machine": null, "since": null},
+  "cards": {
+    "completed_runs": 11, "models_measured": 6, "suites_run": 4, "samples_stored": 375,
+    "unsupported_metrics": 60, "machines": 3, "latest_run_at": "2026-09-10T12:00:00Z"
+  },
+  "heatmap": {
+    "models": ["ollama/smollm2:135m@sha256:…"],
+    "suites": ["native.echo"],
+    "headline_metric": {"native.echo": "harness_roundtrip_success"},
+    "separated": false,
+    "cells": [
+      {"model": "ollama/smollm2:135m@sha256:…", "suite": "native.echo",
+       "metric_key": "harness_roundtrip_success", "run_id": "…", "run_test_id": null,
+       "value": 0.92, "unavailable_reason": null, "unit": "ratio", "higher_is_better": true,
+       "sample_count": 20, "excluded_count": 0, "machine_fingerprint": "…", "suite_version": "1"}
+    ]
+  }
+}
+```
+
+`cells` is a sparse list, not a `models × suites` grid: most pairs are unmeasured, and JSON has no
+tuple keys. A cell's `value` is the string `"unsupported"`, never `0`, when this machine could not
+measure it (ADR-0016 §4) — the same convention `GET /results` uses for `value` and `stddev`.
+`separated` marks a heatmap whose cells span more than one machine or more than one version of a
+suite; the caller reads it down a column, not across a row, exactly as the HTML page does.
+
 ## 6. Evidence (the LoadCoach integration point)
 
 | Endpoint | Notes |

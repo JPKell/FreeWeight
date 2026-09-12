@@ -9,6 +9,10 @@ packaging and release standards §3.
 
 ### Added
 
+- **`GET /api/v1/dashboard`** (row WPF5; `api.md` §5a): the Dashboard's summary cards and
+  model × suite comparison heatmap, additive and read-only, with FreeWeight's own *separated*
+  marking. Filters by `suite`, `model`, `machine` and `since`, exactly as the HTML page's filter
+  bar. Built for WeightRoomGym's console, which calls `/api/v1` only and had no cross-model view.
 - **Goal authoring, grading and calibration over the API** (row WP4; `api.md` §3a, §4, §6). The
   console is how a LAN operator reaches FreeWeight, and it calls `/api/v1` only, so every goal
   flow FreeWeight's own pages offer is now on the API. All additive:

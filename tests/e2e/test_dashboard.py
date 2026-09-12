@@ -29,7 +29,7 @@ from freeweight.config import load_settings
 from freeweight.domain.aggregation import SampleGroup, aggregate_run
 from freeweight.domain.metrics import MeasurementClass
 from freeweight.services.database import MIGRATIONS_LOCATION, Database
-from freeweight.services.results import DashboardFilter, build_dashboard
+from freeweight.services.results import DashboardFilter, build_dashboard, dashboard_summary_json
 from freeweight.services.runs import _sample_row_facts, build_registry
 from freeweight.web.app import create_app
 
@@ -362,3 +362,129 @@ class TestUnsupportedIsNeverZero:
         for row in unsupported:
             assert f">{row.metric_key}</td>" in response.text
         assert "—" in response.text
+
+
+class TestTheApiRoute:
+    """``GET /api/v1/dashboard`` (api.md §5a): the summary cards and heatmap, over the wire.
+
+    The console's Dashboard page (row WPF5) reads this rather than FreeWeight recomputing its own
+    comparability rules a second time. These tests check the wire shape against the domain object
+    directly — the anti-lie property against raw samples is already
+    ``TestTheAntiLieProperty``'s job, and re-deriving it here would only prove the JSON encoder
+    agrees with itself.
+    """
+
+    def test_the_route_answers_the_same_cards_and_heatmap_as_the_page(
+        self, client: TestClient, workspace: Path
+    ) -> None:
+        _completed_run(client)
+        with Database.from_url(f"sqlite:///{workspace / 'freeweight.sqlite3'}") as database:
+            dashboard = build_dashboard(database, DashboardFilter())
+
+        response = client.get("/api/v1/dashboard")
+
+        assert response.status_code == 200, response.text
+        body = response.json()
+        assert body["cards"]["completed_runs"] == dashboard.cards.completed_runs
+        assert body["cards"]["models_measured"] == dashboard.cards.models_measured
+        assert body["cards"]["samples_stored"] == dashboard.cards.samples_stored
+        assert body["cards"]["unsupported_metrics"] == dashboard.cards.unsupported_metrics
+        assert body["heatmap"]["models"] == list(dashboard.heatmap.models)
+        assert body["heatmap"]["suites"] == list(dashboard.heatmap.suites)
+        assert body["heatmap"]["separated"] == dashboard.heatmap.separated
+        assert len(body["heatmap"]["cells"]) == len(dashboard.heatmap.cells)
+        by_key = {(cell["model"], cell["suite"]): cell for cell in body["heatmap"]["cells"]}
+        for (model, suite), cell in dashboard.heatmap.cells.items():
+            wire = by_key[(model, suite)]
+            assert wire["metric_key"] == cell.metric_key
+            assert wire["run_id"] == cell.run_id
+            assert wire["value"] == ("unsupported" if cell.value is None else cell.value)
+            assert wire["sample_count"] == cell.sample_count
+
+    def test_the_route_reports_zero_on_an_empty_scope(self, client: TestClient) -> None:
+        response = client.get("/api/v1/dashboard")
+
+        assert response.status_code == 200, response.text
+        body = response.json()
+        assert body["cards"]["completed_runs"] == 0
+        assert body["cards"]["latest_run_at"] is None
+        assert body["heatmap"]["models"] == []
+        assert body["heatmap"]["cells"] == []
+
+    def test_the_route_honours_the_same_filters_as_the_page(self, client: TestClient) -> None:
+        _completed_run(client)
+
+        scoped = client.get("/api/v1/dashboard", params={"suite": "native.echo"})
+        excluded = client.get("/api/v1/dashboard", params={"suite": "nothing.here"})
+
+        assert scoped.status_code == 200, scoped.text
+        assert scoped.json()["cards"]["completed_runs"] == 1
+        assert excluded.status_code == 200, excluded.text
+        assert excluded.json()["cards"]["completed_runs"] == 0
+
+    def test_an_unknown_model_filter_is_refused_by_name(self, client: TestClient) -> None:
+        response = client.get("/api/v1/dashboard", params={"model": "nothing/at-all"})
+
+        assert response.status_code == 404
+        assert response.json()["error"]["code"] == "MODEL_NOT_FOUND"
+
+    def test_a_malformed_since_is_refused_by_name(self, client: TestClient) -> None:
+        response = client.get("/api/v1/dashboard", params={"since": "not-a-date"})
+
+        assert response.status_code == 400
+        body = response.json()["error"]
+        assert body["code"] == "VALIDATION_ERROR"
+        assert body["details"]["field"] == "since"
+
+    def test_an_unsupported_cell_carries_the_sentinel_not_a_number(self) -> None:
+        """ADR-0016 §4 on the wire: an unsupported figure is never ``0``.
+
+        Built directly, rather than by hoping one of ``native.echo``'s headline metrics comes back
+        unsupported under the fake provider: the serializer's own rule is what this checks, and
+        ``TestTheAntiLieProperty`` already covers where a real unsupported figure comes from.
+        """
+        from freeweight.services.results import Dashboard, HeatmapCell, MetricHeatmap, SummaryCards
+
+        cell = HeatmapCell(
+            model_canonical_id="fake/model:8b-q8_0",
+            suite_key="native.echo",
+            metric_key="harness_roundtrip_success",
+            run_id="run-1",
+            run_test_id=None,
+            value=None,
+            unavailable_reason="no GPU telemetry on this machine",
+            unit="ratio",
+            higher_is_better=True,
+            sample_count=0,
+            excluded_count=0,
+            machine_fingerprint="fp-1",
+            suite_version="1",
+        )
+        dashboard = Dashboard(
+            filter=DashboardFilter(),
+            cards=SummaryCards(
+                completed_runs=1,
+                models_measured=1,
+                suites_run=1,
+                samples_stored=1,
+                unsupported_metrics=1,
+                machines=1,
+                latest_run_at=None,
+            ),
+            heatmap=MetricHeatmap(
+                models=("fake/model:8b-q8_0",),
+                suites=("native.echo",),
+                cells={("fake/model:8b-q8_0", "native.echo"): cell},
+                headline_metric={"native.echo": "harness_roundtrip_success"},
+                separated=False,
+            ),
+            quality_vs_speed=(),
+            quality_vs_vram=(),
+            panels=(),
+        )
+
+        body = dashboard_summary_json(dashboard)
+
+        wire = body["heatmap"]["cells"][0]
+        assert wire["value"] == "unsupported"
+        assert wire["unavailable_reason"] == "no GPU telemetry on this machine"
