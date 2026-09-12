@@ -9,9 +9,9 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
-from baseaicore import SuiteError, ValidationError
+from baseaicore import ConfigurationError, SuiteError, ValidationError
 
-from freeweight.config import load_settings
+from freeweight.config import Settings, load_settings
 from freeweight.services.providers import (
     ProviderConfigChanged,
     config_digest,
@@ -83,3 +83,33 @@ def test_an_environment_variable_is_reported_as_shadowing(
     monkeypatch.setenv("FREEWEIGHT_PROVIDER__BASE_URL", "http://elsewhere:11434")
     settings = load_settings(config_path=config_path).settings
     assert describe_provider(settings).shadowed_by == "FREEWEIGHT_PROVIDER__BASE_URL"
+
+
+def test_a_write_the_probe_refuses_leaves_the_file_byte_identical(config_path: Path) -> None:
+    """ADR-0117 rule 2, as WP6 needed it: a refusal at the re-open must write nothing.
+
+    WP6 finding 9: the Provider page's switch came back refused, and ``config.toml`` had already
+    been rewritten to the provider the refusal named, with the previous file moved to ``.bak`` — so
+    a restart would have started FreeWeight on the combination it had just refused.
+    """
+    before = config_path.read_bytes()
+
+    def refuse(_: Settings) -> None:
+        raise ConfigurationError("this provider cannot do that", details={})
+
+    with pytest.raises(ConfigurationError):
+        save_provider(config_path, {"kind": "fake"}, probe=refuse)
+
+    assert config_path.read_bytes() == before
+    assert not config_path.with_name("config.toml.bak").exists()
+    assert not config_path.with_name("config.toml.new").exists()
+
+
+def test_the_probe_sees_the_settings_the_candidate_would_load(config_path: Path) -> None:
+    """It is handed the candidate's settings, not the running ones — that is the whole point."""
+    seen: list[str] = []
+
+    save_provider(config_path, {"kind": "fake"}, probe=lambda s: seen.append(s.provider.kind))
+
+    assert seen == ["fake"]
+    assert load_settings(config_path=config_path).settings.provider.kind == "fake"

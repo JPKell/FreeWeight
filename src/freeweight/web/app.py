@@ -137,6 +137,10 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
     scheduler = RunScheduler(
         database,
         app.state.provider,
+        # Read again before each run rather than captured: `PUT /provider` rebuilds this handle and
+        # closes the one it replaced, and a scheduler holding the closed one failed every run it
+        # claimed until the process was restarted (WP6 finding 9).
+        provider_source=lambda: app.state.provider,
         registry=app.state.registry,
         registry_source=lambda: build_registry_for(settings),
         # The same collector the telemetry bar samples from, so a run's persisted telemetry and

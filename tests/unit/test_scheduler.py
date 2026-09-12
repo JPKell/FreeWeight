@@ -15,8 +15,10 @@ from __future__ import annotations
 import time
 from collections.abc import Callable
 from datetime import datetime
+from typing import Any
 
 import pytest
+from baseaicore import ConfigurationError
 from tests.conftest import RunEnvironment
 
 from freeweight.config import ExecutionSettings
@@ -230,3 +232,58 @@ def _now() -> datetime:
     from baseaicore import utc_now
 
     return utc_now()
+
+
+class TestProviderEdits:
+    """A provider edit replaces the handle; the scheduler must not keep the closed one (WP6 §9)."""
+
+    def test_a_run_claimed_after_an_edit_reaches_the_new_provider(
+        self, environment: RunEnvironment
+    ) -> None:
+        """The source is read per run, so the run generates against the provider in force now."""
+        replacement = environment.provider
+        closed = _ClosedProvider()
+        scheduler = RunScheduler(
+            environment.database,
+            closed,
+            provider_source=lambda: replacement,
+            registry=environment.registry,
+            poll_interval_seconds=0.01,
+        )
+        run_id = _queue_run(environment)
+
+        assert scheduler.run_once() == run_id
+
+        assert _status(environment, run_id) == RunStatus.COMPLETED.value
+        assert closed.asked == 0
+
+    def test_a_failing_source_falls_back_rather_than_stopping_the_queue(
+        self, environment: RunEnvironment
+    ) -> None:
+        """A queue that halted over a rebuild would be worse than one run on the old handle."""
+
+        def refuse() -> Any:
+            raise ConfigurationError("no provider here", details={})
+
+        scheduler = RunScheduler(
+            environment.database,
+            environment.provider,
+            provider_source=refuse,
+            registry=environment.registry,
+            poll_interval_seconds=0.01,
+        )
+        run_id = _queue_run(environment)
+
+        assert scheduler.run_once() == run_id
+        assert _status(environment, run_id) == RunStatus.COMPLETED.value
+
+
+class _ClosedProvider:
+    """A provider handle nothing may use: it counts every question it is asked."""
+
+    def __init__(self) -> None:
+        self.asked = 0
+
+    def __getattr__(self, name: str) -> Any:
+        self.asked += 1
+        raise AssertionError(f"the closed provider was asked for {name!r}")

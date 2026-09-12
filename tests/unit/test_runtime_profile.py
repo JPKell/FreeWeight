@@ -45,6 +45,7 @@ def _context(**changes: Any) -> _RunContext:
         "identity": _IDENTITY,
         "model_canonical_id": "ollama/qwen3:8b",
         "served_context": 40960,
+        "served_context_source": "assumed",
         "gpu_index": 0,
         "multi_gpu_visible": False,
     }
@@ -202,6 +203,26 @@ class TestTheProfileReachesTheProvider:
         assert options["num_ctx"] == 8192  # noqa: PLR2004 — the value under test
 
 
+class TestTheContextSurvivesTheServingMode:
+    """WP6 finding 4 read two runs, one bare and one under an adapter, both recording 8 192 while
+    the provider reported 32 768. ``--lora`` and ``--ctx-size`` are independent flags, and the
+    profile that carries one carries the other."""
+
+    @pytest.mark.parametrize("registered", [None, False, True])
+    def test_the_configured_context_becomes_ctx_size_in_every_serving_mode(
+        self, registered: bool | None
+    ) -> None:
+        from modelrack.providers._llamacpp_wire import launch_flags  # noqa: PLC2701 — the argv
+
+        profile = RuntimeSettings(context_size=8192).to_profile(
+            provider_kind="llamacpp", adapters_registered=registered
+        )
+
+        flags = launch_flags(profile)
+        assert profile.adapters_registered is registered
+        assert flags[:2] == ("--ctx-size", "8192")
+
+
 class TestWhatWasObservedIsRecorded:
     def test_residency_rows_carry_their_units(self) -> None:
         rows = _residency_rows(
@@ -245,6 +266,27 @@ class TestAnAssumedContextThatWasWrongSaysSo:
 
     def test_nothing_recorded_is_silent(self) -> None:
         assert _context_divergence(_context(served_context=None, observed_context=2048)) == []
+
+    def test_a_configured_context_that_disagrees_is_not_explained_as_an_assumption(self) -> None:
+        """WP6 finding 4: two runs with ``[runtime] context_size = 8192`` were told they had
+        assumed it "because nothing requested one", with 32 768 read from the provider.
+
+        The degradation still fires — it is the louder case, not a quieter one — and it says which
+        case it is, because on a memory-capped machine a KV cache four times the recorded size is
+        the difference between fitting and spilling."""
+        degradations = _context_divergence(
+            _context(
+                served_context=8192, served_context_source="configured", observed_context=32768
+            )
+        )
+
+        assert len(degradations) == 1
+        detail = degradations[0].detail
+        assert detail["recorded_served_context_source"] == "configured"
+        assert "assumed" not in detail["explanation"]
+        assert "nothing requested one" not in detail["explanation"]
+        assert "8192" in detail["explanation"]
+        assert "32768" in detail["explanation"]
 
 
 def _now() -> Any:  # noqa: ANN401 — a datetime

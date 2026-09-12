@@ -40,14 +40,17 @@ def list_command(config: _ConfigOption = None, json_output: _JsonOption = False)
     An adapter that cannot be used is printed **with the reason**, never omitted: "the adapter I
     dropped in is not being used" is the confusion the whole directory design exists to prevent
     (ADR-0061). Manifests that could not be read at all, drafts nobody has reviewed, and artifacts
-    with no manifest are listed for the same reason.
+    with no manifest are listed for the same reason — and so is the whole directory being inert
+    because the configured provider cannot apply a LoRA at all (ADR-0140), which is the same
+    confusion one level up.
 
     Exits ``3`` when `[adapters] directory` is unset — adapters are off, deliberately — or
     names something that is not a directory.
     """
     from baseaicore import SuiteError
 
-    from freeweight.services.adapters import adapter_overview
+    from freeweight.cli._backend import build_provider_or_exit
+    from freeweight.services.adapters import adapter_overview, can_serve_adapters
 
     with open_database(config) as (settings, database):
         adapters = settings.adapters
@@ -56,12 +59,22 @@ def list_command(config: _ConfigOption = None, json_output: _JsonOption = False)
         except SuiteError as exc:
             typer.echo(f"Error: {exc.message} ({exc.code})", err=True)
             raise typer.Exit(3) from exc
+        # Constructed, not connected to: `build_provider` opens nothing and launches nothing, so
+        # asking the provider what it can do keeps this command local (CLI standards §6).
+        servable = can_serve_adapters(build_provider_or_exit(settings))
 
     if json_output:
-        typer.echo(json.dumps(overview.as_json()))
+        typer.echo(json.dumps({**overview.as_json(), "provider_can_serve": servable}))
         return
 
     typer.echo(f"Adapters in {overview.reading.directory}:")
+    if not servable:
+        typer.echo(
+            f"  !! provider.kind = {settings.provider.kind!r} cannot apply a LoRA adapter, so "
+            "every adapter below is configured and inert: none is offered to the provider and a "
+            "run naming one is refused. Use provider.kind = 'llamacpp' to measure them.",
+            err=True,
+        )
     if not overview.reading.entries:
         typer.echo("  (no reviewed manifests)")
     for entry in overview.reading.entries:

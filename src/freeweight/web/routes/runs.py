@@ -56,6 +56,7 @@ from freeweight.web.rendering import render
 if TYPE_CHECKING:
     from collections.abc import AsyncGenerator, Callable, Sequence
 
+    from freeweight.infrastructure.adapters import AdapterEntry
     from freeweight.services.database import Database
 
 __all__ = ["Chart", "api_router", "router"]
@@ -172,6 +173,26 @@ def _detail_json(detail: RunDetail) -> dict[str, Any]:
     return body
 
 
+def _adapter_entries(request: Request) -> Sequence[AdapterEntry]:
+    """What the operator's adapter directory holds, for a start path that has to resolve one."""
+    from freeweight.services.adapters import read_entries
+
+    return read_entries(request.app.state.settings.adapters)
+
+
+def _serving_mode(request: Request, entries: Sequence[AdapterEntry]) -> bool | None:
+    """``RuntimeProfile.adapters_registered`` for a run this process is about to create.
+
+    The same answer ``freeweight run start`` records, from the same two inputs (ADR-0074 rule 3).
+    A start path that left it unstated recorded ``None`` on a server that *was* launched with the
+    operator's adapters registered, and evidence exported under that profile hash is then excluded
+    by any consumer resolving the honest ``True`` — silently, which is how row H5's I18 lost a day.
+    """
+    from freeweight.services.adapters import serving_mode
+
+    return serving_mode(request.app.state.provider, entries)
+
+
 @api_router.post("/runs", status_code=status.HTTP_201_CREATED, summary="Start a run")
 def create_run_endpoint(request: Request, body: dict[str, Any]) -> JSONResponse:
     """Validate and queue a run, returning ``201`` with the run object.
@@ -182,11 +203,13 @@ def create_run_endpoint(request: Request, body: dict[str, Any]) -> JSONResponse:
     Args:
         request: The incoming request; carries the application's database, provider and telemetry
             collector.
-        body: ``{"model": …, "suites": [key], "execution": {...}, "runtime": {...}, "label": …}``.
-            ``suites`` takes a list for forward compatibility with multi-suite runs; a run
-            executes exactly one suite and more than one is refused rather than silently dropped.
-            ``runtime`` overrides ``[runtime]`` for this run (ADR-0023) — ``context_size`` in
-            particular, which is how one model is measured at two contexts.
+        body: ``{"model": …, "suites": [key], "execution": {...}, "runtime": {...}, "adapter": …,
+            "label": …}``. ``suites`` takes a list for forward compatibility with multi-suite runs;
+            a run executes exactly one suite and more than one is refused rather than silently
+            dropped. ``runtime`` overrides ``[runtime]`` for this run (ADR-0023) — ``context_size``
+            in particular, which is how one model is measured at two contexts. ``adapter`` names a
+            registered LoRA to serve the base with, which makes the run a measurement of a
+            different subject (ADR-0058) and is refused by name when it cannot be served.
 
     Returns:
         ``201`` with the queued run.
@@ -195,6 +218,7 @@ def create_run_endpoint(request: Request, body: dict[str, Any]) -> JSONResponse:
         ValidationError: ``model`` or ``suites`` is missing, or more than one suite was named.
         BenchmarkNotFound: The named suite is not registered.
         ModelNotFound: The model is not stored.
+        IncompatibleAdapter: ``adapter`` names no registered, available, applicable adapter.
     """
     from baseaicore import ValidationError
 
@@ -220,11 +244,15 @@ def create_run_endpoint(request: Request, body: dict[str, Any]) -> JSONResponse:
     # A per-request runtime override on top of `[runtime]`, resolved through the same settings
     # model so an out-of-range context is refused here rather than reaching the provider
     # (configuration standards §1.1's execution-parameter chain, applied to the runtime axis).
+    entries = _adapter_entries(request)
     runtime_profile = settings.runtime.model_copy(
         update={
             key: value for key, value in runtime_body.items() if key in RuntimeSettings.model_fields
         }
-    ).to_profile(provider_kind=settings.provider.kind)
+    ).to_profile(
+        provider_kind=settings.provider.kind,
+        adapters_registered=_serving_mode(request, entries),
+    )
     unknown = sorted(set(runtime_body) - set(RuntimeSettings.model_fields))
     if unknown:
         raise ValidationError(
@@ -250,6 +278,8 @@ def create_run_endpoint(request: Request, body: dict[str, Any]) -> JSONResponse:
         execution=execution,
         runtime_profile=runtime_profile,
         label=body.get("label"),
+        adapter_name=(str(adapter) if (adapter := body.get("adapter")) else None),
+        adapter_entries=entries,
     )
     return JSONResponse(status_code=status.HTTP_201_CREATED, content=_summary_json(summary))
 
@@ -368,6 +398,7 @@ def repeat_run_endpoint(
         run_ref=run_id,
         force=force,
         label=label,
+        adapter_entries=_adapter_entries(request),
     )
     return JSONResponse(status_code=status.HTTP_201_CREATED, content=_summary_json(summary))
 
@@ -681,6 +712,7 @@ def start_run_form(
 
     settings = request.app.state.settings
     try:
+        entries = _adapter_entries(request)
         summary = create_run(
             request.app.state.database,
             request.app.state.provider,
@@ -689,6 +721,14 @@ def start_run_form(
             model_ref=model,
             suite_key=suite,
             execution=ExecutionConfig.resolve(settings.execution),
+            # `[runtime]` as configured, not provider defaults: a run started here used to send no
+            # `--ctx-size` at all while recording the configured context as a fact, which on a
+            # memory-capped machine is the difference between a KV cache that fits and one that
+            # does not (ADR-0119, ADR-0121). The same profile `freeweight run start` builds.
+            runtime_profile=settings.runtime.to_profile(
+                provider_kind=settings.provider.kind,
+                adapters_registered=_serving_mode(request, entries),
+            ),
             label=label or None,
         )
     except (SuiteError, BenchmarkNotFound) as exc:

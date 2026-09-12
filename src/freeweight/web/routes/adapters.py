@@ -24,4 +24,6 @@ def list_adapters_endpoint(request: Request) -> dict[str, Any]:
     Always ``200``: adapters being off, or the directory missing, is the body's ``note``.
     """
     settings = request.app.state.settings
-    return adapter_catalog(request.app.state.database, settings.adapters)
+    return adapter_catalog(
+        request.app.state.database, settings.adapters, provider=request.app.state.provider
+    )

@@ -41,6 +41,7 @@ __all__ = [
     "AdaptersDisabled",
     "SubjectPanel",
     "adapter_catalog",
+    "can_serve_adapters",
     "adapter_overview",
     "adapter_row_for",
     "measured_scores",
@@ -160,6 +161,24 @@ def serving_mode(provider: Any, entries: Sequence[AdapterEntry]) -> bool | None:
     return any(entry.available for entry in entries)
 
 
+def can_serve_adapters(provider: Any) -> bool:
+    """Whether this provider can apply a LoRA adapter at all.
+
+    ``provider.kind`` is not the question and is never asked: the capability is ModelRack's to
+    declare (``adapter_hot_swap``), and only ``LlamaCppProvider`` declares it today. Under any other
+    provider the operator's directory stays configured and **inert** — read, listed, and offered to
+    nobody (ADR-0140) — so every surface that lists adapters can say which it is instead of letting
+    an operator wonder why the adapter they reviewed is never used.
+
+    Args:
+        provider: The constructed provider.
+
+    Returns:
+        ``True`` when an adapter can be served, ``False`` when the directory is inert.
+    """
+    return bool(provider.capabilities().adapter_hot_swap)
+
+
 def adapter_overview(database: Database, adapters: AdapterSettings) -> AdapterOverview:
     """Read the directory and mark which of its adapters this installation has measured under.
 
@@ -187,7 +206,9 @@ def adapter_overview(database: Database, adapters: AdapterSettings) -> AdapterOv
     return AdapterOverview(reading=reading, measured=measured)
 
 
-def adapter_catalog(database: Database, adapters: AdapterSettings) -> dict[str, Any]:
+def adapter_catalog(
+    database: Database, adapters: AdapterSettings, *, provider: Any | None = None
+) -> dict[str, Any]:
     """Everything ``GET /api/v1/adapters`` answers: the directory, and what was measured under each.
 
     The directory is read once (:func:`adapter_overview`) and joined with the ``adapters`` table,
@@ -199,6 +220,10 @@ def adapter_catalog(database: Database, adapters: AdapterSettings) -> dict[str, 
     Args:
         database: The application's database handle.
         adapters: ``settings.adapters``.
+        provider: The running provider, to answer ``provider_can_serve`` — whether an adapter can
+            be applied here at all (:func:`can_serve_adapters`). ``None`` leaves the key ``null``:
+            "nobody asked a provider" and "the provider cannot serve them" are different facts, and
+            a caller with no provider must not report the second.
 
     Returns:
         The document api.md §2a describes. Adapters being off, or the directory missing, is a
@@ -291,6 +316,7 @@ def adapter_catalog(database: Database, adapters: AdapterSettings) -> dict[str, 
         "enabled": adapters.enabled,
         "directory": str(reading.directory) if reading is not None else None,
         "note": note,
+        "provider_can_serve": None if provider is None else can_serve_adapters(provider),
         "adapters": sorted(
             entries.values(), key=lambda one: (str(one["name"]), str(one["artifact_sha256"]))
         ),
