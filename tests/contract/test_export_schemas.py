@@ -23,12 +23,15 @@ from __future__ import annotations
 
 import json
 from collections.abc import Iterator
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any
 
 import pytest
 from weightsdb import MigrationRunner, create_engine_for
 
+from freeweight.domain.jury import assemble_jury
+from freeweight.domain.scorers.judged import JurorVerdict, combine_verdicts
 from freeweight.services.database import MIGRATIONS_LOCATION, Database
 
 pytestmark = pytest.mark.contract
@@ -231,60 +234,131 @@ class TestTheCalibrationReportContract:
         for item in parsed.criteria:
             assert item.agreement.n_holdout > 0, item.criterion_key
 
+    def test_a_criterion_with_no_computable_rho_is_reported_but_not_exported(
+        self, database: Database, goal: Any
+    ) -> None:
+        """The wire schema requires both ``kappa_w`` and ``rho``; the internal report requires
+        neither.
 
-def _calibrate(database: Database, goal: Any) -> None:
-    """Grade this goal's samples and measure agreement with a deterministic jury."""
-    from dataclasses import dataclass, field, replace
+        A jury that answers the same grade for every sample gives a real ``kappa_w`` against a
+        varying author, but a constant series has no ranks for ``rho`` to correlate. That
+        criterion is not lost — ``GET .../calibration/report`` still carries it in full — but it
+        is off the exportable contract until a coefficient exists for it (api.md §3a).
+        """
+        from setspec.goal.v1 import CalibrationReportIn
 
-    from freeweight.domain.jury import assemble_jury
-    from freeweight.domain.scorers.judged import JurorVerdict, combine_verdicts
-    from freeweight.services.calibration import (
-        GradeSubmission,
-        add_samples,
-        record_grades,
-        run_calibration,
-    )
-    from freeweight.services.goals import sync_goals
+        from freeweight.services.calibration import latest_outcome, run_calibration
+        from freeweight.services.export import iter_goal_export
 
-    @dataclass(frozen=True)
-    class DeterministicJury:
-        """A jury that grades from the sample's own index, so the figures are reproducible."""
+        author = _seed_samples_and_grades(database, goal)
+        run_calibration(database, goal, jury=_ConstantJury(), graded_by="tester")
 
-        grades: dict[str, int]
-        assembly: Any = field(
-            default_factory=lambda: assemble_jury(["a", "b"], candidate=None, jury_size=2)
+        outcome = latest_outcome(database, goal)
+        assert outcome is not None
+        assert len(outcome.criteria) == 1, "the internal report drops the criterion entirely"
+        assert outcome.criteria[0].result.kappa_w is not None
+        assert outcome.criteria[0].result.rho is None
+        assert outcome.criteria[0].n_judged == outcome.criteria[0].result.n
+        assert outcome.criteria[0].excluded == ()
+
+        document = json.loads(
+            "".join(iter_goal_export(database, goal, document="calibration_report"))
         )
-        anchors: dict[str, Any] = field(default_factory=dict)
+        parsed = CalibrationReportIn.model_validate(document["payload"])
+        assert not parsed.criteria
+        del author
 
-        def with_anchors(self, anchors: Any) -> Any:  # noqa: ANN401 — the protocol's own type
-            return replace(self, anchors=dict(anchors))
 
-        def judge_prompt_reference(self) -> dict[str, str]:
-            return {
-                "prompt_id": "goals.judge.rubric",
-                "prompt_version": "1.0.0",
-                "prompt_sha256": "sha256:" + "ab" * 32,
-            }
+@dataclass(frozen=True)
+class _DeterministicJury:
+    """A jury that grades from the sample's own index, so the figures are reproducible."""
 
-        def grade_all(self, criteria: Any, response_text: str, case: Any) -> list[Any]:  # noqa: ANN401
-            del case
-            grade = self.grades.get(response_text, 3)
-            return [
-                combine_verdicts(
-                    criterion,
-                    [
-                        JurorVerdict(
-                            juror_canonical_id=f"juror{index}",
-                            juror_ordinal=index,
-                            repetition=1,
-                            grade=grade,
-                            rationale="deterministic",
-                        )
-                        for index in range(2)
-                    ],
-                )
-                for criterion in criteria
-            ]
+    grades: dict[str, int]
+    assembly: Any = field(
+        default_factory=lambda: assemble_jury(["a", "b"], candidate=None, jury_size=2)
+    )
+    anchors: dict[str, Any] = field(default_factory=dict)
+
+    def with_anchors(self, anchors: Any) -> Any:  # noqa: ANN401 — the protocol's own type
+        return replace(self, anchors=dict(anchors))
+
+    def judge_prompt_reference(self) -> dict[str, str]:
+        return {
+            "prompt_id": "goals.judge.rubric",
+            "prompt_version": "1.0.0",
+            "prompt_sha256": "sha256:" + "ab" * 32,
+        }
+
+    def grade_all(self, criteria: Any, response_text: str, case: Any) -> list[Any]:  # noqa: ANN401
+        del case
+        grade = self.grades.get(response_text, 3)
+        return [
+            combine_verdicts(
+                criterion,
+                [
+                    JurorVerdict(
+                        juror_canonical_id=f"juror{index}",
+                        juror_ordinal=index,
+                        repetition=1,
+                        grade=grade,
+                        rationale="deterministic",
+                    )
+                    for index in range(2)
+                ],
+            )
+            for criterion in criteria
+        ]
+
+
+@dataclass(frozen=True)
+class _ConstantJury:
+    """A single juror that answers the same grade regardless of the sample.
+
+    A jury this unresponsive still lets ``kappa_w`` be computed against a varying author — the
+    two graders disagree, which is a real, reportable coefficient — but it gives ``rho`` nothing
+    to correlate: a constant series has no ranks. That is the shape the exported
+    ``benchmark.calibration_report`` cannot carry (both coefficients are required, never
+    fabricated for an absent measurement), and the internal report — which does not require
+    either — carries it in full.
+    """
+
+    fixed_grade: int = 3
+    assembly: Any = field(default_factory=lambda: assemble_jury(["a"], candidate=None, jury_size=1))
+    anchors: dict[str, Any] = field(default_factory=dict)
+
+    def with_anchors(self, anchors: Any) -> Any:  # noqa: ANN401 — the protocol's own type
+        return replace(self, anchors=dict(anchors))
+
+    def judge_prompt_reference(self) -> dict[str, str]:
+        return {
+            "prompt_id": "goals.judge.rubric",
+            "prompt_version": "1.0.0",
+            "prompt_sha256": "sha256:" + "ab" * 32,
+        }
+
+    def grade_all(self, criteria: Any, response_text: str, case: Any) -> list[Any]:  # noqa: ANN401
+        del response_text, case
+        return [
+            combine_verdicts(
+                criterion,
+                [
+                    JurorVerdict(
+                        juror_canonical_id="juror0",
+                        juror_ordinal=0,
+                        repetition=1,
+                        grade=self.fixed_grade,
+                        rationale="flat",
+                    )
+                ],
+            )
+            for criterion in criteria
+        ]
+
+
+def _seed_samples_and_grades(database: Database, goal: Any) -> dict[str, int]:
+    """Add twelve samples and grade them on ``wit``. Returns ``{content: grade}``."""
+    from freeweight.services.calibration import GradeSubmission, add_samples, record_grades
+    from freeweight.services.goals import sync_goals
 
     sync_goals(database, [goal])
     texts = [f"Calibration sample number {index}." for index in range(12)]
@@ -301,7 +375,15 @@ def _calibrate(database: Database, goal: Any) -> None:
         ],
         graded_by="tester",
     )
-    run_calibration(database, goal, jury=DeterministicJury(grades=author), graded_by="tester")
+    return author
+
+
+def _calibrate(database: Database, goal: Any) -> None:
+    """Grade this goal's samples and measure agreement with a deterministic jury."""
+    from freeweight.services.calibration import run_calibration
+
+    author = _seed_samples_and_grades(database, goal)
+    run_calibration(database, goal, jury=_DeterministicJury(grades=author), graded_by="tester")
 
 
 class TestTheExportContract:

@@ -36,6 +36,17 @@ packaging and release standards §3.
 
 ### Fixed
 
+- A judged criterion's `n_holdout` could be smaller than the number of holdout samples the jury
+  actually judged, with nothing on the calibration report or the API saying why (found by row
+  WP6's demonstration, fixed at row WPF8). Every criterion now also carries `n_judged` and
+  `excluded` — each excluded sample with its reason (a juror's own `refused_reason`, an unparsed
+  answer, or a jury grade with no matching author grade) — at both the goal level and per
+  criterion (`api.md` §3a).
+- `GET /goals/{slug}/calibration/report/export`'s `criteria` requires both `kappa_w` and `rho`
+  per the frozen `benchmark.calibration_report` v1.0 schema, so a criterion with too little
+  holdout variance to compute `rho` is present on `GET .../calibration/report` and silently
+  absent from the export, with nothing explaining the gap. `api.md` §3a now documents the
+  narrower export contract explicitly.
 - A goal created, forked, imported, edited or saved from a draft while FreeWeight ran was not
   runnable until a restart: the benchmark registry was built once at startup, so the scheduler
   failed its run with `BENCHMARK_NOT_FOUND`, and an edited goal would have run under the rubric

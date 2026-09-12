@@ -275,11 +275,14 @@ class GateVerdict:
         min_agreement: The threshold in force, recorded because it is configuration and a reader
             must not assume the default.
         judge_validity_factor: The goal-level factor.
-        n_holdout: How many held-out samples the figures rest on.
+        n_holdout: How many held-out samples the figures rest on — the counted subset. Smaller
+            than :attr:`n_judged` exactly when some judged sample was excluded.
         n_anchor: How many were embedded in the judge prompt.
         graded_samples: How many graded samples exist at all.
         min_samples: The minimum the policy requires.
         policy_version: The parameters' version.
+        n_judged: How many held-out samples the jury actually judged, across every criterion.
+            ``0`` when no jury ran (a goal with no judged criterion, or too few grades).
     """
 
     state: CalibrationState
@@ -291,6 +294,7 @@ class GateVerdict:
     graded_samples: int = 0
     min_samples: int = 0
     policy_version: str = POLICY_VERSION
+    n_judged: int = 0
 
     @property
     def passed(self) -> bool:
@@ -315,6 +319,7 @@ class GateVerdict:
             "graded_samples": self.graded_samples,
             "min_samples": self.min_samples,
             "policy_version": self.policy_version,
+            "n_judged": self.n_judged,
         }
 
 
@@ -328,6 +333,7 @@ def verdict_for(  # noqa: PLR0913 — the gate is a function of exactly these fa
     min_agreement: float,
     n_anchor: int = 0,
     n_holdout_target: int = DEFAULT_N_HOLDOUT_TARGET,
+    n_judged: int = 0,
 ) -> GateVerdict:
     """Decide whether a goal's judged criteria may emit evidence.
 
@@ -341,6 +347,7 @@ def verdict_for(  # noqa: PLR0913 — the gate is a function of exactly these fa
         min_agreement: ``calibration.min_agreement``.
         n_anchor: How many samples were embedded as exemplars.
         n_holdout_target: The shrinkage denominator.
+        n_judged: How many held-out samples the jury actually judged, before any exclusion.
 
     Returns:
         The verdict, in one of four states.
@@ -373,6 +380,7 @@ def verdict_for(  # noqa: PLR0913 — the gate is a function of exactly these fa
             n_anchor=n_anchor,
             graded_samples=graded_samples,
             min_samples=min_samples,
+            n_judged=n_judged,
         )
     weighted = weighted_mean(judged_kappa, weights)
     state = (
@@ -389,4 +397,5 @@ def verdict_for(  # noqa: PLR0913 — the gate is a function of exactly these fa
         n_anchor=n_anchor,
         graded_samples=graded_samples,
         min_samples=min_samples,
+        n_judged=n_judged,
     )

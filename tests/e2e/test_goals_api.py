@@ -21,6 +21,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from fastapi import status
 from fastapi.testclient import TestClient
 from weightsdb import MigrationRunner, create_engine_for
 
@@ -422,6 +423,21 @@ class TestCalibrationEndpoints:
         assert body["total"] == 1
         assert body["items"][0]["partition"] in {"anchor", "holdout"}
         assert body["progress"]["expected_grades"] == 1
+
+    def test_the_export_refuses_in_the_error_envelope_when_no_report_exists(
+        self, client: TestClient
+    ) -> None:
+        """WPF8 decision 3: WP6 saw this answer ``text/html`` for a goal never calibrated.
+
+        The API's own error shape (``application/json``, ``{"error": {...}}``) is what every
+        other refusal on this surface returns; this locks the export route to the same contract
+        rather than a wizard page's HTML.
+        """
+        self._judged(client)
+        response = client.get("/api/v1/goals/house_voice/calibration/report/export")
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.text
+        assert response.headers["content-type"].startswith("application/json")
+        assert response.json()["error"]["code"] == "VALIDATION_ERROR"
 
     def test_too_few_grades_is_its_own_conflict_code(self, client: TestClient) -> None:
         self._judged(client)
