@@ -1,6 +1,5 @@
 # Testing Standards §10: the default suite runs on every push and must stay under three minutes,
-# so the two suites that cannot be fast run here instead — `live` needs real weights and `performance`
-# needs a machine whose timings mean something.
+# so the `live` suite, which needs real weights, runs here instead.
 #
 # On a GitHub-hosted runner the live suite **skips itself**: its provider fixture calls
 # `OllamaProvider.health()` and skips when nothing answers on 127.0.0.1:11434. That is deliberate
@@ -8,9 +7,16 @@
 # visible rather than indistinguishable from "everything passed". Point a self-hosted runner with a
 # GPU at this workflow and the same job measures a real model.
 #
-# `performance` runs everywhere: its budgets are generous precisely so that shared CI hardware
-# produces information rather than flakes, and the query-plan assertions beside them are
-# hardware-independent.
+# `performance` is **not** here. Its budgets are calibrated against the reference machine, and a
+# GitHub-hosted runner is roughly half its speed, so a nightly on shared hardware went red for the
+# runner rather than for a regression. Packaging standards §5 puts the budgets on a self-hosted
+# runner with the hardware; until this suite registers one, they run on the reference machine with
+# `pytest -m performance` and nowhere else.
+#
+# That costs this repository the query-plan assertions in
+# `tests/performance/test_dashboard_queries.py`, which are hardware-independent and would have been
+# safe here — they share a file with wall-clock budgets and have no marker of their own to select
+# them by.
 name: Nightly
 
 on:
@@ -20,15 +26,6 @@ on:
   workflow_dispatch:
 
 jobs:
-  performance:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with: { python-version: "3.12" }
-      - run: pip install -e ".[dev]"
-      - run: pytest -m performance -rs
-
   live:
     runs-on: ubuntu-latest
     steps:
