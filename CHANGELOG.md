@@ -9,6 +9,12 @@ packaging and release standards §3.
 
 ### Added
 
+- **`POST /runs` takes an `adapter`** (row WPF2; `api.md` §4), the same argument
+  `run start --adapter` takes, so an adapter subject can be measured over HTTP and not only from the
+  CLI. Refused by name — never a run of the bare base under the adapter's name (ADR-0058).
+- **`GET /adapters` and `freeweight adapters list` say whether the provider can serve an adapter at
+  all** (`provider_can_serve`, ADR-0140). A directory configured under a provider that cannot apply
+  a LoRA is inert, and both listings now say so instead of showing adapters that will never be used.
 - **Goal authoring, grading and calibration over the API** (row WP4; `api.md` §3a, §4, §6). The
   console is how a LAN operator reaches FreeWeight, and it calls `/api/v1` only, so every goal
   flow FreeWeight's own pages offer is now on the API. All additive:
@@ -35,6 +41,36 @@ packaging and release standards §3.
     grades it, naming no grade — how the console follows a calibration live.
 
 ### Fixed
+
+- **A provider write that is refused when the provider is re-opened no longer changes the file.**
+  Switching to a provider this build cannot construct — or, before ADR-0140, to one that cannot
+  serve the configured adapters — rewrote `config.toml` and moved the previous file to `.bak`, then
+  refused; `config validate` called the result valid, so the next restart would have started
+  FreeWeight on the combination it had just refused. The candidate is now validated by constructing
+  the provider it names, before the rename (ADR-0117 rule 2; found by row WP6, finding 9).
+- **A run claimed after a provider edit reaches the new provider.** The in-process scheduler held
+  the handle `PUT /provider` had closed, so every run it claimed failed at once with *Cannot send a
+  request, as the client has been closed* until the process was restarted — and one of those
+  failures left a `llama-server` holding the card. The scheduler now reads the provider before each
+  run, as it already read the registry and the settings (row WP6, finding 9).
+- **A llama.cpp refresh no longer re-hashes the whole model directory.** `models refresh` asked the
+  provider to ignore its caches, which for llama.cpp discards ADR-0071's content-digest store as
+  well as its metadata cache: 195 GB re-read on every refresh and after every restart, for digests
+  that cannot have changed. The store is keyed by path, size and mtime, so a new or replaced file is
+  still hashed and an unchanged one is not (row WP6, finding 9).
+- **`POST /runs/{id}/repeat` keeps the original run's adapter.** A repeat of an adapter run measured
+  the **bare base** while reusing the original's adapter-bearing runtime profile and labelling
+  itself *repeat of …*; an adapter that can no longer be served is now refused by name (ADR-0058).
+- **A run started from FreeWeight's own Runs page carries `[runtime]`.** The form built no runtime
+  profile at all, so the run sent no `--ctx-size` while recording the configured context as a fact —
+  on a memory-capped machine the difference between a KV cache that fits and one that does not
+  (ADR-0119, ADR-0121). It also recorded `adapters_registered` as unstated on a server launched with
+  the operator's adapters registered, which silently excludes that run's evidence; both start paths
+  now record what `run start` records.
+- **A served-context degradation no longer contradicts the configuration in front of it.**
+  `served_context_assumed_incorrectly` explained a *configured* context as having been "assumed …
+  because nothing requested one"; it now says which case it is and what the disagreement means
+  (row WP6, finding 4).
 
 - A judged criterion's `n_holdout` could be smaller than the number of holdout samples the jury
   actually judged, with nothing on the calibration report or the API saying why (found by row

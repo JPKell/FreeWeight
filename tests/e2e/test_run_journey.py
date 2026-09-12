@@ -638,3 +638,80 @@ class TestPhase6RepeatAndTheRunPage:
             "assumed",
         }
         assert body["degradations"] == []
+
+
+class TestTheConfiguredContextReachesTheServer:
+    """WP6 finding 4: a run recorded ``8192 (configured)`` while the provider served 32 768.
+
+    ``[runtime] context_size`` is the one setting that decides how large a KV cache the server
+    builds, and on a memory-capped machine (``MEMORY_SAFETY.md``) a run that records it and does not
+    send it is the difference between fitting and spilling. Every start path has to carry it:
+    ``run start`` built the profile, the page's form built none at all, and the API built one
+    without the serving mode.
+    """
+
+    @pytest.fixture
+    def client(self, workspace: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[TestClient]:
+        monkeypatch.setenv("FREEWEIGHT_RUNTIME__CONTEXT_SIZE", "8192")
+        loaded = load_settings(config_path=workspace / "missing.toml")
+        with TestClient(create_app(loaded.settings), base_url="http://127.0.0.1") as test_client:
+            yield test_client
+
+    @staticmethod
+    def _launch_flags(client: TestClient, run_id: str) -> tuple[str, ...]:
+        """The flags llama-server would be launched with for this run's stored profile."""
+        from modelrack.providers._llamacpp_wire import launch_flags
+
+        from freeweight.services.runs import _stored_runtime_profile  # noqa: PLC2701 — provenance
+
+        database = client.app.state.database  # type: ignore[attr-defined]
+        with database.read() as session:
+            from freeweight.infrastructure.db.models_runs import Run
+
+            run = session.get(Run, run_id)
+            assert run is not None
+            profile = _stored_runtime_profile(session, run.runtime_profile_id)
+        assert profile is not None
+        return launch_flags(profile)
+
+    def test_a_run_started_from_the_page_carries_it(self, client: TestClient) -> None:
+        client.post("/models/discover", follow_redirects=False)
+
+        started = client.post(
+            "/runs",
+            data={"model": "fake-model:8b-q8_0", "suite": "native.echo", "label": ""},
+            follow_redirects=False,
+        )
+        run_id = started.headers["location"].removeprefix("/runs/")
+
+        body = _wait_for_terminal(client, run_id)
+        assert body["provenance"]["served_context"] == 8192  # noqa: PLR2004
+        assert body["provenance"]["served_context_source"] == "configured"
+        assert "--ctx-size" in self._launch_flags(client, run_id)
+
+    def test_a_run_started_through_the_api_carries_it(self, client: TestClient) -> None:
+        client.post("/models/discover", follow_redirects=False)
+
+        created = client.post(
+            "/api/v1/runs", json={"model": "fake-model:8b-q8_0", "suites": ["native.echo"]}
+        )
+        run_id = created.json()["id"]
+
+        body = _wait_for_terminal(client, run_id)
+        assert body["provenance"]["served_context_source"] == "configured"
+        assert self._launch_flags(client, run_id)[:2] == ("--ctx-size", "8192")
+
+    def test_an_adapter_the_provider_cannot_serve_is_refused_in_freeweights_own_words(
+        self, client: TestClient
+    ) -> None:
+        """``POST /runs`` takes an adapter, and refuses one by name rather than running the base."""
+        client.post("/models/discover", follow_redirects=False)
+
+        refused = client.post(
+            "/api/v1/runs",
+            json={"model": "fake-model:8b-q8_0", "suites": ["native.echo"], "adapter": "terse"},
+        )
+
+        assert refused.status_code >= 400
+        assert "terse" in refused.text
+        assert client.get("/api/v1/runs").json()["runs"] == []

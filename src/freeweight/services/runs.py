@@ -110,6 +110,7 @@ from freeweight.domain.panels import FIXED_REGRESSION_MAX_OUTPUT_TOKENS, FIXED_R
 from freeweight.domain.provenance import (
     Degradation,
     ServedContext,
+    ServedContextSource,
     build_fingerprint_document,
     case_selection_hash,
     check_repeatable,
@@ -1888,6 +1889,7 @@ class _RunContext:
     identity: ModelIdentity
     model_canonical_id: str
     served_context: int | None
+    served_context_source: str | None
     gpu_index: int
     multi_gpu_visible: bool
     adapter_name: str | None = None
@@ -1966,6 +1968,7 @@ def _read_context(database: Database, run_id: str) -> _RunContext:
             ),
             model_canonical_id=model.canonical_id,
             served_context=run.served_context,
+            served_context_source=run.served_context_source,
             gpu_index=run.gpu_index if run.gpu_index is not None else 0,
             multi_gpu_visible=bool(run.multi_gpu_visible),
             adapter_name=_stored_adapter_name(session, run.adapter_id),
@@ -2588,7 +2591,7 @@ def _judge_one(scorer: Any, case: Any, row: Any) -> ScoreResult:  # noqa: ANN401
 
 
 def _context_divergence(context: _RunContext) -> list[Degradation]:
-    """Record it when the context this run *assumed* is not the one it got.
+    """Record it when the context this run recorded is not the one the provider reports serving.
 
     A run that names no ``context_size`` records the descriptor's advertised maximum, flagged
     ``assumed`` — and the provider frequently serves something else entirely. The frozen
@@ -2597,7 +2600,15 @@ def _context_divergence(context: _RunContext) -> list[Degradation]:
     implies" fact is: as a degradation carrying both numbers, which a reader sees beside the
     results rather than discovering months later as unexplained dispersion.
 
-    Silent when the run configured its own context, because then there is nothing to assume.
+    **A configured context that disagrees is the louder case, not a quieter one**, and the
+    explanation says which case it is. WP6 read two llama.cpp runs whose ``[runtime] context_size``
+    was set to 8 192, recorded ``8192 (configured)``, and were told they had *assumed* it "because
+    nothing requested one" while the provider reported 32 768 — an explanation that contradicted
+    the configuration in front of it, and hid the only two readings that can be true: either the
+    launch did not carry the request, or the provider is reporting something other than the context
+    it built. On a memory-capped machine (``MEMORY_SAFETY.md``) which one it is decides whether the
+    KV cache is four times the size the record implies, so the degradation names both possibilities
+    and stays silent about neither.
     """
     if not is_supported(context.observed_context):
         return []
@@ -2605,19 +2616,31 @@ def _context_divergence(context: _RunContext) -> list[Degradation]:
     observed = int(float(context.observed_context))
     if recorded is None or recorded == observed:
         return []
+    if context.served_context_source == ServedContextSource.CONFIGURED.value:
+        explanation = (
+            f"This run requested {recorded} tokens of context and its record says it was served "
+            f"that, while the provider reports it actually served {observed}. One of the two is "
+            "wrong: either the request did not reach the server it launched, or the provider is "
+            "reporting a context other than the one it built. Do not read this run's memory "
+            "figures as belonging to a "
+            f"{recorded}-token context until the server's own command line says which."
+        )
+    else:
+        explanation = (
+            f"This run's record says it was served {recorded} tokens of context, which "
+            "was assumed from the model's advertised maximum because nothing requested "
+            f"one. The provider reports it actually served {observed}. Set "
+            "[runtime].context_size, or pass --context-size, to make the recorded number "
+            "a fact."
+        )
     return [
         Degradation(
             kind="served_context_assumed_incorrectly",
             detail={
                 "recorded_served_context": recorded,
+                "recorded_served_context_source": context.served_context_source,
                 "observed_served_context": observed,
-                "explanation": (
-                    f"This run's record says it was served {recorded} tokens of context, which "
-                    "was assumed from the model's advertised maximum because nothing requested "
-                    f"one. The provider reports it actually served {observed}. Set "
-                    "[runtime].context_size, or pass --context-size, to make the recorded number "
-                    "a fact."
-                ),
+                "explanation": explanation,
             },
         )
     ]
@@ -4320,6 +4343,7 @@ def repeat_run(  # noqa: PLR0913 — a repeat takes everything a fresh run does,
     force: bool = False,
     label: str | None = None,
     allow_prompt_override: bool = False,
+    adapter_entries: Sequence[AdapterEntry] = (),
     clock: Clock = utc_now,
 ) -> RunSummary:
     """Queue a new run with a recorded run's identical effective configuration.
@@ -4342,6 +4366,10 @@ def repeat_run(  # noqa: PLR0913 — a repeat takes everything a fresh run does,
         allow_prompt_override: Passed through to :func:`create_run`. A repeat of a run that was
             allowed to use an override still has to say so: the flag is a statement about *this*
             run, and carrying it implicitly would let an override arrive by inheritance.
+        adapter_entries: What the operator's adapter directory holds, from
+            :func:`~freeweight.services.adapters.read_entries`. Needed whenever the original run
+            measured under an adapter, because the repeat measures the **same subject** and
+            :func:`create_run` resolves the adapter against this set.
         clock: Returns the current instant; injected for deterministic tests.
 
     Returns:
@@ -4352,6 +4380,11 @@ def repeat_run(  # noqa: PLR0913 — a repeat takes everything a fresh run does,
         RepeatRefused: The environment can no longer satisfy the recorded configuration and
             ``force`` is ``False``. ``details["blockers"]`` names every field that moved, what was
             recorded and what is here now.
+        IncompatibleAdapter: The original measured under an adapter this installation can no longer
+            serve — gone from the directory, unavailable, or on a provider that cannot apply one.
+            Refused by name: a repeat that quietly fell back to the bare base would file the base's
+            numbers under the adapter's subject (ADR-0058), which is the one thing a reproduction
+            must not do.
         BenchmarkNotFound: The original run's suite is not registered in this build.
     """
     with _translated(), database.read() as session:
@@ -4373,6 +4406,11 @@ def repeat_run(  # noqa: PLR0913 — a repeat takes everything a fresh run does,
         # rather than re-resolved. ADR-0017 makes a differing profile a hard separation, so a
         # "repeat" under a new one would not be a repeat at all.
         original_profile = _stored_runtime_profile(session, original.runtime_profile_id)
+        # The subject, not only the configuration: a run recorded under an adapter is a measurement
+        # of the `(base, adapter)` subject (ADR-0058), and a "repeat" that dropped it would measure
+        # the bare base under the original's adapter-bearing runtime profile and call it the same
+        # run. Read from the stored row, so a renamed manifest still resolves what was measured.
+        original_adapter = _stored_adapter_name(session, original.adapter_id)
 
     observed = _observed_document(
         database,
@@ -4406,6 +4444,8 @@ def repeat_run(  # noqa: PLR0913 — a repeat takes everything a fresh run does,
         label=label if label is not None else f"repeat of {original_id[:10]}",
         extra_degradations=degradations,
         allow_prompt_override=allow_prompt_override,
+        adapter_name=original_adapter,
+        adapter_entries=adapter_entries,
         clock=clock,
     )
 

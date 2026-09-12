@@ -41,8 +41,11 @@ still accept a canonical ID, a bare name or an unambiguous prefix.
 | `GET /adapters` | The LoRA adapters this installation knows: the operator's `[adapters] directory` read once ([ADR-0061](../../adr/0061-the-adapter-registry-is-a-directory-and-a-manifest.md)), joined with FreeWeight's own `adapters` table, which outlives the directory. The same reading `freeweight adapters list --json` prints, plus what was measured |
 
 The body carries `enabled` (whether `[adapters] directory` is set), `directory`, `note` (why the
-directory could not be read, or `null`), `invalid`, `drafts` and `unmanifested` as the CLI prints
-them, and `adapters`, keyed by artifact digest. Each adapter is the directory's entry
+directory could not be read, or `null`), `provider_can_serve` (whether the configured provider
+declares `adapter_hot_swap` at all — `false` means the directory is configured and **inert**, read
+and listed and offered to nobody, [ADR-0140](../../adr/0140-adapters-are-inert-under-a-provider-that-cannot-serve-them.md);
+`null` only where no provider was asked, which is never the case on this route), `invalid`, `drafts`
+and `unmanifested` as the CLI prints them, and `adapters`, keyed by artifact digest. Each adapter is the directory's entry
 (`in_directory: true`) or, for an adapter measured once and since removed from the directory, the
 table's row (`in_directory: false`, `available: false`). Beside it:
 
@@ -123,6 +126,7 @@ Two behaviours worth stating at the API level, because a client will otherwise g
   "suites": ["native.performance", "native.tool_use"],
   "tests": null,
   "runtime": {"context_size": 32768},
+  "adapter": null,
   "gpu_index": 0,
   "execution": {"measured_repetitions": 3, "warmup_repetitions": 1,
                 "test_timeout_seconds": 600, "seed": 42, "store_prompts": false},
@@ -145,8 +149,17 @@ it was never served under. `flash_attention` and `kv_cache_precision` under `pro
 `runtime_profile_hash` and therefore separates results
 ([ADR-0023](../../adr/0023-runtime-profile-resolution.md)).
 
+`adapter` names a registered LoRA from `[adapters] directory` to serve the base with, exactly as
+`run start --adapter` does. It makes the run a measurement of a **different subject**
+([ADR-0058](../../adr/0058-the-execution-subject-gains-an-adapter-axis.md)), and an adapter that is
+unknown, unavailable, not applicable to this base, or on a provider that cannot apply one is a
+`VALIDATION_ERROR` naming it and listing the registered set — never a run of the bare base under
+the adapter's name. `null` or absent is the bare base, which is what every run before Phase 15 was.
+
 `POST /runs/{id}/repeat` reuses the **original run's stored profile**, not the current
-configuration.
+configuration, **and the original's adapter**: a repeat of an adapter run measures the same
+`(base, adapter)` subject, and one whose adapter is no longer servable is refused by name rather
+than falling back to the base.
 
 Notable errors: `MODEL_NOT_FOUND`, `BENCHMARK_NOT_FOUND`, `DATASET_MISSING`,
 `DATASET_HASH_MISMATCH`, `PROVIDER_UNAVAILABLE`, `INSUFFICIENT_RESOURCES`, `RUN_ALREADY_RUNNING`
@@ -158,7 +171,7 @@ selected test requires a sandbox).
 | `GET /runs` | Filter by `status`, `model` (canonical ID, ULID, unambiguous prefix or provider name), `suite`, `machine` (fingerprint), `label` (exact), `adapter` (name or artifact digest) and `since`/`until` (RFC 3339 on creation time, half-open as the export's window is); newest first, `limit` (default 50, at most 500) and `cursor`. The body is `runs` plus `page` (`limit`, `next_cursor`, `has_more`); each run names its `machine_fingerprint`, `runtime_profile_hash` and `adapter` (`null` for a bare base) |
 | `GET /runs/{id}` | Run with tests, aggregate metrics, degradations and the fingerprint document. A metric row names its key `metric_key`, as every other surface does (§11) |
 | `POST /runs/{id}/cancel` | 202 when accepted; 409 `RUN_NOT_CANCELLABLE` for terminal runs |
-| `POST /runs/{id}/repeat` | Creates a new run with the identical effective config, reusing the original's frozen `ExecutionConfig` and runtime profile rather than re-resolving them; `?force=true` proceeds past a blocker and records the divergence; `?label=` names the new run |
+| `POST /runs/{id}/repeat` | Creates a new run with the identical effective config, reusing the original's frozen `ExecutionConfig`, runtime profile and adapter rather than re-resolving them; `?force=true` proceeds past a blocker and records the divergence; `?label=` names the new run |
 | `GET /runs/{id}/events` | SSE with `Last-Event-ID` replay |
 | `GET /runs/{id}/tests` · `GET /runs/{id}/tests/{test_id}/samples` | Drill-down. Samples come in `(ordinal, repetition)` order with `limit` (default 500, at most 1000) and `cursor`; the body is `samples` plus `page`, and each sample names `prompt_id`, `prompt_version` and `client_ttft_ms` beside its score |
 | `GET /runs/{id}/telemetry` | The run's persisted telemetry as parallel series for a chart: `timestamps`, `cpu_percent`, `ram_used_bytes`, and `gpus`, one entry per device with `utilization_percent`, `vram_used_bytes`, `power_watts` and `temperature_c`. Every series shares the timestamps' index; a `null` is a reading this machine could not take at that instant — a gap, never a zero ([ADR-0016](../../adr/0016-unavailable-is-not-zero.md)). Empty series for a run that recorded none |

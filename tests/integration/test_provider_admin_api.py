@@ -75,3 +75,50 @@ def test_the_replaced_provider_handle_is_closed(client: TestClient) -> None:
     client.put("/api/v1/provider", json={"timeout_seconds": 42.0})
 
     assert closed == ["provider"]
+
+
+def test_a_refused_switch_leaves_the_file_and_its_backup_untouched(client: TestClient) -> None:
+    """WP6 finding 9: the refusal came *after* the file was rewritten and ``.bak`` was made.
+
+    ``vllm`` is a real :class:`~baseaicore.ProviderKind` this build cannot construct, so the
+    refusal comes from the same place the operator's did — the composition root, past every
+    check the settings model itself can make.
+    """
+    path = _config_path(client)
+    before = path.read_bytes()
+
+    response = client.put("/api/v1/provider", json={"kind": "vllm"})
+
+    assert response.status_code >= 400
+    assert path.read_bytes() == before
+    assert not path.with_name("config.toml.bak").exists()
+    assert client.app.state.settings.provider.kind == "fake"  # type: ignore[attr-defined]
+
+
+def test_a_refused_switch_from_the_form_leaves_the_file_untouched(client: TestClient) -> None:
+    """The page's own save, which is the one WP6 used, and it says why on the page."""
+    path = _config_path(client)
+    before = path.read_bytes()
+
+    response = client.post(
+        "/provider",
+        data={"kind": "vllm", "base_url": "", "timeout_seconds": "30.0", "model_directory": ""},
+    )
+
+    assert response.status_code == 400
+    assert "vllm" in response.text
+    assert path.read_bytes() == before
+
+
+def test_a_provider_that_cannot_serve_adapters_is_accepted_with_them_configured(
+    client: TestClient, tmp_path: Path
+) -> None:
+    """ADR-0140: the combination is inert, not refused — and the running provider says so."""
+    directory = tmp_path / "adapters"
+    directory.mkdir()
+    client.app.state.settings.adapters.directory = str(directory)  # type: ignore[attr-defined]
+
+    response = client.put("/api/v1/provider", json={"timeout_seconds": 31.0})
+
+    assert response.status_code == 200
+    assert client.get("/api/v1/adapters").json()["provider_can_serve"] is False

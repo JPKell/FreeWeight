@@ -26,6 +26,8 @@ from pydantic import ValidationError as PydanticValidationError
 from freeweight.config import ENV_PREFIX, ProviderSettings, load_settings
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
     from tomlkit import TOMLDocument
 
     from freeweight.config import Settings
@@ -132,7 +134,11 @@ def config_digest(config_path: Path) -> str:
 
 
 def save_provider(
-    config_path: Path, values: dict[str, Any], *, base_digest: str | None = None
+    config_path: Path,
+    values: dict[str, Any],
+    *,
+    base_digest: str | None = None,
+    probe: Callable[[Settings], None] | None = None,
 ) -> None:
     """Write the ``[provider]`` block, leaving the rest of the file exactly as it was.
 
@@ -141,12 +147,20 @@ def save_provider(
         values: Any of :data:`WRITABLE_FIELDS`. An absent key keeps its current value; an empty
             string for an optional key removes it from the file.
         base_digest: The digest the form was rendered from, if the caller took one.
+        probe: Called with the settings the candidate file loads to, before the candidate replaces
+            anything. Whatever it raises refuses the write. ADR-0117 rule 2 is validate-*before*-
+            write, and loading the document is only half of it: the caller that re-opens the
+            provider afterwards can refuse for reasons the loader cannot see — a kind with no
+            adapter in this build, a ``model_directory`` that is required and empty — and at WP6 a
+            refusal there left the file already rewritten to a provider the application would not
+            start on. The probe is that caller's own refusal, moved in front of the rename.
 
     Raises:
         ValidationError: ``values`` names a key outside the provider block, or a value the
             provider model rejects. Nothing is written.
         ProviderConfigChanged: The file changed since ``base_digest`` was taken.
-        SuiteError: The resulting document is not a configuration this application would load.
+        SuiteError: The resulting document is not a configuration this application would load, or
+            ``probe`` refused it. The file on disk is untouched, ``.bak`` included.
     """
     refused = sorted(set(values) - set(WRITABLE_FIELDS))
     if refused:
@@ -190,7 +204,9 @@ def save_provider(
     candidate = config_path.with_name(config_path.name + ".new")
     candidate.write_text(tomlkit.dumps(document), encoding="utf-8")
     try:
-        load_settings(config_path=candidate)
+        loaded = load_settings(config_path=candidate)
+        if probe is not None:
+            probe(loaded.settings)
     except Exception:
         candidate.unlink(missing_ok=True)
         raise

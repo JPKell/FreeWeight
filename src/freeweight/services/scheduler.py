@@ -95,7 +95,15 @@ class RunScheduler:
 
     Args:
         database: The application's database handle.
-        provider: The provider runs generate through.
+        provider: The provider runs generate through, when no ``provider_source`` is given.
+        provider_source: Returns the provider as it stands *now*, called before each claimed run
+            executes, or ``None`` to execute every run against ``provider``. A provider edit
+            (``PUT /provider``) rebuilds the running server's handle and closes the one it
+            replaced; a scheduler holding the old handle then failed every run it claimed with
+            *Cannot send a request, as the client has been closed* until the process was restarted,
+            and one of those failures left a ``llama-server`` holding the card (WP6 finding 9).
+            Between runs only, like ``registry_source`` and the settings, and a source that fails
+            falls back to ``provider`` rather than stopping the queue.
         registry: The benchmarks this build can run. Defaults to
             :func:`~freeweight.services.runs.build_registry`.
         registry_source: Builds the registry as installed *now*, called before each claimed run
@@ -123,6 +131,7 @@ class RunScheduler:
         "_database",
         "_poll_interval_seconds",
         "_provider",
+        "_provider_source",
         "_publisher",
         "_registry",
         "_registry_source",
@@ -137,6 +146,7 @@ class RunScheduler:
         database: Database,
         provider: Provider,
         *,
+        provider_source: Callable[[], Provider] | None = None,
         registry: BenchmarkRegistry | None = None,
         registry_source: Callable[[], BenchmarkRegistry] | None = None,
         collector: TelemetryCollector | None = None,
@@ -148,6 +158,7 @@ class RunScheduler:
         """Configure the scheduler without starting its thread."""
         self._database = database
         self._provider = provider
+        self._provider_source = provider_source
         self._registry = registry if registry is not None else build_registry()
         self._registry_source = registry_source
         self._collector = collector
@@ -277,7 +288,7 @@ class RunScheduler:
         logger.info("run.claimed", extra={"run_id": run_id})
         status = execute_run(
             self._database,
-            self._provider,
+            self._current_provider(),
             self._current_registry(),
             self._publisher,
             run_id,
@@ -288,6 +299,22 @@ class RunScheduler:
         )
         logger.info("run.finished", extra={"run_id": run_id, "status": status.value})
         return run_id
+
+    def _current_provider(self) -> Provider:
+        """The provider as it stands when this run starts, so a provider edit is not fatal.
+
+        Returns:
+            The source's provider, or the one this scheduler was built with when it has no source
+            or the source failed — logged, for the same reason
+            :meth:`_current_registry` falls back rather than stopping the queue.
+        """
+        if self._provider_source is None:
+            return self._provider
+        try:
+            return self._provider_source()
+        except SuiteError:
+            logger.warning("scheduler.provider_rebuild_failed", exc_info=True)
+            return self._provider
 
     def _current_registry(self) -> BenchmarkRegistry:
         """The benchmarks as installed when this run starts: goal packs re-read from disk.

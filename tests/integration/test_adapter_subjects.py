@@ -588,3 +588,76 @@ class TestTheComparisonGrouping:
 
         assert [subject.adapter_name for subject in groups[0].subjects] == [None]
         assert groups[0].adapter_count == 0
+
+
+class TestARepeatRepeatsTheSubject:
+    """A repeat of an adapter run measures the adapter again, or it is not a repeat (ADR-0058)."""
+
+    def test_a_repeat_keeps_the_adapter(
+        self, run_environment: Callable[..., RunEnvironment]
+    ) -> None:
+        """It dropped it, and reused the original's adapter-bearing runtime profile while doing so:
+        the bare base's numbers filed under the adapter's profile hash, labelled *repeat of …*."""
+        from freeweight.services.runs import repeat_run
+
+        env = run_environment(script=_adapter_capable())
+        entries = (_entry(env, "terse", artifact_digest=_ADAPTER_DIGEST),)
+        original = _start(env, adapter="terse", entries=entries)
+
+        repeated = repeat_run(
+            env.database,
+            env.provider,
+            env.collector,
+            env.registry,
+            run_ref=original.id,
+            force=True,
+            adapter_entries=entries,
+        )
+
+        assert (
+            subject_of_run(env.database, repeated.id).adapter_id
+            == subject_of_run(env.database, original.id).adapter_id
+        )
+
+    def test_a_repeat_of_a_bare_base_run_stays_bare(
+        self, run_environment: Callable[..., RunEnvironment]
+    ) -> None:
+        """The other direction, so "keeps the adapter" never becomes "invents one"."""
+        from freeweight.services.runs import repeat_run
+
+        env = run_environment(script=_adapter_capable())
+        original = _start(env, adapter=None, entries=())
+
+        repeated = repeat_run(
+            env.database,
+            env.provider,
+            env.collector,
+            env.registry,
+            run_ref=original.id,
+            force=True,
+        )
+
+        assert subject_of_run(env.database, repeated.id).adapter_id is None
+
+    def test_a_repeat_whose_adapter_is_gone_is_refused_by_name(
+        self, run_environment: Callable[..., RunEnvironment]
+    ) -> None:
+        """Never a silent fall back to the base: the repeat says the adapter is not here."""
+        from freeweight.services.runs import repeat_run
+
+        env = run_environment(script=_adapter_capable())
+        entries = (_entry(env, "terse", artifact_digest=_ADAPTER_DIGEST),)
+        original = _start(env, adapter="terse", entries=entries)
+
+        with pytest.raises(IncompatibleAdapter) as caught:
+            repeat_run(
+                env.database,
+                env.provider,
+                env.collector,
+                env.registry,
+                run_ref=original.id,
+                force=True,
+                adapter_entries=(),
+            )
+
+        assert "terse" in str(caught.value)

@@ -21,7 +21,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from starlette.responses import HTMLResponse, JSONResponse, RedirectResponse
 
 from freeweight.__about__ import __version__
-from freeweight.config import load_settings
+from freeweight.config import Settings, load_settings
 from freeweight.infrastructure.providers.factory import build_provider
 from freeweight.services.providers import (
     WRITABLE_FIELDS,
@@ -68,6 +68,25 @@ def _document(request: Request) -> dict[str, Any]:
     }
 
 
+def _probe(settings: Settings) -> None:
+    """Build the provider the candidate file names, then drop it, so a refusal comes first.
+
+    Handed to :func:`~freeweight.services.providers.save_provider` as its ``probe``: everything
+    :func:`~freeweight.infrastructure.providers.factory.build_provider` refuses — a kind this build
+    cannot construct, a ``llamacpp`` block with no ``model_directory``, an ``[adapters] directory``
+    that is not a directory — is then refused *before* the rename rather than after it, and the
+    file an operator would restart on is never the one the application just rejected (WP6 finding
+    9, ADR-0117 rule 2).
+
+    Args:
+        settings: What the candidate file loads to.
+
+    Raises:
+        SuiteError: The provider this configuration names cannot be constructed here.
+    """
+    close_provider(build_provider(settings.provider, adapters=settings.adapters))
+
+
 def _reload(request: Request) -> None:
     """Re-read the file and point the running server at the provider it now names.
 
@@ -100,7 +119,7 @@ def put_provider(request: Request, body: ProviderBody) -> JSONResponse:
     """
     values = body.model_dump(exclude_none=True)
     values.pop("base_digest", None)
-    save_provider(_config_path(request), values, base_digest=body.base_digest)
+    save_provider(_config_path(request), values, base_digest=body.base_digest, probe=_probe)
     _reload(request)
     return json_response(_document(request))
 
@@ -142,7 +161,10 @@ async def provider_form(request: Request) -> HTMLResponse | RedirectResponse:
     digest = form.get("base_digest")
     try:
         save_provider(
-            _config_path(request), values, base_digest=digest if isinstance(digest, str) else None
+            _config_path(request),
+            values,
+            base_digest=digest if isinstance(digest, str) else None,
+            probe=_probe,
         )
     except SuiteError as exc:
         return _page(

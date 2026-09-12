@@ -12,6 +12,7 @@ from __future__ import annotations
 from collections.abc import Iterator
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Any
 
 import pytest
 from baseaicore import ValidationError
@@ -20,7 +21,9 @@ from modelrack.errors import ModelNotFound
 from modelrack.testing import FakeModel, FakeProvider, FakeScript
 from weightsdb import MigrationRunner, create_engine_for, session_scope, transaction
 
+from freeweight.config import ProviderSettings
 from freeweight.infrastructure.db.models import Model
+from freeweight.infrastructure.providers.factory import build_provider
 from freeweight.services.database import MIGRATIONS_LOCATION, Database
 from freeweight.services.inventory import list_models
 from freeweight.services.models import (
@@ -383,3 +386,76 @@ class TestDescriptorHash:
         shifted = replace(descriptor, observed_at=LATER)
 
         assert compute_descriptor_hash(descriptor) == compute_descriptor_hash(shifted)
+
+
+class TestDigestCacheReuse:
+    """ADR-0071's store survives a refresh and a restart, or every refresh re-reads 195 GB."""
+
+    @staticmethod
+    def _write_model(root: Path) -> Path:
+        """Write one minimal GGUF base model — magic, version 3, no tensors, no metadata."""
+        directory = root / "models"
+        directory.mkdir(exist_ok=True)
+        path = directory / "tiny.gguf"
+        path.write_bytes(b"GGUF" + (3).to_bytes(4, "little") + bytes(16) + b"weights")
+        return path
+
+    @staticmethod
+    def _provider(root: Path) -> Any:
+        """A fresh llama.cpp provider over the same directory and the same ``state_dir``."""
+        return build_provider(
+            ProviderSettings(
+                kind="llamacpp",
+                model_directory=str(root / "models"),
+                state_dir=str(root / "state"),
+            )
+        )
+
+    def test_a_second_refresh_of_an_unchanged_directory_hashes_nothing(
+        self, database: Database, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The digest store is keyed by path, size and mtime, so unchanged bytes are never re-read.
+
+        The second pass runs through a *new* provider over the same ``state_dir`` — a restart, which
+        WP6 measured re-hashing the whole 195 GB directory — with the hasher rigged to fail.
+        Discovery still finds the model, because nothing asks it to hash again.
+        """
+        self._write_model(tmp_path)
+        first = discover_models(database, self._provider(tmp_path), now=NOW)
+        assert first.total == 1
+        assert (tmp_path / "state" / "digests.json").exists()
+
+        def explode(path: Path) -> str:
+            raise AssertionError(f"{path} was hashed again")
+
+        monkeypatch.setattr("modelrack.providers.llamacpp.sha256_of_file", explode)
+        second = discover_models(database, self._provider(tmp_path), now=LATER)
+
+        assert (second.total, second.added, second.unchanged) == (1, 0, 1)
+
+    def test_a_changed_file_is_hashed_again(self, database: Database, tmp_path: Path) -> None:
+        """The cache is keyed on the stamp, so replaced bytes still produce a new identity."""
+        path = self._write_model(tmp_path)
+        discover_models(database, self._provider(tmp_path), now=NOW)
+
+        path.write_bytes(b"GGUF" + (3).to_bytes(4, "little") + bytes(16) + b"other weights")
+        outcome = discover_models(database, self._provider(tmp_path), now=LATER)
+
+        assert outcome.added == 1
+
+    def test_a_provider_with_no_digest_store_is_still_asked_to_ignore_its_caches(
+        self, database: Database, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """For an HTTP listing the flag defeats a five-minute metadata cache, and should."""
+        provider = _provider(FakeModel(name="a", digest=DIGEST_A))
+        asked: list[bool] = []
+        listed = provider.list_models
+
+        def spy(*, refresh: bool = False) -> Any:
+            asked.append(refresh)
+            return listed(refresh=refresh)
+
+        monkeypatch.setattr(provider, "list_models", spy)
+        discover_models(database, provider, now=NOW)
+
+        assert asked == [True]

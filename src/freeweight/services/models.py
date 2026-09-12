@@ -406,6 +406,32 @@ def _record_discovery_outcome(session: Session, value: dict[str, Any], *, now: d
     SettingsRepository().set(session, _LAST_DISCOVERY_SETTING_KEY, value, now=now)
 
 
+def _ignores_caches_for(provider: Provider) -> bool:
+    """Whether this discovery should ask ``list_models`` to ignore the provider's caches.
+
+    Two different caches wear one flag. For a provider whose identities come from an HTTP listing
+    the flag defeats a five-minute metadata cache, which is cheap and is exactly what "refresh"
+    should mean. For ``LlamaCppProvider`` it also discards the **content digest store**
+    (ADR-0071), which is keyed by each file's path, size and mtime and is invalidated by nothing
+    else: re-hashing there re-reads every byte of the model directory — 2 to 4 minutes for the
+    reference machine's 195 GB, on every refresh and after every restart (WP6 finding 9) — and
+    cannot return a different answer for a file whose bytes have not changed.
+
+    So a provider that offers ``clear_digest_cache`` — ADR-0071's own public surface, and the
+    operator's way to force a re-hash deliberately — is refreshed **without** the flag. Its header
+    cache is stamp-checked on every hit and its directory is re-globbed on every call, so a model
+    added, replaced or removed since the last pass is still discovered, and only bytes that changed
+    are hashed again.
+
+    Args:
+        provider: The provider about to be listed.
+
+    Returns:
+        ``True`` to ignore the caches, which is every provider but the content-hashing one.
+    """
+    return not callable(getattr(provider, "clear_digest_cache", None))
+
+
 def discover_models(database: Database, provider: Provider, *, now: datetime) -> DiscoveryOutcome:
     """Run one full discovery pass: list every model the provider serves and persist it.
 
@@ -413,7 +439,8 @@ def discover_models(database: Database, provider: Provider, *, now: datetime) ->
     snapshot when it changed. ``refresh=True`` is passed to
     :meth:`~modelrack.provider.Provider.list_models` deliberately — a caller who explicitly asked to
     refresh means it, and should not have a provider's metadata cache hand back a five-minute-old
-    answer (:mod:`modelrack.cache`).
+    answer (:mod:`modelrack.cache`) — but **not** to a provider that hashes file content for its
+    identities: see :func:`_ignores_caches_for`.
 
     Args:
         database: The application's database handle.
@@ -432,7 +459,9 @@ def discover_models(database: Database, provider: Provider, *, now: datetime) ->
             afterwards can say why.
     """
     try:
-        descriptors: Sequence[CoreModelDescriptor] = provider.list_models(refresh=True)
+        descriptors: Sequence[CoreModelDescriptor] = provider.list_models(
+            refresh=_ignores_caches_for(provider)
+        )
     except ProviderError as exc:
         with database.write() as session:
             _record_discovery_outcome(

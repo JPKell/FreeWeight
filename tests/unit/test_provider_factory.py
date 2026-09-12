@@ -15,13 +15,15 @@ from typing import Any
 
 import pytest
 from baseaicore import ConfigurationError
+from modelrack.errors import CapabilityUnsupported
 from modelrack.providers.fake import FakeProvider
 from modelrack.providers.llamacpp import LlamaCppProvider
 from modelrack.providers.ollama import OllamaProvider
 
-from freeweight.config import AdapterSettings, ProviderSettings
+from freeweight.config import AdapterSettings, ProviderSettings, load_settings
 from freeweight.infrastructure.adapters import AdapterDirectoryMissing
 from freeweight.infrastructure.providers.factory import SUPPORTED_PROVIDER_KINDS, build_provider
+from freeweight.services.adapters import can_serve_adapters
 
 _SRC_ROOT = Path(__file__).resolve().parents[2] / "src" / "freeweight"
 _HTTPX_IMPORT = re.compile(r"^\s*(import httpx\b|from httpx\b)", re.MULTILINE)
@@ -173,6 +175,45 @@ class TestAdapterRegistration:
         )
 
         assert list(provider.list_adapters()) == []
+
+    def test_a_provider_that_cannot_serve_one_is_offered_none(self, tmp_path: Path) -> None:
+        """ADR-0140: the combination is configured and inert, not a refusal and not a failure.
+
+        WP6 finding 9: ``OllamaProvider.register_adapters`` exists and refuses with
+        ``CAPABILITY_UNSUPPORTED``, so offering it the set made a configured ``[adapters]
+        directory`` and ``kind = "ollama"`` an application that could not start — after its own
+        provider page had already written that combination to disk.
+        """
+        adapters = tmp_path / "adapters"
+        adapters.mkdir()
+        _write_adapter(adapters, "terse")
+
+        provider = build_provider(
+            ProviderSettings(kind="ollama"),
+            adapters=AdapterSettings(directory=str(adapters)),
+        )
+
+        assert not provider.capabilities().adapter_hot_swap
+        assert can_serve_adapters(provider) is False
+        with pytest.raises(CapabilityUnsupported):
+            provider.list_adapters()
+
+    def test_the_running_application_and_config_validate_agree_on_the_combination(
+        self, tmp_path: Path
+    ) -> None:
+        """``config validate`` said valid while the application refused to start (WP6 §9)."""
+        adapters = tmp_path / "adapters"
+        adapters.mkdir()
+        _write_adapter(adapters, "terse")
+        config_path = tmp_path / "config.toml"
+        config_path.write_text(
+            f'[provider]\nkind = "ollama"\n\n[adapters]\ndirectory = "{adapters}"\n',
+            encoding="utf-8",
+        )
+
+        settings = load_settings(config_path=config_path).settings
+
+        assert build_provider(settings.provider, adapters=settings.adapters) is not None
 
     def test_a_misconfigured_directory_is_refused_even_on_ollama(self, tmp_path: Path) -> None:
         """The typo is reported whatever the provider kind, not only once one can use adapters."""

@@ -155,7 +155,9 @@ def register_configured_adapters(provider: Provider, adapters: AdapterSettings) 
     Returns:
         How many adapters were offered — the *available* entries only. An unavailable adapter (a
         missing artifact, a digest that no longer matches) is never offered to a provider, because
-        a provider cannot tell that it should refuse it.
+        a provider cannot tell that it should refuse it. ``0`` on a provider that cannot serve
+        adapters at all: the directory is read, and nothing is offered
+        ([ADR-0140](../../../docs/adr/0140-adapters-are-inert-under-a-provider-that-cannot-serve-them.md)).
 
     Raises:
         AdapterDirectoryMissing: ``adapters.directory`` is set to something that is not a
@@ -167,9 +169,17 @@ def register_configured_adapters(provider: Provider, adapters: AdapterSettings) 
     from freeweight.infrastructure.adapters import read_directory, registrations_from
 
     register = getattr(provider, "register_adapters", None)
-    if register is None:
+    if register is None or not provider.capabilities().adapter_hot_swap:
         # Reading still happens: a misconfigured directory is refused whatever the provider is, so
         # an operator does not discover the typo only after switching provider kinds.
+        #
+        # ADR-0140: a provider that does not declare `adapter_hot_swap` is never *offered* the set.
+        # `OllamaProvider.register_adapters` exists and refuses with `CAPABILITY_UNSUPPORTED`, so
+        # asking it made the whole combination — a configured `[adapters] directory` and a provider
+        # that cannot serve one — a startup failure, and a provider edit that reached this function
+        # after writing its file left an application that could not be restarted (WP6 finding 9).
+        # The directory stays configured and inert instead, and every surface that lists adapters
+        # says which it is.
         read_directory(directory)
         return 0
     registrations = registrations_from(read_directory(directory).entries)

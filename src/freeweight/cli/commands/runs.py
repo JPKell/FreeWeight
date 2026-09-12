@@ -611,6 +611,7 @@ def repeat(  # noqa: PLR0913 — every parameter is a documented option, not inc
     from baseaicore import SuiteError
 
     from freeweight.domain.provenance import diff_documents
+    from freeweight.services.adapters import read_entries
     from freeweight.services.runs import build_registry_for, get_run, repeat_run
     from freeweight.services.scheduler import RunScheduler
 
@@ -627,6 +628,9 @@ def repeat(  # noqa: PLR0913 — every parameter is a documented option, not inc
                 registry,
                 run_ref=run_id,
                 force=force,
+                # A repeat of an adapter run measures the adapter again, so the directory it
+                # resolves against has to be here too.
+                adapter_entries=read_entries(settings.adapters),
             )
         except SuiteError as exc:
             typer.echo(f"Error: {exc.message} ({exc.code})", err=True)
