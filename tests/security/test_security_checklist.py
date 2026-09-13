@@ -194,7 +194,10 @@ class TestModelOutputRendersInert:
         html = render("machines/index.html", machines=[], error=payload)
 
         assert "<script>alert" not in html, "a script tag survived unescaped"
-        assert "49" not in html, "a Jinja expression was evaluated"
+        # The expression must reach the page as text, not as its value. `"49" not in html` was the
+        # old check and it tripped on an asset cache-buster hash that happened to contain 49.
+        if "7 * 7" in payload:
+            assert "7 * 7" in html, "a Jinja expression was evaluated"
         # The escaped forms are present and harmless.
         if "<script>" in payload:
             assert "&lt;script&gt;" in html
