@@ -19,6 +19,7 @@ from typing import Annotated, Any
 
 from baseaicore import ValidationError, to_rfc3339
 from fastapi import APIRouter, Query, Request
+from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import HTMLResponse, RedirectResponse
 from modelrack.errors import ModelNotFound, ProviderError
 from pydantic import BaseModel, ConfigDict
@@ -109,7 +110,10 @@ async def set_enabled(request: Request, model_ref: str) -> RedirectResponse:
     does not undo the decision.
     """
     form = await request.form()
-    set_model_enabled(
+    # Row WY10: awaiting the form is the only I/O this route does on the event loop; the database
+    # write goes to the threadpool like every plain ``def`` route's work.
+    await run_in_threadpool(
+        set_model_enabled,
         request.app.state.database,
         model_ref=model_ref,
         enabled=str(form.get("enabled", "false")) == "true",

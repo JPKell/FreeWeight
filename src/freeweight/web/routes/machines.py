@@ -27,8 +27,10 @@ router = APIRouter(include_in_schema=False)
 api_router = APIRouter(tags=["machines"])
 
 
+# A plain ``def`` (row WY10, after WY6): ``list_machines`` reads the database synchronously, so
+# FastAPI runs it in the threadpool instead of on the event loop.
 @router.get("/machines", response_class=HTMLResponse)
-async def machines_page(request: Request) -> HTMLResponse:
+def machines_page(request: Request) -> HTMLResponse:
     """Render every known machine, or the error state if the database cannot be read."""
     database: Database = request.app.state.database
     try:

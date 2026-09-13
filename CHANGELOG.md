@@ -7,6 +7,14 @@ packaging and release standards §3.
 
 ## [Unreleased]
 
+### Fixed (row WY10)
+
+- **The last synchronous work on the event loop left the web routes.** The Machines page is a plain
+  `def` route, and the model enable switch and the Provider form, which must await their form body,
+  run the database write, the provider probe and the settings reload in the threadpool. A slow
+  database or provider no longer stalls every other request while one of them runs (row WY6's
+  follow-up). The Settings form keeps its documented handful of upserts on the coroutine.
+
 ### Fixed
 
 - **`GET /api/v1/health` no longer times out under WeightRoomGym's 5 s probe** (row WY6). With the

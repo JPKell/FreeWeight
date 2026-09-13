@@ -18,6 +18,7 @@ from baseaicore import SuiteError
 from fastapi import APIRouter, Request
 from mirrorwall import json_response
 from pydantic import BaseModel, ConfigDict, Field
+from starlette.concurrency import run_in_threadpool
 from starlette.responses import HTMLResponse, JSONResponse, RedirectResponse
 
 from freeweight.__about__ import __version__
@@ -159,8 +160,11 @@ async def provider_form(request: Request) -> HTMLResponse | RedirectResponse:
         text = raw.strip()
         values[field_name] = float(text) if field_name in _NUMERIC_FIELDS and text else text
     digest = form.get("base_digest")
+    # Row WY10: the write, the probe and the reload are synchronous (file I/O, a provider round
+    # trip), so they run in the threadpool; only awaiting the form stays on the event loop.
     try:
-        save_provider(
+        await run_in_threadpool(
+            save_provider,
             _config_path(request),
             values,
             base_digest=digest if isinstance(digest, str) else None,
@@ -172,5 +176,5 @@ async def provider_form(request: Request) -> HTMLResponse | RedirectResponse:
             error=f"{exc.message} ({exc.code})",
             status_code=409 if exc.code == "CONFLICT" else 400,
         )
-    _reload(request)
+    await run_in_threadpool(_reload, request)
     return RedirectResponse("/provider", status_code=303)
