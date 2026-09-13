@@ -7,6 +7,7 @@ construction rather than by coincidence.
 
 from __future__ import annotations
 
+import threading
 from typing import TYPE_CHECKING, Literal
 
 from baseaicore.timeutil import Clock, to_rfc3339, utc_now
@@ -162,7 +163,9 @@ def _evidence_component(database: Database | None) -> HealthComponent:
         )
 
 
-def _provider_component(provider: Provider | None) -> HealthComponent:
+def _provider_component(
+    provider: Provider | None, *, timeout_seconds: float | None = None
+) -> HealthComponent:
     """Build the ``provider`` component, tolerating a totally unreachable or unconfigured provider.
 
     Mirrors :func:`_database_component`'s shape: never raises, and opens its own one-shot provider
@@ -174,8 +177,13 @@ def _provider_component(provider: Provider | None) -> HealthComponent:
         provider: The caller's handle, or ``None`` to build one for this check alone. The web
             application passes the provider it serves from — reused rather than rebuilt, for the
             same connection-pooling reason :func:`_database_component` reuses the database handle.
+        timeout_seconds: How long to wait for ``provider.health()``, or ``None`` to wait for it
+            however long it takes. When it does not answer in time the component is ``degraded``
+            with a detail saying so, and the check keeps running on its own daemon thread, so a
+            provider that was only slow (the llama.cpp adapter re-reads every GGUF header when its
+            metadata cache expires) answers the next check from a warm cache.
     """
-    from modelrack.provider import ProviderStatus
+    from modelrack.provider import ProviderHealth, ProviderStatus
 
     if provider is None:
         from freeweight.config import ConfigurationError, load_settings
@@ -189,7 +197,28 @@ def _provider_component(provider: Provider | None) -> HealthComponent:
                 name="provider", status="degraded", detail=f"configuration: {exc.message}"
             )
 
-    health = provider.health()
+    if timeout_seconds is None:
+        health = provider.health()
+    else:
+        answered: list[ProviderHealth] = []
+        checked = provider
+        # ponytail: one thread per timed-out check, never joined; Provider.health() is bounded
+        # by the provider's own HTTP timeouts, so threads end. Share one in-flight check if they
+        # ever pile up.
+        worker = threading.Thread(
+            target=lambda: answered.append(checked.health()),
+            name="freeweight-provider-health",
+            daemon=True,
+        )
+        worker.start()
+        worker.join(timeout_seconds)
+        if not answered:
+            return HealthComponent(
+                name="provider",
+                status="degraded",
+                detail=f"provider health check did not answer within {timeout_seconds:g} s",
+            )
+        health = answered[0]
     status: ComponentStatus = (
         "ok"
         if health.status is ProviderStatus.OK
@@ -379,6 +408,7 @@ def get_health_report(
     telemetry: TelemetryCollector | None = None,
     settings: Settings | None = None,
     clock: Clock = utc_now,
+    provider_timeout_seconds: float | None = None,
 ) -> HealthReport:
     """Build the current health report.
 
@@ -394,6 +424,11 @@ def get_health_report(
         telemetry: The caller's SweatMeter collector, or ``None`` to build one for this check
             alone. Backs both ``gpu_telemetry`` and ``machine``.
         clock: Returns the current instant; injected for deterministic tests.
+        provider_timeout_seconds: The longest the report waits for the provider's own check before
+            reporting it ``degraded``; ``None`` (the CLI's one-shot check) waits as long as it
+            takes. The web routes bound it because a caller with a deadline — WeightRoomGym's
+            ``app_down`` probe allows 5 s — must get a late provider as ``degraded``, not as no
+            answer at all (Graceful Degradation §3).
 
     Returns:
         The :class:`HealthReport`, worst-component-first. The overall status is the worst of the
@@ -404,7 +439,7 @@ def get_health_report(
     """
     components: tuple[HealthComponent, ...] = (
         _database_component(database),
-        _provider_component(provider),
+        _provider_component(provider, timeout_seconds=provider_timeout_seconds),
         _gpu_telemetry_component(telemetry),
         _machine_component(telemetry),
         _evidence_component(database),
