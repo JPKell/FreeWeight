@@ -334,3 +334,197 @@ def test_load_settings_tolerant_matches_load_settings_on_a_clean_file(tmp_path: 
     assert problems == ()
     assert loaded.settings == strict.settings
     assert loaded.sources == strict.sources
+
+
+# --- ADR-0144: provider profiles -------------------------------------------------------------
+
+
+def _write(tmp_path: Path, text: str) -> Path:
+    config_file = tmp_path / "config.toml"
+    config_file.write_text(text, encoding="utf-8")
+    return config_file
+
+
+def test_the_reference_machines_bare_provider_block_is_the_default_profile(
+    tmp_path: Path,
+) -> None:
+    """The operator's own file — a bare ``[provider]`` — must not change meaning (ADR-0144 rule 2).
+
+    This is the shape on the reference machine, verbatim: no ``active``, no ``[providers.<name>]``
+    table, `kind = "llamacpp"` with a context size. It has to resolve to exactly what it resolved
+    to before profiles existed.
+    """
+    config_file = _write(
+        tmp_path,
+        '[provider]\nkind = "llamacpp"\nmodel_directory = "~/ai/models/llm"\n'
+        "\n[runtime]\ncontext_size = 8192\nfit_to_device = false\n",
+    )
+
+    loaded = load_settings(config_path=config_file)
+
+    assert loaded.settings.provider.kind == "llamacpp"
+    assert loaded.settings.provider.model_directory == "~/ai/models/llm"
+    assert loaded.settings.active_profile_name == "default"
+    assert sorted(loaded.settings.providers.profiles) == ["default"]
+    assert loaded.settings.providers.profiles["default"].kind == "llamacpp"
+    assert loaded.sources["provider.kind"] == "file"
+
+
+def test_a_file_with_no_provider_block_still_has_a_default_profile() -> None:
+    loaded = load_settings()
+
+    assert loaded.settings.active_profile_name == "default"
+    assert loaded.settings.providers.profiles["default"] == loaded.settings.provider
+
+
+def test_adding_a_profile_changes_nothing_until_active_names_it(tmp_path: Path) -> None:
+    config_file = _write(
+        tmp_path,
+        '[provider]\nkind = "ollama"\n\n[providers.served]\nkind = "llamacpp"\n'
+        'model_directory = "/models"\n',
+    )
+
+    loaded = load_settings(config_path=config_file)
+
+    assert loaded.settings.provider.kind == "ollama"
+    assert loaded.settings.active_profile_name == "default"
+    assert sorted(loaded.settings.providers.profiles) == ["default", "served"]
+
+
+def test_active_selects_the_profile_and_sources_name_its_table(tmp_path: Path) -> None:
+    config_file = _write(
+        tmp_path,
+        '[provider]\nactive = "served"\nkind = "ollama"\n\n[providers.served]\n'
+        'kind = "llamacpp"\nmodel_directory = "/models"\n',
+    )
+
+    loaded = load_settings(config_path=config_file)
+
+    assert loaded.settings.provider.kind == "llamacpp"
+    assert loaded.settings.provider.model_directory == "/models"
+    assert loaded.settings.active_profile_name == "served"
+    # The `[provider]` block is still the `default` profile, and still says ollama.
+    assert loaded.settings.providers.profiles["default"].kind == "ollama"
+    assert loaded.sources["provider.kind"] == "file [providers.served]"
+    assert loaded.sources["provider.base_url"] == "default"
+    assert loaded.sources["providers.served.model_directory"] == "file"
+
+
+def test_active_naming_no_profile_is_refused_with_the_names_that_exist(tmp_path: Path) -> None:
+    config_file = _write(
+        tmp_path, '[provider]\nactive = "typo"\n\n[providers.served]\nkind = "ollama"\n'
+    )
+
+    with pytest.raises(ConfigurationError) as caught:
+        load_settings(config_path=config_file)
+
+    assert "names no provider profile" in str(caught.value)
+    assert "default, served" in str(caught.value)
+
+
+def test_a_default_profile_table_beside_a_provider_block_is_refused(tmp_path: Path) -> None:
+    config_file = _write(
+        tmp_path, '[provider]\nkind = "ollama"\n\n[providers.default]\nkind = "llamacpp"\n'
+    )
+
+    with pytest.raises(ConfigurationError) as caught:
+        load_settings(config_path=config_file)
+
+    assert "two definitions of the profile 'default'" in str(caught.value)
+
+
+def test_an_empty_provider_block_beside_a_default_profile_table_is_allowed(
+    tmp_path: Path,
+) -> None:
+    """Only a `[provider]` block that *sets* something collides (ADR-0144 rule 4)."""
+    config_file = _write(
+        tmp_path, '[providers.default]\nkind = "llamacpp"\nmodel_directory = "/models"\n'
+    )
+
+    loaded = load_settings(config_path=config_file)
+
+    assert loaded.settings.provider.kind == "llamacpp"
+
+
+def test_a_scalar_under_providers_is_refused_rather_than_ignored(tmp_path: Path) -> None:
+    config_file = _write(tmp_path, "[providers]\nallow_remot = true\n")
+
+    with pytest.raises(ConfigurationError) as caught:
+        load_settings(config_path=config_file)
+
+    assert "allow_remot" in str(caught.value)
+
+
+def test_a_profile_may_not_choose_itself(tmp_path: Path) -> None:
+    config_file = _write(tmp_path, '[providers.served]\nkind = "ollama"\nactive = "served"\n')
+
+    with pytest.raises(ConfigurationError) as caught:
+        load_settings(config_path=config_file)
+
+    assert "belongs on the [provider] block alone" in str(caught.value)
+
+
+def test_an_environment_provider_key_under_a_named_profile_is_refused(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    config_file = _write(
+        tmp_path, '[provider]\nactive = "served"\n\n[providers.served]\nkind = "ollama"\n'
+    )
+    monkeypatch.setenv("FREEWEIGHT_PROVIDER__KIND", "llamacpp")
+
+    with pytest.raises(ConfigurationError) as caught:
+        load_settings(config_path=config_file)
+
+    assert "FREEWEIGHT_PROVIDER__KIND" in str(caught.value)
+    assert "would be inert" in str(caught.value)
+
+
+def test_an_environment_provider_key_is_untouched_on_the_default_profile(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    config_file = _write(tmp_path, '[provider]\nkind = "ollama"\n')
+    monkeypatch.setenv("FREEWEIGHT_PROVIDER__KIND", "fake")
+
+    loaded = load_settings(config_path=config_file)
+
+    assert loaded.settings.provider.kind == "fake"
+    assert loaded.sources["provider.kind"] == "env FREEWEIGHT_PROVIDER__KIND"
+
+
+def test_a_runtime_key_is_judged_against_the_active_profiles_kind(tmp_path: Path) -> None:
+    """ADR-0120 rule 4 is evaluated on the profile that runs, not on `[provider]`'s own kind."""
+    config_file = _write(
+        tmp_path,
+        '[provider]\nactive = "served"\nkind = "ollama"\n\n[providers.served]\n'
+        'kind = "llamacpp"\nmodel_directory = "/models"\n\n[runtime]\nflash_attention = true\n',
+    )
+
+    loaded = load_settings(config_path=config_file)
+
+    assert loaded.settings.runtime.flash_attention is True
+
+    (tmp_path / "other").mkdir()
+    ollama_active = _write(
+        tmp_path / "other",
+        '[provider]\nkind = "ollama"\n\n[runtime]\nflash_attention = true\n',
+    )
+    with pytest.raises(ConfigurationError):
+        load_settings(config_path=ollama_active)
+
+
+def test_load_settings_tolerant_keeps_the_profile_tables(tmp_path: Path) -> None:
+    """`[providers.<name>]` is not an unknown key: the section validates its own extras."""
+    config_file = _write(
+        tmp_path, '[providers.served]\nkind = "llamacpp"\nmodel_directory = "/models"\n'
+    )
+
+    loaded, problems = load_settings_tolerant(config_file)
+
+    assert problems == ()
+    assert sorted(loaded.settings.providers.profiles) == ["default", "served"]
+
+
+def test_leaf_keys_omits_the_derived_profiles_mapping() -> None:
+    assert "providers.profiles" not in leaf_keys()
+    assert "providers.allow_remote" in leaf_keys()
+    assert "provider.active" in leaf_keys()

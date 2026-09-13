@@ -34,7 +34,7 @@ sys.path.insert(0, str(REPO_ROOT / "src"))
 from pydantic import BaseModel  # noqa: E402
 from pydantic_core import PydanticUndefined  # noqa: E402
 
-from freeweight.config import Settings, env_var_for  # noqa: E402
+from freeweight.config import DERIVED_KEYS, Settings, env_var_for  # noqa: E402
 from freeweight.services.settings import CONFIG_ONLY_KEYS, RUNTIME_SETTINGS  # noqa: E402
 
 _RUNTIME_KEYS = frozenset(setting.key for setting in RUNTIME_SETTINGS)
@@ -65,6 +65,10 @@ _SECURITY_NOTES: dict[str, str] = {
     "storage.artifact_dir": "Config only. Where raw responses and generated code are written.",
     "goals.root": "Config only. Where hand-editable goal packs are read from.",
     "provider.base_url": "Config only. Where prompts are sent.",
+    "provider.active": (
+        "Config only. Chooses the provider profile, and so redirects every prompt at once "
+        "(ADR-0144)."
+    ),
     "server.port": "Config only. Part of the bind.",
 }
 
@@ -153,6 +157,9 @@ def _rows(section_name: str, model: type[BaseModel]) -> list[str]:
     rows: list[str] = []
     for field_name, field in model.model_fields.items():
         key = f"{section_name}.{field_name}"
+        if key in DERIVED_KEYS:
+            # A path the model carries that no file writes — the loader fills it in (ADR-0144).
+            continue
         if not field.description:
             raise SystemExit(f"{key} has no description; add one to the settings model.")
         if not field.examples:

@@ -2,10 +2,18 @@
 {% block title %}Provider — FreeWeight{% endblock %}
 {% block content %}
 <h2>Provider</h2>
-<p class="muted">This is the <span class="mono">[provider]</span> block in
-<span class="mono">{{ document.config_path }}</span>. Saving edits that file in place — comments and
-everything outside the provider block are left exactly as they are — and re-opens the provider
+<p class="muted">This is the
+<span class="mono">{% if document.provider.active == "default" %}[provider]{% else %}[providers.{{ document.provider.active }}]{% endif %}</span>
+block in <span class="mono">{{ document.config_path }}</span> — the profile
+<span class="mono">{{ document.provider.active }}</span>, which is the one running
+{%- if document.provider.profiles | length > 1 %} of {{ document.provider.profiles | length }}
+({{ document.provider.profiles | join(", ") }}){% endif %}. Saving edits that file in place — comments and
+everything outside that block are left exactly as they are — and re-opens the provider
 handle this server measures with. Every other value read at startup keeps what it read (ADR-0117).</p>
+{% if document.provider.profiles | length > 1 %}
+<p class="muted">Switching profile is <span class="mono">[provider] active</span> in the file, and a
+restart (ADR-0144): it replaces a supervised server, not a setting.</p>
+{% endif %}
 {% if document.provider.shadowed_by %}
 <p class="notice" role="status">Shadowed by <span class="mono">{{ document.provider.shadowed_by }}</span>:
 the file is written, and the environment keeps winning until that variable is unset.</p>

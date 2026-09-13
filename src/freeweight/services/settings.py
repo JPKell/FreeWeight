@@ -28,7 +28,14 @@ from typing import TYPE_CHECKING, Any, ClassVar
 
 from baseaicore import SuiteError, ValidationError, utc_now
 
-from freeweight.config import Settings, env_var_for, leaf_keys, load_settings_tolerant
+from freeweight.config import (
+    DEFAULT_PROFILE_NAME,
+    Settings,
+    env_var_for,
+    leaf_keys,
+    load_settings_tolerant,
+)
+from freeweight.infrastructure.providers.factory import SUPPORTED_PROVIDER_KINDS
 
 if TYPE_CHECKING:
     from datetime import datetime
@@ -223,6 +230,7 @@ CONFIG_ONLY_KEYS: frozenset[str] = frozenset(
         "server.allowed_hosts",
         "storage.database_url",
         "storage.artifact_dir",
+        "provider.active",
         "provider.base_url",
         "providers.allow_remote",
         "judge.allow_remote",
@@ -678,7 +686,11 @@ def config_schema_document(config_path: str | Path | None = None) -> dict[str, A
         ``schema_version``, ``application``, ``version``, ``env_prefix``, ``config_path``,
         ``json_schema``, ``runtime_changeable`` (one entry per :data:`RUNTIME_SETTINGS` key, as
         ``key``/``kind``/``minimum``/``maximum``/``description``), ``security_keys`` (sorted
-        :data:`CONFIG_ONLY_KEYS`), ``config_only`` (every other leaf), ``sources`` (the same
+        :data:`CONFIG_ONLY_KEYS` plus each configured profile's own ``base_url``),
+        ``config_only`` (every other leaf), ``provider_profiles`` (ADR-0144 rule 7: the key that
+        selects, the active name, the kinds this build can construct, and one
+        ``name``/``prefix``/``kind`` entry per profile, so a form generator can group the keys —
+        and offer a new profile — without knowing any of them), ``sources`` (the same
         per-leaf layer ``config show`` prints, database overlay included) and ``problems`` (an
         unknown key in the file, never dropped — see
         :func:`~freeweight.config.load_settings_tolerant`).
@@ -697,8 +709,31 @@ def config_schema_document(config_path: str | Path | None = None) -> dict[str, A
         sources[path] = source
 
     runtime_keys = {setting.key for setting in RUNTIME_SETTINGS}
-    security_keys = set(CONFIG_ONLY_KEYS)
+    profiles = loaded.settings.providers.profiles
+    active = loaded.settings.active_profile_name
+    # A profile's own `base_url` decides where prompts are sent, exactly as `provider.base_url`
+    # does, so it is a security key too (ADR-0144 rule 7). The set is stated per configured
+    # profile because the model cannot enumerate operator-chosen names.
+    security_keys = set(CONFIG_ONLY_KEYS) | {
+        f"providers.{name}.base_url" for name in profiles if name != DEFAULT_PROFILE_NAME
+    }
     config_only = sorted(set(leaf_keys()) - runtime_keys - security_keys)
+    provider_profiles = {
+        "key": "provider.active",
+        "active": active,
+        "kinds": sorted(SUPPORTED_PROVIDER_KINDS),
+        "profiles": [
+            {
+                "name": name,
+                "prefix": "provider" if name == DEFAULT_PROFILE_NAME else f"providers.{name}",
+                "kind": profile.kind,
+            }
+            # `default` first — it is the [provider] block, and the one every file has.
+            for name, profile in sorted(
+                profiles.items(), key=lambda one: (one[0] != DEFAULT_PROFILE_NAME, one[0])
+            )
+        ],
+    }
 
     return {
         "schema_version": SCHEMA_VERSION,
@@ -719,6 +754,7 @@ def config_schema_document(config_path: str | Path | None = None) -> dict[str, A
         ],
         "security_keys": sorted(security_keys),
         "config_only": config_only,
+        "provider_profiles": provider_profiles,
         "sources": sources,
         "problems": list(problems),
     }

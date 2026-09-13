@@ -2,8 +2,9 @@
 
 [ADR-0117](../../docs/adr/0117-provider-registrations-are-edited-in-place-in-the-config-file.md):
 ``config.toml`` stays the single source of truth and the Providers page edits it *in place*, so
-an operator's comments, key order and formatting survive a write. FreeWeight has one provider, not
-a registry (spec §12), so there is one block to edit and nothing to name.
+an operator's comments, key order and formatting survive a write. FreeWeight runs one provider at
+a time out of several saved profiles (ADR-0144), so the block this module edits is the active
+profile's — ``[provider]`` itself, or the ``[providers.<name>]`` its ``active`` key names.
 
 Nothing here writes any other part of the file. The candidate document is loaded through
 :func:`~freeweight.config.load_settings` before it lands, the previous file is kept as
@@ -23,7 +24,7 @@ import tomlkit
 from baseaicore import SuiteError, ValidationError
 from pydantic import ValidationError as PydanticValidationError
 
-from freeweight.config import ENV_PREFIX, ProviderSettings, load_settings
+from freeweight.config import DEFAULT_PROFILE_NAME, ENV_PREFIX, ProviderSettings, load_settings
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -82,7 +83,7 @@ class ProviderConfigChanged(SuiteError):
 
 @dataclass(frozen=True, slots=True)
 class ProviderView:
-    """The configured provider as the page renders it."""
+    """The active provider profile as the page renders it, and the names of the others."""
 
     kind: str
     base_url: str
@@ -91,6 +92,8 @@ class ProviderView:
     state_dir: str
     server_path: str
     shadowed_by: str
+    active: str
+    profiles: tuple[str, ...]
 
     def as_json(self) -> dict[str, Any]:
         """The block as JSON, with ``shadowed_by`` empty when nothing shadows it."""
@@ -102,11 +105,13 @@ class ProviderView:
             "state_dir": self.state_dir,
             "server_path": self.server_path,
             "shadowed_by": self.shadowed_by,
+            "active": self.active,
+            "profiles": list(self.profiles),
         }
 
 
 def describe_provider(settings: Settings) -> ProviderView:
-    """The configured provider, and the environment variable that pins it if one does.
+    """The active provider profile, its siblings, and the variable that pins it if one does.
 
     The environment sits above the file (configuration standards §7), so a variable setting any
     ``[provider]`` key makes an edit to that key inert. The page says so rather than letting an
@@ -123,6 +128,8 @@ def describe_provider(settings: Settings) -> ProviderView:
         state_dir=provider.state_dir,
         server_path=provider.server_path,
         shadowed_by=shadowed_by,
+        active=settings.active_profile_name,
+        profiles=tuple(sorted(settings.providers.profiles)),
     )
 
 
@@ -133,6 +140,35 @@ def config_digest(config_path: Path) -> str:
     return hashlib.sha256(config_path.read_bytes()).hexdigest()
 
 
+def _active_block(document: TOMLDocument) -> Any:
+    """The TOML table of the profile this file runs, created if the file has no ``[provider]``.
+
+    ADR-0144 rule 6: an operator running ``active = "fast"`` who edits a value on the Provider
+    page means ``[providers.fast]``. Writing it to ``[provider]`` would edit the profile named
+    ``default``, which is a profile they are not running, and the page would then report a change
+    that did not happen.
+
+    Args:
+        document: The parsed configuration file.
+
+    Returns:
+        The table to write into — ``[provider]`` for the ``default`` profile, else
+        ``[providers.<active>]``.
+    """
+    if "provider" not in document:
+        document["provider"] = tomlkit.table()
+    block = document["provider"]
+    active = str(block.get("active") or DEFAULT_PROFILE_NAME)
+    if active == DEFAULT_PROFILE_NAME:
+        return block
+    if "providers" not in document:
+        document["providers"] = tomlkit.table()
+    providers = document["providers"]
+    if active not in providers:
+        providers[active] = tomlkit.table()
+    return providers[active]
+
+
 def save_provider(
     config_path: Path,
     values: dict[str, Any],
@@ -140,7 +176,11 @@ def save_provider(
     base_digest: str | None = None,
     probe: Callable[[Settings], None] | None = None,
 ) -> None:
-    """Write the ``[provider]`` block, leaving the rest of the file exactly as it was.
+    """Write the active profile's block, leaving the rest of the file exactly as it was.
+
+    The active profile is ``[provider]`` unless that block's ``active`` names another
+    (ADR-0144 rule 6); ``active`` itself is not writable here, because switching provider needs a
+    restart and this page's contract is a write that takes effect on the spot.
 
     Args:
         config_path: The configuration file to edit.
@@ -188,9 +228,7 @@ def save_provider(
         if config_path.exists()
         else tomlkit.document()
     )
-    if "provider" not in document:
-        document["provider"] = tomlkit.table()
-    block = document["provider"]
+    block = _active_block(document)
     for field_name in WRITABLE_FIELDS:
         if field_name not in values:
             continue

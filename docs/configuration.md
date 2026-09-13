@@ -49,10 +49,11 @@ Database and artifact locations.
 
 ## `[provider]`
 
-The default model provider FreeWeight talks to.
+One provider profile — ``[provider]`` itself, or any ``[providers.<name>]`` (ADR-0144).
 
 | Key | Environment variable | Type | Default | Valid range | Runtime-changeable | Security | Example | Meaning |
 |---|---|---|---|---|---|---|---|---|
+| `provider.active` | `FREEWEIGHT_PROVIDER__ACTIVE` | string | `"default"` | — | no — file or environment, then restart | Config only. Chooses the provider profile, and so redirects every prompt at once (ADR-0144). | `"default"` | Which provider profile runs, on the [provider] block only (ADR-0144). 'default' is this block itself; any other name must be a [providers.<name>] table. Setting it inside a [providers.<name>] table is refused, because a profile does not choose itself. |
 | `provider.kind` | `FREEWEIGHT_PROVIDER__KIND` | string | `"ollama"` | — | no — file or environment, then restart | — | `"ollama"` | Which provider serves the models: ollama, llamacpp, or fake for tests. |
 | `provider.base_url` | `FREEWEIGHT_PROVIDER__BASE_URL` | string | `"http://127.0.0.1:11434"` | — | no — file or environment, then restart | Config only. Where prompts are sent. | `"http://127.0.0.1:11434"` | The provider's API endpoint. Ignored by kind='llamacpp'. |
 | `provider.timeout_seconds` | `FREEWEIGHT_PROVIDER__TIMEOUT_SECONDS` | number | `300.0` | > 0 | no — file or environment, then restart | — | `300.0` | Per-call provider timeout. |
@@ -64,7 +65,7 @@ The default model provider FreeWeight talks to.
 
 ## `[providers]`
 
-Cross-provider policy, distinct from the single default provider's own settings.
+Cross-provider policy, plus the named provider profiles themselves (ADR-0144).
 
 | Key | Environment variable | Type | Default | Valid range | Runtime-changeable | Security | Example | Meaning |
 |---|---|---|---|---|---|---|---|---|
