@@ -15,7 +15,7 @@ import asyncio
 import shutil
 import time
 from pathlib import Path
-from typing import TYPE_CHECKING, Protocol
+from typing import TYPE_CHECKING, Final, Protocol
 
 from baseaicore import DependencyUnavailableError
 from fastapi import APIRouter, Request
@@ -55,11 +55,19 @@ class _Disconnectable(Protocol):
 
 
 _HEARTBEAT_INTERVAL_SECONDS = 15.0
+PROVIDER_HEALTH_TIMEOUT_SECONDS: Final = 0.5
+"""How long ``/health`` and ``/system`` wait for the provider's own check (row WY6).
+
+A healthy provider answers in milliseconds; one that is loading, busy or re-reading its model
+directory is reported ``degraded`` instead of holding the response past a caller's deadline.
+"""
 _POLL_INTERVAL_SECONDS = 0.1
 
 
+# A plain ``def`` (row WY6): FastAPI runs the synchronous report in its threadpool. As ``async def``
+# it ran on the event loop, and a slow check stalled every other request.
 @router.get("/health", summary="Component health")
-async def health(request: Request) -> JSONResponse:
+def health(request: Request) -> JSONResponse:
     """Return the current health report; 200 for ok/degraded, 503 for unavailable.
 
     Reports on the handle the server is serving from, not a connection opened for the check — a
@@ -72,6 +80,7 @@ async def health(request: Request) -> JSONResponse:
         provider=request.app.state.provider,
         telemetry=telemetry.collector if telemetry is not None else None,
         settings=request.app.state.settings,
+        provider_timeout_seconds=PROVIDER_HEALTH_TIMEOUT_SECONDS,
     )
     status_code = 200 if report.status in ("ok", "degraded") else 503
     return JSONResponse(status_code=status_code, content=report.model_dump(mode="json"))
@@ -87,8 +96,9 @@ async def version() -> dict[str, object]:
     }
 
 
+# A plain ``def`` for the same reason as ``health``.
 @ui_router.get("/system", summary="System page", response_class=HTMLResponse)
-async def system_page(request: Request) -> HTMLResponse:
+def system_page(request: Request) -> HTMLResponse:
     """Render the System page: version, and the same health components ``/health`` reports.
 
     The suite's help/about page (UI/UX standards §12): every other application has one and, until
@@ -102,6 +112,7 @@ async def system_page(request: Request) -> HTMLResponse:
         provider=request.app.state.provider,
         telemetry=telemetry.collector if telemetry is not None else None,
         settings=request.app.state.settings,
+        provider_timeout_seconds=PROVIDER_HEALTH_TIMEOUT_SECONDS,
     )
     return HTMLResponse(
         render(
@@ -146,8 +157,9 @@ def _queue_snapshot(scheduler: RunScheduler | None) -> tuple[str | None, int | N
         return None, None
 
 
+# A plain ``def``: the queue read and the disk stat are synchronous I/O (row WY6).
 @router.get("/system/status", summary="Operational snapshot")
-async def system_status(request: Request) -> dict[str, object]:
+def system_status(request: Request) -> dict[str, object]:
     """Return the live operational numbers the System page renders (Observability Standards §5).
 
     ``active_run`` and ``queue_depth`` come from the run scheduler. Both are ``None``

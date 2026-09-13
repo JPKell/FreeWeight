@@ -7,6 +7,19 @@ packaging and release standards §3.
 
 ## [Unreleased]
 
+### Fixed
+
+- **`GET /api/v1/health` no longer times out under WeightRoomGym's 5 s probe** (row WY6). With the
+  llama.cpp provider, every health check that found ModelRack's 300 s metadata cache expired
+  re-read every GGUF header (5.5 s for 27 files on the reference machine), so about one probe in
+  ten answered after about 6 s and the console raised `app_down`. The provider's part of the
+  report is now bounded to 0.5 s on the web routes: a late provider reports `degraded` with
+  `provider health check did not answer within 0.5 s`, and its check finishes in the background,
+  so the next one is fast. `freeweight health` and `doctor` still wait for the full answer.
+- **A slow check no longer stalls every other request.** `/api/v1/health`, `/api/v1/system/status`
+  and the `/system` page were `async def` routes doing synchronous work on the event loop; they
+  are plain `def` routes now and run in the threadpool.
+
 ### Added
 
 - **Saved provider profiles, one of them active** (row WX13,
