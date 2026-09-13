@@ -31,7 +31,13 @@ from freeweight.infrastructure.db.repositories.models import ModelRepository
 if TYPE_CHECKING:
     from freeweight.services.database import Database
 
-__all__ = ["MachineSummary", "ModelSummary", "list_machines", "list_models"]
+__all__ = [
+    "MachineSummary",
+    "ModelSummary",
+    "list_machines",
+    "list_models",
+    "set_machine_nickname",
+]
 
 
 @contextmanager
@@ -59,6 +65,8 @@ class MachineSummary:
         id: The machine's ULID.
         machine_fingerprint: The stable identity every measurement is attributed to.
         hostname: As reported, or ``None`` when the host did not report one.
+        nickname: The operator's own label for this machine, or ``None`` (row WX7). Never an
+            identity — see :attr:`display_name`.
         os_name: Operating system name, or ``None``.
         os_version: Operating system version, or ``None``.
         cpu_model: CPU model string, or ``None``.
@@ -78,6 +86,18 @@ class MachineSummary:
     ram_bytes: int | None
     first_seen_at: datetime
     last_seen_at: datetime
+    nickname: str | None = None
+
+    @property
+    def display_name(self) -> str:
+        """What to call this machine on a page: the nickname, else the hostname, else the id.
+
+        The fallback is the machine's ULID rather than a truncated fingerprint, because a
+        truncated fingerprint reads as an identity and is not one — two machines can share a
+        prefix, and a reader who copies it has copied nothing that resolves. The full fingerprint
+        travels beside this in every body that carries it.
+        """
+        return self.nickname or self.hostname or self.id
 
 
 @dataclass(frozen=True, slots=True)
@@ -131,6 +151,7 @@ def list_machines(database: Database) -> tuple[MachineSummary, ...]:
                 ram_bytes=machine.ram_bytes,
                 first_seen_at=machine.first_seen_at,
                 last_seen_at=machine.last_seen_at,
+                nickname=machine.nickname,
             )
             for machine in MachineRepository().list_all(session)
         )
@@ -163,3 +184,44 @@ def list_models(database: Database) -> tuple[ModelSummary, ...]:
             )
             for model in ModelRepository().list_all(session)
         )
+
+
+def set_machine_nickname(database: Database, *, machine_id: str, nickname: str | None) -> str:
+    """Name this machine, or take its name away, and nothing else (row WX7).
+
+    The nickname is the operator's label, never an identity: nothing resolves a machine by it, no
+    two machines are checked against each other for it, and a later profiling pass of the same
+    host leaves it alone.
+
+    Args:
+        database: The application's database handle.
+        machine_id: The machine's ULID, exactly — a prefix is the read surface's convenience and
+            has no place on a write, where the wrong match renames the wrong machine.
+        nickname: The label, or ``None`` to clear it. Blank is read as ``None``: a machine named
+            with spaces is a machine nobody named.
+
+    Returns:
+        The nickname as stored, or ``""`` when it was cleared — so a caller can echo what it did.
+
+    Raises:
+        NotFoundError: No machine has that ULID.
+        DatabaseUnavailable: The database could not be written.
+    """
+    from baseaicore import NotFoundError
+
+    wanted = (nickname or "").strip() or None
+    found = True
+    # The refusal is raised outside `_translated`, which turns anything that is not a
+    # `DatabaseError` into `DatabaseUnavailable` — a missing machine is the caller's mistake, not
+    # a database that could not be read, and inside the block it would be answered as `500`.
+    with _translated(), database.write() as session:
+        machine = MachineRepository().get_by_id(session, machine_id)
+        if machine is None:
+            found = False
+        else:
+            machine.nickname = wanted
+    if not found:
+        raise NotFoundError(
+            f"No machine has the id {machine_id!r}.", details={"machine": machine_id}
+        )
+    return wanted or ""

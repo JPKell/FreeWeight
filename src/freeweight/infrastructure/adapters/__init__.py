@@ -8,6 +8,7 @@ the module that happens to implement it.
 from __future__ import annotations
 
 from freeweight.infrastructure.adapters.directory import (
+    DRAFT_SUFFIX,
     MANIFEST_SCHEMA,
     MANIFEST_SUFFIX,
     MANIFEST_VERSION,
@@ -16,9 +17,11 @@ from freeweight.infrastructure.adapters.directory import (
     DirectoryReading,
     read_directory,
     registrations_from,
+    sha256_of,
 )
 
 __all__ = [
+    "DRAFT_SUFFIX",
     "MANIFEST_SCHEMA",
     "MANIFEST_SUFFIX",
     "MANIFEST_VERSION",
@@ -27,4 +30,5 @@ __all__ = [
     "DirectoryReading",
     "read_directory",
     "registrations_from",
+    "sha256_of",
 ]

@@ -20,8 +20,9 @@ Everything here is additive within v1. The committed OpenAPI snapshot is diff-ch
 
 | Endpoint | Notes |
 |---|---|
-| `GET /machines` · `GET /machines/{id}` | Static profiles; the current machine is flagged. **Never writes** — machines are recorded when a run is created, so polling this cannot make one look freshly used, and the list is legitimately empty before anything has been measured |
-| `GET /models` | Filter by `provider_kind`, `family`, `quantization`, `has_results` (`true` or `false`: whether any of its runs stored a metric); `sort` is `last_seen_at` or `canonical_id`, with a leading `-` for descending — `-last_seen_at`, the newest sighting first, when omitted; any other `sort` is `400 VALIDATION_ERROR` naming it. Each item carries `family`, `enabled` and `has_results` beside its identity |
+| `GET /machines` · `GET /machines/{id}` | Static profiles; the current machine is flagged. **Never writes** — machines are recorded when a run is created, so polling this cannot make one look freshly used, and the list is legitimately empty before anything has been measured. Each carries `nickname` and `display_name` (below) |
+| `PATCH /machines/{machine_id}` | Set or clear the operator's own label for one machine: `{"nickname": "the workstation"}`, or `null` (or blank) to clear it. Answers `{"id", "nickname"}`. `PATCH`, not `PUT`: the nickname is the only writable field of a machine — every other column is measured from the host — and a `PUT` of a partial profile would invite a client to send the measured ones back. The path is the machine's **exact ULID, never a prefix**: a prefix is a convenience on a read, where the wrong match shows the wrong page, and a hazard on a write, where it renames the wrong machine; no match is `404 NOT_FOUND` |
+| `GET /models` | Filter by `provider_kind`, `family`, `quantization`, `has_results` (`true` or `false`: whether any of its runs stored a metric) and `min_parameters` / `max_parameters` (the latest descriptor's `parameter_count`, inclusive, in parameters — `8000000000`, not `8`); `sort` is `last_seen_at` or `canonical_id`, with a leading `-` for descending — `-last_seen_at`, the newest sighting first, when omitted; any other `sort` is `400 VALIDATION_ERROR` naming it. Each item carries `display_name` (below), `family`, `enabled` and `has_results` beside its identity |
 | `POST /models/discover` | Re-discovers through ModelRack; returns added/updated/unchanged/total counts. The counts, not the models: a client that wants the list asks for it, and a discovery that returned every model would bury *what changed* |
 | `POST /models/{model_ref}/enabled` | Disable or enable one model — an operator's decision that this model may not be measured ([ADR-0118](../../adr/0118-a-discovered-model-can-be-disabled.md)). The body is JSON, `{"enabled": true}` or `{"enabled": false}`; the answer is `{"canonical_id", "enabled"}`. The Models page's button posts the same decision as the form field `enabled` to the page's own route, because a form post to `/api/v1` carries no CSRF token and is refused. The row, its descriptors and every result measured under it stay; a new run naming a disabled model is refused by name, and discovery never writes the flag, so a rescan does not undo it |
 | `GET /models/{model_ref}` | Identity with `enabled`, latest descriptor, descriptor history. The model's evidence is `GET /evidence?model=…` (§6) |
@@ -34,10 +35,30 @@ returns 400 listing the candidates. **The canonical ID is never a path segment**
 ([ADR-0024](../../adr/0024-canonical-id-and-model-references.md)). Request bodies and CLI arguments
 still accept a canonical ID, a bare name or an unambiguous prefix.
 
+A machine's **`display_name`** is its `nickname`, else its `hostname`, else its ULID — never a
+truncated fingerprint, which reads as an identity and is not one. The full `machine_fingerprint`
+travels beside it in every body that carries it, and remains the only thing any measurement is
+attributed to: a nickname identifies nothing and nothing resolves a machine by it.
+
+A model's **`display_name`** is what a person should be shown, and it is a property of the *list*, not of a
+row. It is the model's `provider_model_name` — the name an operator recognizes — except where two
+or more **enabled** models share that name, in which case every model carrying it is displayed by
+`canonical_id` instead: a name that names two measurable subjects names neither. It is computed
+once over the whole list, never per row and never in a template, because a filtered or paged view
+that recomputed it would call a name unique on the strength of the model it collides with having
+been filtered out. `GET /models/{model_ref}` answers the list's name for that model, not a second
+rule.
+
+A model whose latest descriptor never reported a `parameter_count` is **outside every**
+`min_parameters` / `max_parameters` bound, `min_parameters=0` included. An unsupported measurement
+is not a number and does not compare as zero
+([ADR-0016](../../adr/0016-unsupported-is-not-zero.md)).
+
 ## 2a. Adapters
 
 | Endpoint | Notes |
 |---|---|
+| `POST /adapters/{name}/draft` | Write `<name>.manifest.draft.json` for an artifact the directory holds with no manifest — the console's *Draft manifest* action ([ADR-0145](../../adr/0145-freeweight-drafts-an-adapter-manifest-and-still-trusts-nothing.md)). Body: `base_model_name` (**required** — the one field no reader of a GGUF can establish), optional `declared_capabilities[]` and `notes`. Answers `{"adapter", "path", "payload"}` |
 | `GET /adapters` | The LoRA adapters this installation knows: the operator's `[adapters] directory` read once ([ADR-0061](../../adr/0061-the-adapter-registry-is-a-directory-and-a-manifest.md)), joined with FreeWeight's own `adapters` table, which outlives the directory. The same reading `freeweight adapters list --json` prints, plus what was measured |
 
 The body carries `enabled` (whether `[adapters] directory` is set), `directory`, `note` (why the
@@ -59,6 +80,20 @@ table's row (`in_directory: false`, `available: false`). Beside it:
 
 With adapters off the answer is still `200`: `enabled: false`, the note naming the key, and the
 table's rows, because a measured adapter's history does not disappear when the directory is unset.
+
+**A draft registers nothing.** ADR-0061 rule 4 — *the scan drafts, a human keeps* — and the suffix
+is the enforcement: `*.manifest.draft.json` is skipped when the directory's manifests are read, so
+a drafted adapter is never an entry, never offered to a provider and never a benchmark subject
+until a person has checked it and renamed it to `<name>.manifest.json`. The draft records the
+artifact's own SHA-256, which is the identity (rule 5), the base at `name_only` confidence with no
+digest — a base digest nobody verified is the misattribution ADR-0061 exists to prevent — and
+`data_classification: "confidential"`, the most restrictive value, with a note saying the reviewer
+sets it ([ADR-0065](../../adr/0065-an-adapter-is-classified-and-local-only.md) gives it no default
+precisely so a person chooses). `409 DRAFT_REFUSED` when the name is not one path segment, when
+there is no such unmanifested artifact, when a manifest or draft is already there — an existing
+draft is never overwritten, because what that would destroy is a person's review — and when
+`[adapters] directory` is empty, which is a request this route refuses and not a fault in the
+server.
 
 ## 3. Benchmarks
 
@@ -195,6 +230,7 @@ run.failed         test.skipped                          run.interrupted
 | `GET /results` | Metric-level query: filter by model, suite, metric key, machine, runtime profile, `adapter` (name or artifact digest: only runs measured under it), date |
 | `GET /results/compare` | `?subjects=a,b,c&suite=…` — aligned metrics with comparability verdicts and, where a comparison is not permitted, the reason |
 | `GET /results/export` | `?format=json|jsonl|csv&scope=run|model|suite|comparison|all&include_samples=…&include_prompts=…&include_prompt_text=…&since=…&until=…` — streams; JSON/JSONL are wrapped in a `freeweight.export` envelope (§12) |
+| `GET /results/context-fit` | How much context fit, per model, runtime profile and machine — the `native.memory_kv` fold, below |
 
 The compare endpoint never averages across a boundary marked "separate"; it returns the groups and
 the field-level fingerprint diff that separates them.
@@ -242,6 +278,38 @@ suites rather than by reading stored text — prompt text is not stored — so i
 prompt offered under a given hash is one whose current text produces that hash. A prompt edited
 since the run simply does not appear, and the reader gets no text rather than the wrong text.
 
+### `GET /results/context-fit`
+
+Additive, read-only, no parameters. The latest `native.memory_kv` reading per **(model, runtime
+profile, machine)**: `max_successful_context_tokens`, `capped_by_configuration`,
+`observed_mb_per_1k_context`, with the `run_id` and `measured_at` they came from. Added for the
+console (row WX7) and read by LoadCoach's models page through it (row WX9).
+
+```json
+{"items": [
+  {"model": "ollama/qwen3:8b@sha256:…", "runtime_profile_hash": "…", "machine_fingerprint": "…",
+   "max_successful_context_tokens": 32768.0, "capped_by_configuration": true,
+   "observed_mb_per_1k_context": 61.4, "run_id": "…", "measured_at": "2026-09-11T09:00:00Z"}
+]}
+```
+
+The three keys are reported **together and never apart**, and the key is a triple rather than a
+model, for two reasons the metric query cannot express on its own:
+
+* `max_successful_context_tokens` alone is ambiguous by construction. The same number means "the
+  model refused at the next rung" and "the sweep was told not to climb further", and
+  `capped_by_configuration` (`true` for the second) is the only thing that says which.
+* A context figure without the runtime profile it was measured under is a claim about the model
+  that is really a claim about the configuration — and memory figures never cross a machine
+  ([ADR-0027](../../adr/0027-comparability-is-a-matrix-not-a-boolean.md) §5). One number per model
+  would be a lie; a consumer showing one picks a profile and says which.
+
+Latest run wins per key, never an average: two sweeps under different profiles are two facts.
+`"unsupported"`, never `0`, for a figure the run could not establish (ADR-0016 §4), and
+`capped_by_configuration` is `null` where the run did not say. An installation that has never run
+`native.memory_kv` answers `{"items": []}` — an absence of measurement, which the caller reports
+as unmeasured.
+
 ## 5a. Dashboard
 
 | Endpoint | Notes |
@@ -275,6 +343,28 @@ HTML-only, since nothing outside FreeWeight's own page reads them.
   }
 }
 ```
+
+The body also carries **`tests_matrix`**, the heatmap's sibling and its opposite question. The
+heatmap answers *how good was it*, for the suites a model finished; the matrix answers *what did
+it actually run* — which the heatmap cannot, because a suite whose hardest test was skipped for
+want of VRAM still shows a headline number and nothing says half of it did not run.
+
+```json
+"tests_matrix": {
+  "models": ["ollama/smollm2:135m@sha256:…"],
+  "tests": ["echo.roundtrip"],
+  "cells": [{"model": "ollama/smollm2:135m@sha256:…", "test": "echo.roundtrip",
+             "status": "completed", "skip_reason": null, "run_id": "…"}]
+}
+```
+
+`status` is the `run_tests` row's own: `completed`, `failed`, `skipped` or `cancelled`.
+`skip_reason` is present for a skip and required to be (spec §13) — "skipped" without one is
+indistinguishable from "nobody got round to it". Scoped to exactly the runs the heatmap draws
+from: the latest completed run per (model, suite), under the same filters. Sparse for the same
+reason `cells` is, and a missing (model, test) pair is a test that run never recorded, which
+renders as an empty cell and never as a status. A model that ran one test key in two of those runs
+shows the newer run's outcome — the same "latest run wins" rule the heatmap applies.
 
 `cells` is a sparse list, not a `models × suites` grid: most pairs are unmeasured, and JSON has no
 tuple keys. A cell's `value` is the string `"unsupported"`, never `0`, when this machine could not
@@ -447,7 +537,7 @@ The codes are listed in [spec §13](spec.md); this is the status each one carrie
 | 403 | `FORBIDDEN`, `REMOTE_JUDGE_NOT_PERMITTED` |
 | 404 | `NOT_FOUND`, `MODEL_NOT_FOUND`, `RUN_NOT_FOUND`, `BENCHMARK_NOT_FOUND`, `GOAL_NOT_FOUND`, `COMPARISON_SUBJECT_NOT_FOUND` |
 | 405 | `METHOD_NOT_ALLOWED` |
-| 409 | `CONFLICT`, `RUN_NOT_CANCELLABLE`, `RUN_ALREADY_RUNNING`, `RUN_NOT_GRADEABLE`, `CALIBRATION_REQUIRED`, `CALIBRATION_INSUFFICIENT`, `JUDGE_SELF_JUDGING_REFUSED`, `PROMPT_OVERRIDE_REFUSED` |
+| 409 | `CONFLICT`, `RUN_NOT_CANCELLABLE`, `RUN_ALREADY_RUNNING`, `RUN_NOT_GRADEABLE`, `CALIBRATION_REQUIRED`, `CALIBRATION_INSUFFICIENT`, `JUDGE_SELF_JUDGING_REFUSED`, `PROMPT_OVERRIDE_REFUSED`, `DRAFT_REFUSED` |
 | 413 | `PAYLOAD_TOO_LARGE` |
 | 415 | `UNSUPPORTED_MEDIA_TYPE` |
 | 421 | `MISDIRECTED_REQUEST` |

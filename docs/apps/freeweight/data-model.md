@@ -49,11 +49,15 @@ erDiagram
 Static machine identity. One row per fingerprint.
 
 ```text
-id ULID PK · machine_fingerprint TEXT UNIQUE NOT NULL · hostname · os_name · os_version · kernel
-architecture · cpu_model · physical_cores · logical_cores · ram_bytes
+id ULID PK · machine_fingerprint TEXT UNIQUE NOT NULL · hostname · nickname · os_name · os_version
+kernel · architecture · cpu_model · physical_cores · logical_cores · ram_bytes
 gpus_json · storage_json · python_version · first_seen_at · last_seen_at
 ```
 Index: `machine_fingerprint` (unique).
+`nickname` (nullable, revision `0011`) is the operator's own label, written only by
+`PATCH /api/v1/machines/{id}`. It identifies nothing — the fingerprint does — and profiling the
+host again refreshes every other column and leaves this one alone, as discovery leaves
+`models.enabled` alone ([ADR-0118](../../adr/0118-a-discovered-model-can-be-disabled.md)).
 
 ### `models`
 Canonical model identity ([Canonical Model Identity §6](../../architecture/canonical-model-identity.md)).
@@ -72,7 +76,9 @@ digest **upgrades** that row rather than creating a duplicate.
 The LoRA adapters this installation has *measured*, not the ones the directory currently holds
 ([ADR-0061](../../adr/0061-the-adapter-registry-is-a-directory-and-a-manifest.md),
 [ADR-0080](../../adr/0080-a-persisted-decision-names-the-subject-by-reference-and-by-string.md)).
-The directory is the operator's and FreeWeight only reads it; this table is FreeWeight's own and
+The directory is the operator's and FreeWeight only writes a *draft* into it
+([ADR-0145](../../adr/0145-freeweight-drafts-an-adapter-manifest-and-still-trusts-nothing.md),
+which registers nothing); this table is FreeWeight's own and
 outlives it, because evidence is keyed on the subject and deleting an artifact must not orphan the
 measurements taken under it.
 

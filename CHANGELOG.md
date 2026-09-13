@@ -9,6 +9,38 @@ packaging and release standards §3.
 
 ### Added
 
+- **Five additive API surfaces the console needed** (row WX7; `api.md` §2, §2a, §5, §5a):
+  - **`display_name` on every model body.** The provider's own name, except where two or more
+    *enabled* models share it, in which case every model carrying that name is shown by
+    `canonical_id` — a name that names two measurable subjects names neither. Computed once over
+    the whole list, never per row, so a filtered view cannot call a name unique because the model
+    it collides with was filtered out.
+  - **`GET /models?min_parameters=&max_parameters=`**, beside the existing `provider_kind`,
+    `family` and `quantization`. A model whose descriptor reported no `parameter_count` is outside
+    every bound, `min_parameters=0` included: an unsupported measurement is not a number and does
+    not compare as zero (ADR-0016).
+  - **`PATCH /api/v1/machines/{id}`** and `machines.nickname` (migration `0011`): the operator's
+    own label for a machine, with `display_name` — nickname, else hostname, else the ULID — in
+    every machine body. It identifies nothing; the fingerprint still does, and re-profiling the
+    host leaves the nickname alone. The path is the exact ULID, never a prefix.
+  - **`GET /api/v1/dashboard` carries a `tests_matrix`**: models × test keys with each test's
+    `status`, `skip_reason` and `run_id`, over exactly the runs the heatmap draws from. The
+    heatmap says how good a suite scored; this says what of it actually ran, which a suite whose
+    hardest test was skipped makes unanswerable from the heatmap alone.
+  - **`GET /api/v1/results/context-fit`**: the latest `native.memory_kv` reading per (model,
+    runtime profile, machine) — `max_successful_context_tokens`, `capped_by_configuration` and
+    `observed_mb_per_1k_context` from one run, never averaged across two. Read by the console and,
+    through it, by LoadCoach's models page. The three keys travel together because the first is
+    ambiguous without the second, and the triple is the key because a context figure without its
+    runtime profile is a claim about the configuration rather than the model.
+- **`POST /api/v1/adapters/{name}/draft`** (row WX7; ADR-0145): write
+  `<name>.manifest.draft.json` for an artifact the directory holds with no manifest. A **draft
+  registers nothing** — the suffix keeps it out of the directory reading, so nothing is offered to
+  a provider or measured under it until a person checks it and renames the file. The artifact's
+  own SHA-256 is computed (that is the identity), the base is recorded at `name_only` confidence
+  with no digest, and `data_classification` is written as the most restrictive value with a note
+  saying the reviewer sets it. `409 DRAFT_REFUSED` rather than overwriting an existing draft: what
+  that would destroy is somebody's review.
 - **A juror that never answers is named, not filed under `protocol_error`** (row WPF9; ADR-0141).
   A verdict whose generation ended at the output limit with no readable grade now refuses
   `output_truncated` — a different event from a juror that answered something unusable, with a

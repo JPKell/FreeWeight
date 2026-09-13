@@ -78,6 +78,9 @@ class Machine(Base):
     id: Mapped[str] = ulid_primary_key()
     machine_fingerprint: Mapped[str] = mapped_column(String, unique=True, nullable=False)
     hostname: Mapped[str | None] = mapped_column(String)
+    nickname: Mapped[str | None] = mapped_column(String)
+    """The operator's own label for this machine (row WX7). Never an identity: the fingerprint is.
+    Profiling the host again refreshes every other column and leaves this one alone."""
     os_name: Mapped[str | None] = mapped_column(String)
     os_version: Mapped[str | None] = mapped_column(String)
     kernel: Mapped[str | None] = mapped_column(String)

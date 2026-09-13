@@ -9,6 +9,10 @@ FreeWeight's own — the directory is read, the table is written, and the table 
 directory because evidence is keyed on the subject
 ([ADR-0080](../../../docs/adr/0080-a-persisted-decision-names-the-subject-by-reference-and-by-string.md)).
 
+One write: :func:`draft_manifest` proposes a manifest for an artifact that has none
+([ADR-0145](../../../docs/adr/)). It registers nothing — ADR-0061 rule 4, the scan drafts and a
+human keeps — and it is the only thing in FreeWeight that puts a file in the operator's directory.
+
 Nothing here decides a panel or a score. That is
 [ADR-0059](../../../docs/adr/0059-adapter-evidence-is-measured-never-inherited.md)'s territory and
 lives beside the evidence it governs.
@@ -19,8 +23,18 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, ClassVar
 
-from baseaicore import ModelIdentity, ProviderKind, SuiteError, utc_now
+from baseaicore import (
+    DataClassification,
+    IdentityConfidence,
+    ModelIdentity,
+    ProviderKind,
+    SuiteError,
+    to_rfc3339,
+    utc_now,
+)
+from setspec.envelope import GeneratorInfo
 
+from freeweight.__about__ import __version__
 from freeweight.domain.panels import Panel, compose_panel
 from freeweight.domain.subjects import AdapterSubject, enumerate_subjects, subject_for
 from freeweight.infrastructure.adapters import read_directory
@@ -44,6 +58,7 @@ __all__ = [
     "can_serve_adapters",
     "adapter_overview",
     "adapter_row_for",
+    "draft_manifest",
     "measured_scores",
     "panel_for",
     "read_entries",
@@ -595,3 +610,133 @@ class ServingModeResult:
             },
             "separable": self.separable,
         }
+
+
+class DraftRefused(SuiteError):
+    """A manifest draft that would overwrite something, or describe nothing.
+
+    Attributes:
+        code: ``"DRAFT_REFUSED"``, answered as ``409``.
+    """
+
+    code: ClassVar[str] = "DRAFT_REFUSED"
+
+
+def draft_manifest(
+    adapters: AdapterSettings,
+    name: str,
+    *,
+    base_model_name: str,
+    declared_capabilities: Sequence[str] = (),
+    notes: str | None = None,
+    now: datetime | None = None,
+) -> tuple[str, dict[str, Any]]:
+    """Write ``<name>.manifest.draft.json`` beside ``<name>.gguf``, and register nothing.
+
+    ADR-0061 rule 4 — *the scan drafts, a human keeps* — with FreeWeight as a second drafter
+    beside ``loadcoach adapters scan`` ([ADR-0145](../../../docs/adr/)). A draft is a **proposal**:
+    the suffix keeps it out of :func:`~freeweight.infrastructure.adapters.read_directory`'s
+    entries, so nothing registers it, offers it to a provider or measures under it until a person
+    has read it and renamed it to ``.manifest.json``.
+
+    What FreeWeight can establish it fills in: the artifact's own SHA-256, which is the identity
+    (rule 5), and the relative file name. What it cannot, it records as unproven rather than
+    guessing — the base is ``name_only`` confidence, because a digest nobody verified is exactly
+    the misattribution ADR-0061 exists to prevent, and ``data_classification`` is written as the
+    most restrictive value with a note saying the reviewer sets it (ADR-0065 gives it no default
+    for that reason).
+
+    Args:
+        adapters: ``settings.adapters``.
+        name: The artifact's stem — ``terse`` for ``terse.gguf``. One path segment; anything
+            carrying a separator or ``..`` is refused rather than resolved.
+        base_model_name: The base this adapter was trained against, as the provider names it.
+            Required, and the one field nobody can read off the artifact.
+        declared_capabilities: The namespaced terms the reviewer is proposing, if any.
+        notes: A free note for the reviewer, appended to this function's own.
+        now: The instant to stamp; injected for determinism in tests.
+
+    Returns:
+        ``(path, payload)`` — where the draft was written and what it says.
+
+    Raises:
+        AdaptersDisabled: ``[adapters] directory`` is empty, so there is nowhere to write.
+        AdapterDirectoryMissing: It names something that is not a directory.
+        DraftRefused: ``name`` is not one path segment, no ``<name>.gguf`` is in the directory, a
+            reviewed manifest already claims it, or a draft is already there — an existing draft
+            is never overwritten, because the thing it would destroy is a person's review.
+    """
+    import json
+    from pathlib import Path
+
+    from setspec import dump_envelope
+
+    from freeweight.infrastructure.adapters import (
+        DRAFT_SUFFIX,
+        MANIFEST_SCHEMA,
+        MANIFEST_SUFFIX,
+        MANIFEST_VERSION,
+        sha256_of,
+    )
+
+    directory = adapters.resolved_directory()
+    if directory is None:
+        raise AdaptersDisabled
+    if not name or name != Path(name).name or name in {".", ".."} or "/" in name or "\\" in name:
+        raise DraftRefused(
+            f"{name!r} is not an adapter name: it is the artifact's file stem, one path segment.",
+            details={"adapter": name},
+        )
+    reading = read_directory(directory)
+    artifact = directory / f"{name}.gguf"
+    if artifact.resolve() not in {one.resolve() for one in reading.unmanifested}:
+        raise DraftRefused(
+            f"There is no unmanifested {name}.gguf in {str(directory)!r} to draft for. An "
+            "artifact that already has a manifest or a draft is not drafted again — review or "
+            "delete the one that is there.",
+            details={"adapter": name, "directory": str(directory)},
+        )
+    draft_path = directory / f"{name}{DRAFT_SUFFIX}"
+    manifest_path = directory / f"{name}{MANIFEST_SUFFIX}"
+    if draft_path.exists() or manifest_path.exists():
+        raise DraftRefused(
+            f"{draft_path.name} or {manifest_path.name} is already there; nothing was written.",
+            details={"adapter": name, "path": str(draft_path)},
+        )
+    written = (
+        "Drafted by FreeWeight: unreviewed. Confirm the base model and its digest, set "
+        "data_classification, then rename this file to "
+        f"{manifest_path.name} to register it (ADR-0061)."
+    )
+    payload: dict[str, Any] = {
+        "name": name,
+        "artifact_file": artifact.name,
+        "artifact_sha256": sha256_of(artifact),
+        "format": "gguf",
+        "base": {
+            "provider_model_name": base_model_name,
+            "identity_confidence": IdentityConfidence.NAME_ONLY.value,
+        },
+        "declared_capabilities": list(declared_capabilities),
+        "data_classification": DataClassification.CONFIDENTIAL.value,
+        "created_at": to_rfc3339(now or utc_now()),
+        "notes": f"{written} {notes}" if notes else written,
+    }
+    draft_path.write_text(
+        json.dumps(
+            json.loads(
+                dump_envelope(
+                    payload,
+                    schema=MANIFEST_SCHEMA,
+                    version=MANIFEST_VERSION,
+                    generator=GeneratorInfo(name="freeweight", version=__version__),
+                    generated_at=now,
+                )
+            ),
+            indent=2,
+            sort_keys=True,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    return str(draft_path), payload
