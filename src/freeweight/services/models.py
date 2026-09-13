@@ -25,7 +25,7 @@ found, never by a live call from a page that would otherwise be a plain database
 
 from __future__ import annotations
 
-from collections.abc import Iterator
+from collections.abc import Iterable, Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, cast
@@ -60,6 +60,8 @@ __all__ = [
     "ModelListRow",
     "compute_descriptor_hash",
     "discover_models",
+    "display_names",
+    "display_names_of",
     "get_last_discovery",
     "get_model_detail",
     "list_models_with_latest_descriptor",
@@ -169,6 +171,55 @@ class ModelListRow:
     """The latest descriptor's family, which ``GET /models?family=`` filters on."""
     has_results: bool = False
     """Whether any run of this model stored a metric — ``GET /models?has_results=``."""
+
+
+def display_names(rows: Iterable[Any]) -> dict[str, str]:
+    """Map every model's canonical ID to the name a person should be shown.
+
+    The provider's own name is what an operator recognizes, and it is unique often enough to be
+    the default. It is not *always* unique: two providers can serve ``qwen3:8b``, and a name that
+    names two measurable subjects names neither. So a name shared by two or more **enabled**
+    models falls back to the canonical ID, which is unique by construction (ADR-0024) — for every
+    model carrying that name, disabled ones included, because the point is that the short name is
+    ambiguous, not that one particular row is.
+
+    Computed once over the whole list, never per row in a template: a collision is a property of
+    the list, and a filtered or paged view that recomputed it would call a name unique because the
+    model it collides with was filtered out.
+
+    Args:
+        rows: Anything with ``canonical_id``, ``provider_model_name`` and ``enabled`` — the
+            models list rows, or the ORM rows behind them.
+
+    Returns:
+        ``{canonical_id: display_name}``. Empty for an empty list.
+    """
+    counts: dict[str, int] = {}
+    listed = list(rows)
+    for row in listed:
+        if row.enabled:
+            counts[row.provider_model_name] = counts.get(row.provider_model_name, 0) + 1
+    return {
+        row.canonical_id: (
+            row.canonical_id
+            if counts.get(row.provider_model_name, 0) > 1
+            else row.provider_model_name
+        )
+        for row in listed
+    }
+
+
+def display_names_of(database: Database) -> dict[str, str]:
+    """:func:`display_names` over every stored model, in one query.
+
+    For a surface that holds one model and still has to name it the way the list does — the model
+    detail route. The list route calls :func:`display_names` on the rows it already read.
+
+    Raises:
+        DatabaseUnavailable: The database could not be read.
+    """
+    with _translated(), database.read() as session:
+        return display_names(ModelRepository().list_all(session))
 
 
 def set_model_enabled(database: Database, *, model_ref: str, enabled: bool) -> str:

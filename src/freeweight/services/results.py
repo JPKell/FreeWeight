@@ -34,7 +34,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from functools import lru_cache
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, ClassVar
+from typing import TYPE_CHECKING, Any, ClassVar, Final
 
 from baseaicore import NotFoundError, SuiteError, ValidationError, to_rfc3339
 from weightsdb import DatabaseUnavailable
@@ -57,7 +57,10 @@ __all__ = [
     "ResultsQuery",
     "ScatterPoint",
     "SummaryCards",
+    "TestsMatrix",
+    "ContextFit",
     "build_dashboard",
+    "context_fit",
     "latest_completed_run",
     "query_results",
     "resolve_subject_runs",
@@ -705,6 +708,39 @@ class MetricHeatmap:
 
 
 @dataclass(frozen=True, slots=True)
+class TestsMatrix:
+    """The completion matrix: models down, **tests** across, one outcome per cell.
+
+    The heatmap's sibling and its opposite question. The heatmap answers *how good was it* for the
+    suites a model finished; this answers *what did it actually run*, which is the question a
+    skipped test makes unanswerable from the heatmap — a suite whose hardest test was skipped for
+    want of VRAM still shows a headline number there, and nothing says half of it did not run.
+
+    Scoped to exactly the runs the heatmap draws from: the latest completed run per (model,
+    suite), under the dashboard's own filters.
+
+    Attributes:
+        models: Row order.
+        tests: Column order — the test keys any of those runs recorded.
+        cells: Keyed ``(model, test_key)``. A missing key is a test that run never recorded, which
+            renders as an empty cell and never as a status.
+        skip_reasons: Why, for the cells whose status is ``skipped``; spec §13 requires the
+            reason, and "skipped" without one is indistinguishable from "nobody got round to it".
+        run_ids: The run each cell came from, so a cell links to its source as a heatmap cell does.
+    """
+
+    models: tuple[str, ...]
+    tests: tuple[str, ...]
+    cells: Mapping[tuple[str, str], str]
+    skip_reasons: Mapping[tuple[str, str], str]
+    run_ids: Mapping[tuple[str, str], str]
+
+    def status(self, model: str, test: str) -> str | None:
+        """The outcome at ``(model, test)``, or ``None`` when that run recorded no such test."""
+        return self.cells.get((model, test))
+
+
+@dataclass(frozen=True, slots=True)
 class ScatterPoint:
     """One point of a two-metric scatter, carrying the run it came from."""
 
@@ -767,6 +803,7 @@ class Dashboard:
     filter: DashboardFilter
     cards: SummaryCards
     heatmap: MetricHeatmap
+    tests_matrix: TestsMatrix
     quality_vs_speed: tuple[ScatterPoint, ...]
     quality_vs_vram: tuple[ScatterPoint, ...]
     panels: tuple[Panel, ...]
@@ -808,6 +845,7 @@ def dashboard_summary_json(dashboard: Dashboard) -> dict[str, Any]:
     """
     cards = dashboard.cards
     heatmap = dashboard.heatmap
+    matrix = dashboard.tests_matrix
     return {
         "filter": {
             "suite": dashboard.filter.suite,
@@ -834,6 +872,20 @@ def dashboard_summary_json(dashboard: Dashboard) -> dict[str, Any]:
             "cells": [
                 _heatmap_cell_json(model, suite, cell)
                 for (model, suite), cell in heatmap.cells.items()
+            ],
+        },
+        "tests_matrix": {
+            "models": list(matrix.models),
+            "tests": list(matrix.tests),
+            "cells": [
+                {
+                    "model": model,
+                    "test": test,
+                    "status": status,
+                    "skip_reason": matrix.skip_reasons.get((model, test)),
+                    "run_id": matrix.run_ids.get((model, test)),
+                }
+                for (model, test), status in matrix.cells.items()
             ],
         },
     }
@@ -1088,6 +1140,59 @@ def _latest_rows(database: Database, filter_: DashboardFilter) -> tuple[ResultRo
     return tuple(row for row in page.rows if row.run_id in keep)
 
 
+def _tests_matrix(session: Session, rows: Sequence[ResultRow]) -> TestsMatrix:
+    """Fold the runs the heatmap drew from into the model × test completion matrix.
+
+    One statement over ``run_tests``, scoped to the run IDs already in hand, rather than a second
+    metric-level query: the runs are decided by :func:`_latest_rows` and re-deciding them here
+    could disagree with the heatmap beside it.
+
+    A model that ran the same test key in two of those runs keeps the newer run's outcome — the
+    rows are read oldest first and the later one overwrites — which is the same "latest run wins"
+    rule the heatmap applies.
+    """
+    from sqlalchemy import select
+
+    from freeweight.infrastructure.db.models import Model
+    from freeweight.infrastructure.db.models_runs import BenchmarkTestRow, Run, RunTest
+
+    run_ids = {row.run_id for row in rows}
+    if not run_ids:
+        return TestsMatrix(models=(), tests=(), cells={}, skip_reasons={}, run_ids={})
+    statement = (
+        select(
+            Model.canonical_id,
+            BenchmarkTestRow.key,
+            RunTest.status,
+            RunTest.skip_reason,
+            Run.id,
+        )
+        .join(Run, Run.id == RunTest.run_id)
+        .join(Model, Model.id == Run.model_id)
+        .join(BenchmarkTestRow, BenchmarkTestRow.id == RunTest.test_id)
+        .where(Run.id.in_(run_ids))
+        .order_by(Run.created_at.asc(), Run.id.asc())
+    )
+    cells: dict[tuple[str, str], str] = {}
+    skip_reasons: dict[tuple[str, str], str] = {}
+    run_of: dict[tuple[str, str], str] = {}
+    for canonical_id, test_key, status, skip_reason, run_id in session.execute(statement):
+        key = (canonical_id, test_key)
+        cells[key] = status
+        run_of[key] = run_id
+        if skip_reason:
+            skip_reasons[key] = skip_reason
+        else:
+            skip_reasons.pop(key, None)
+    return TestsMatrix(
+        models=tuple(sorted({model for model, _ in cells})),
+        tests=tuple(sorted({test for _, test in cells})),
+        cells=cells,
+        skip_reasons=skip_reasons,
+        run_ids=run_of,
+    )
+
+
 def _heatmap(rows: Sequence[ResultRow]) -> MetricHeatmap:
     """Fold the latest rows into the model × suite comparison heatmap."""
     cells: dict[tuple[str, str], HeatmapCell] = {}
@@ -1249,6 +1354,124 @@ def _available(session: Session) -> tuple[tuple[str, ...], tuple[str, ...], tupl
     return tuple(suites), tuple(models), tuple(machines)
 
 
+CONTEXT_FIT_SUITE: Final = "native.memory_kv"
+"""The suite that measures how much context fits. Nothing else records these three metrics."""
+
+_CONTEXT_FIT_METRICS: Final = (
+    "max_successful_context_tokens",
+    "max_context_capped_by_configuration",
+    "observed_mb_per_1k_context",
+)
+
+
+@dataclass(frozen=True, slots=True)
+class ContextFit:
+    """How much context one model fit, on one machine, under one runtime profile.
+
+    The three keys are reported together and never apart. ``max_successful_context_tokens`` alone
+    is ambiguous by construction: the same number means "the model refused at the next rung" and
+    "the sweep was told not to climb further", and
+    :func:`~freeweight.benchmarks.memory_kv.kv.max_context_capped_by_configuration` is the only
+    thing that says which (``PHASE9_ISSUES.md`` §7). And a context figure without the profile it
+    was measured under is a claim about the model that is really a claim about the configuration —
+    which is why the profile hash and the machine are part of the key, not a footnote.
+
+    Attributes:
+        model_canonical_id: The subject.
+        runtime_profile_hash: The profile it was served under.
+        machine_fingerprint: The machine it was measured on. Memory figures never cross one
+            (ADR-0027 §5).
+        max_successful_context_tokens: The largest context that served, or ``None`` where nothing
+            did — ``UNSUPPORTED``, never ``0`` (ADR-0016).
+        capped_by_configuration: ``True`` when that number is the ceiling the sweep was allowed,
+            ``False`` when the model itself refused beyond it, ``None`` when the run did not say.
+        observed_mb_per_1k_context: Measured KV cost per 1 000 tokens, or ``None``.
+        run_id: The run these came from.
+        measured_at: When that run was created.
+    """
+
+    model_canonical_id: str
+    runtime_profile_hash: str
+    machine_fingerprint: str
+    max_successful_context_tokens: float | None
+    capped_by_configuration: bool | None
+    observed_mb_per_1k_context: float | None
+    run_id: str
+    measured_at: datetime
+
+    def as_json(self) -> dict[str, Any]:
+        """The wire form ``GET /api/v1/results/context-fit`` returns for one reading."""
+        return {
+            "model": self.model_canonical_id,
+            "runtime_profile_hash": self.runtime_profile_hash,
+            "machine_fingerprint": self.machine_fingerprint,
+            "max_successful_context_tokens": (
+                "unsupported"
+                if self.max_successful_context_tokens is None
+                else self.max_successful_context_tokens
+            ),
+            "capped_by_configuration": self.capped_by_configuration,
+            "observed_mb_per_1k_context": (
+                "unsupported"
+                if self.observed_mb_per_1k_context is None
+                else self.observed_mb_per_1k_context
+            ),
+            "run_id": self.run_id,
+            "measured_at": to_rfc3339(self.measured_at),
+        }
+
+
+def context_fit(database: Database) -> tuple[ContextFit, ...]:
+    """The latest context-fit reading per (model, runtime profile, machine).
+
+    One metric-level query over ``native.memory_kv``, folded. The rows arrive newest run first, so
+    the first run seen for a key is the latest one and every later run of the same key is
+    discarded — the same "latest run wins" rule the dashboard's heatmap applies, and the reason
+    this is not an average: two sweeps under different profiles are two facts, not one blurred
+    one.
+
+    Args:
+        database: The application's database handle.
+
+    Returns:
+        One reading per key, model then profile then machine. Empty on an installation that has
+        never run ``native.memory_kv`` — which is an absence of measurement, and the caller says
+        so rather than showing a zero.
+
+    Raises:
+        DatabaseUnavailable: The database could not be read.
+    """
+    page = query_results(database, ResultsQuery(suite=CONTEXT_FIT_SUITE, limit=MAX_RESULTS_LIMIT))
+    readings: dict[tuple[str, str, str], dict[str, Any]] = {}
+    for row in page.rows:
+        if row.metric_key not in _CONTEXT_FIT_METRICS:
+            continue
+        key = (row.model_canonical_id, row.runtime_profile_hash, row.machine_fingerprint)
+        held = readings.get(key)
+        if held is None:
+            held = readings[key] = {"run_id": row.run_id, "measured_at": row.run_created_at}
+        if held["run_id"] != row.run_id:
+            continue
+        held.setdefault(row.metric_key, row.numeric_value)
+    return tuple(
+        ContextFit(
+            model_canonical_id=model,
+            runtime_profile_hash=profile,
+            machine_fingerprint=machine,
+            max_successful_context_tokens=held.get("max_successful_context_tokens"),
+            capped_by_configuration=(
+                None
+                if held.get("max_context_capped_by_configuration") is None
+                else bool(held["max_context_capped_by_configuration"])
+            ),
+            observed_mb_per_1k_context=held.get("observed_mb_per_1k_context"),
+            run_id=held["run_id"],
+            measured_at=held["measured_at"],
+        )
+        for (model, profile, machine), held in sorted(readings.items())
+    )
+
+
 def build_dashboard(database: Database, filter_: DashboardFilter) -> Dashboard:
     """Assemble everything the dashboard renders.
 
@@ -1271,10 +1494,12 @@ def build_dashboard(database: Database, filter_: DashboardFilter) -> Dashboard:
     with _translated(), database.read() as session:
         cards = _summary_cards(session, filter_)
         suites, models, machines = _available(session)
+        matrix = _tests_matrix(session, rows)
     return Dashboard(
         filter=filter_,
         cards=cards,
         heatmap=_heatmap(rows),
+        tests_matrix=matrix,
         quality_vs_speed=_scatter(rows, against=SPEED_METRIC),
         quality_vs_vram=_scatter(rows, against=VRAM_METRIC),
         panels=_panels(rows),

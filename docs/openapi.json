@@ -171,6 +171,42 @@
         "title": "DeletionScope",
         "type": "string"
       },
+      "DraftBody": {
+        "additionalProperties": false,
+        "description": "``POST /api/v1/adapters/{name}/draft``'s body (row WX7).",
+        "properties": {
+          "base_model_name": {
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Base Model Name",
+            "type": "string"
+          },
+          "declared_capabilities": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Declared Capabilities",
+            "type": "array"
+          },
+          "notes": {
+            "anyOf": [
+              {
+                "maxLength": 2000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Notes"
+          }
+        },
+        "required": [
+          "base_model_name"
+        ],
+        "title": "DraftBody",
+        "type": "object"
+      },
       "DraftSaveBody": {
         "additionalProperties": false,
         "description": "The name the pack is written under; blank keeps the draft's own.",
@@ -417,6 +453,26 @@
           }
         },
         "title": "JuryValidationBody",
+        "type": "object"
+      },
+      "NicknameBody": {
+        "additionalProperties": false,
+        "description": "``PATCH /api/v1/machines/{machine_id}``'s body (row WX7).",
+        "properties": {
+          "nickname": {
+            "anyOf": [
+              {
+                "maxLength": 120,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Nickname"
+          }
+        },
+        "title": "NicknameBody",
         "type": "object"
       },
       "ProviderBody": {
@@ -734,6 +790,61 @@
           }
         },
         "summary": "The LoRA adapters, and what was measured under each",
+        "tags": [
+          "adapters"
+        ]
+      }
+    },
+    "/api/v1/adapters/{name}/draft": {
+      "post": {
+        "description": "Write ``<name>.manifest.draft.json`` for an artifact that has no manifest yet.\n\nADR-0061 rule 4 and [ADR-0145](../../../docs/adr/): the draft is a **proposal**. It registers\nnothing, is offered to no provider and is measured under by nothing — the suffix keeps it out\nof the directory reading — until a person has checked the base and renamed it.\n\nReturns:\n    ``{\"adapter\", \"path\", \"payload\"}`` — the name, where the draft was written, and what it\n    says, so the caller can show the reviewer the record rather than only a filename.\n\nRaises:\n    DraftRefused: ``409``. The name is not one path segment, there is no such unmanifested\n        artifact, a manifest or draft is already there — an existing draft is never\n        overwritten — or ``[adapters] directory`` is empty, so there is nowhere to write.\n        Adapters being off is translated here rather than left as the service's\n        ``CONFIGURATION_ERROR``, which the suite answers ``500``: an operator who asks to\n        draft on an installation with adapters off has made a request this route refuses, not\n        found a fault in the server.",
+        "operationId": "draft_adapter_endpoint_api_v1_adapters__name__draft_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "title": "Name",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DraftBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Draft Adapter Endpoint Api V1 Adapters  Name  Draft Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Draft a manifest for an unmanifested artifact",
         "tags": [
           "adapters"
         ]
@@ -2817,11 +2928,64 @@
         "tags": [
           "machines"
         ]
+      },
+      "patch": {
+        "description": "Give this machine the operator's own label, or take it away.\n\n``PATCH`` rather than ``PUT``: the nickname is the only writable field of a machine, every\nother column being measured from the host, and a ``PUT`` of a partial profile would invite a\nclient to send the measured ones back.\n\nThe path is the machine's **exact** ULID, not a prefix: a prefix is a convenience on a read,\nwhere the wrong match shows the wrong page, and a hazard on a write, where it renames the\nwrong machine.\n\nRaises:\n    NotFoundError: No machine has that ULID, answered as ``404``.",
+        "operationId": "set_nickname_endpoint_api_v1_machines__machine_id__patch",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "machine_id",
+            "required": true,
+            "schema": {
+              "title": "Machine Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NicknameBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Set Nickname Endpoint Api V1 Machines  Machine Id  Patch",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Name one machine",
+        "tags": [
+          "machines"
+        ]
       }
     },
     "/api/v1/models": {
       "get": {
-        "description": "Return every stored model identity with its latest descriptor.\n\nA pure database read: staleness comes from the last recorded discovery attempt and the\nprovider is never probed here, so listing models cannot hang on a provider that is down.\n\n``canonical_id`` is the identity lookup (api.md §2). It is a **query parameter and never a\npath segment**, because a canonical ID contains ``/``, ``:`` and ``@``, and a percent-encoded\n``/`` does not survive common reverse proxies ([ADR-0024](../../../../docs/adr/)).\n\nArgs:\n    request: The incoming request.\n    provider_kind: Filter by provider kind.\n    family: Filter by descriptor family.\n    quantization: Filter by weight quantization.\n    canonical_id: Return only the model with this exact canonical ID.\n    has_results: Only models any of whose runs stored a metric, or only those none did.\n    sort: ``last_seen_at`` or ``canonical_id``, ``-`` for descending.\n\nReturns:\n    ``{\"items\": [...]}`` — newest sighting first unless ``sort`` says otherwise.\n\nRaises:\n    ValidationError: ``sort`` names neither key.",
+        "description": "Return every stored model identity with its latest descriptor.\n\nA pure database read: staleness comes from the last recorded discovery attempt and the\nprovider is never probed here, so listing models cannot hang on a provider that is down.\n\n``canonical_id`` is the identity lookup (api.md §2). It is a **query parameter and never a\npath segment**, because a canonical ID contains ``/``, ``:`` and ``@``, and a percent-encoded\n``/`` does not survive common reverse proxies ([ADR-0024](../../../../docs/adr/)).\n\nArgs:\n    request: The incoming request.\n    provider_kind: Filter by provider kind.\n    family: Filter by descriptor family.\n    quantization: Filter by weight quantization.\n    canonical_id: Return only the model with this exact canonical ID.\n    has_results: Only models any of whose runs stored a metric, or only those none did.\n    min_parameters: Only models whose latest descriptor counts at least this many parameters.\n    max_parameters: Only models whose latest descriptor counts at most this many.\n    sort: ``last_seen_at`` or ``canonical_id``, ``-`` for descending.\n\nReturns:\n    ``{\"items\": [...]}`` — newest sighting first unless ``sort`` says otherwise.\n\nRaises:\n    ValidationError: ``sort`` names neither key.",
         "operationId": "list_models_endpoint_api_v1_models_get",
         "parameters": [
           {
@@ -2902,6 +3066,40 @@
                 }
               ],
               "title": "Has Results"
+            }
+          },
+          {
+            "in": "query",
+            "name": "min_parameters",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Min Parameters"
+            }
+          },
+          {
+            "in": "query",
+            "name": "max_parameters",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Max Parameters"
             }
           },
           {
@@ -3535,6 +3733,30 @@
           }
         },
         "summary": "Compare",
+        "tags": [
+          "results"
+        ]
+      }
+    },
+    "/api/v1/results/context-fit": {
+      "get": {
+        "description": "Return the latest ``native.memory_kv`` context-fit reading per model, profile and machine.\n\nAdded for the console (row WX7) and read by LoadCoach's models page through it (row WX9).\n\"How much context fits in VRAM\" was already measured and had no way out of FreeWeight: the\nmetric query can return the three keys, but only a caller that already knew which three, that\nthe three must come from one run, and that a number without its runtime profile is a claim\nabout the configuration rather than the model. That fold is this route.\n\nDeclared above ``GET /results`` in this module only for readability; the paths do not overlap.\n\nReturns:\n    ``{\"items\": [...]}`` — a reading per (model, runtime profile, machine). Empty where\n    ``native.memory_kv`` has never run, which the caller reports as unmeasured and never as\n    zero (ADR-0016).\n\nRaises:\n    DatabaseUnavailable: The database could not be read, answered as ``503``.",
+        "operationId": "context_fit_endpoint_api_v1_results_context_fit_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Context Fit Endpoint Api V1 Results Context Fit Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "How much context fits, per model and profile",
         "tags": [
           "results"
         ]

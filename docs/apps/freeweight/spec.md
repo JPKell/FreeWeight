@@ -122,6 +122,7 @@ when a provider is unavailable.
 GET    /api/v1/health                        GET    /api/v1/version
 GET    /api/v1/system/status                 GET    /api/v1/system/telemetry/stream   (SSE)
 GET    /api/v1/machines                      GET    /api/v1/machines/{id}
+PATCH  /api/v1/machines/{machine_id}
 GET    /api/v1/models                        POST   /api/v1/models/discover
 GET    /api/v1/models/{model_ref}            GET    /api/v1/models/{model_ref}/results
 GET    /api/v1/benchmarks                    GET    /api/v1/benchmarks/{key}
@@ -130,7 +131,9 @@ GET    /api/v1/runs/{id}                     POST   /api/v1/runs/{id}/cancel
 GET    /api/v1/runs/{id}/events   (SSE)      POST   /api/v1/runs/{id}/repeat
 GET    /api/v1/runs/{id}/tests               GET    /api/v1/runs/{id}/tests/{test_id}/samples
 GET    /api/v1/results                       GET    /api/v1/results/compare
-GET    /api/v1/results/export                GET    /api/v1/evidence
+GET    /api/v1/results/export                GET    /api/v1/results/context-fit
+GET    /api/v1/dashboard                     GET    /api/v1/evidence
+GET    /api/v1/adapters                      POST   /api/v1/adapters/{name}/draft
 GET    /api/v1/evidence/export               GET    /api/v1/database/stats
 POST   /api/v1/database/delete-preview       DELETE /api/v1/database/results
 POST   /api/v1/database/backup               POST   /api/v1/database/vacuum
@@ -588,10 +591,10 @@ GOAL_PATH_UNSAFE          GOAL_HASH_MISMATCH        PROMPT_OVERRIDE_REFUSED
 CALIBRATION_REQUIRED      CALIBRATION_INSUFFICIENT  JUDGE_UNAVAILABLE
 JUDGE_SELF_JUDGING_REFUSED                          REMOTE_JUDGE_NOT_PERMITTED
 COMPARISON_SUBJECT_NOT_FOUND                        COMPARISON_REFUSED
-RUN_NOT_GRADEABLE
+RUN_NOT_GRADEABLE         DRAFT_REFUSED
 ```
 
-Five of these name refusals that the shared set cannot describe usefully, and each exists because
+Six of these name refusals that the shared set cannot describe usefully, and each exists because
 its remedy is specific:
 
 | Code | Raised when | Why not a shared code |
@@ -601,6 +604,7 @@ its remedy is specific:
 | `PROMPT_OVERRIDE_REFUSED` | A run would render an overridden prompt without `--allow-prompt-override` | The remedy is a flag; `CONFLICT` cannot suggest one |
 | `COMPARISON_SUBJECT_NOT_FOUND` | A named comparison subject resolves to nothing | Names *which* subject, of several |
 | `COMPARISON_REFUSED` | The subjects are separated by a fingerprint boundary | Not a missing thing — a comparison that must not be averaged |
+| `DRAFT_REFUSED` | A manifest draft would overwrite a manifest or another draft, name no artifact, or escape the adapter directory ([ADR-0145](../../adr/0145-freeweight-drafts-an-adapter-manifest-and-still-trusts-nothing.md)) | `CONFLICT` would not say that the thing protected is a person's review |
 
 Their HTTP statuses are in [API §11](api.md).
 

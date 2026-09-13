@@ -28,6 +28,8 @@ from freeweight.__about__ import __version__
 from freeweight.services.database import Database
 from freeweight.services.models import (
     discover_models,
+    display_names,
+    display_names_of,
     get_last_discovery,
     get_model_detail,
     list_models_with_latest_descriptor,
@@ -164,11 +166,16 @@ def model_detail(request: Request, model_ref: str) -> HTMLResponse:
     )
 
 
-def _identity_json(row: Any) -> dict[str, Any]:
-    """The identity fields every model body carries (api.md §2)."""
+def _identity_json(row: Any, display_name: str) -> dict[str, Any]:
+    """The identity fields every model body carries (api.md §2).
+
+    ``display_name`` is passed in rather than derived here: it is a property of the whole list
+    (:func:`~freeweight.services.models.display_names`), not of one row.
+    """
     return {
         "id": row.id,
         "canonical_id": row.canonical_id,
+        "display_name": display_name,
         "provider_kind": row.provider_kind,
         "provider_model_name": row.provider_model_name,
         "artifact_digest": row.artifact_digest,
@@ -236,6 +243,8 @@ def list_models_endpoint(  # noqa: PLR0913 — every argument is a documented qu
     quantization: Annotated[str | None, Query()] = None,
     canonical_id: Annotated[str | None, Query()] = None,
     has_results: Annotated[bool | None, Query()] = None,
+    min_parameters: Annotated[int | None, Query(ge=0)] = None,
+    max_parameters: Annotated[int | None, Query(ge=0)] = None,
     sort: Annotated[str | None, Query()] = None,
 ) -> dict[str, Any]:
     """Return every stored model identity with its latest descriptor.
@@ -254,6 +263,8 @@ def list_models_endpoint(  # noqa: PLR0913 — every argument is a documented qu
         quantization: Filter by weight quantization.
         canonical_id: Return only the model with this exact canonical ID.
         has_results: Only models any of whose runs stored a metric, or only those none did.
+        min_parameters: Only models whose latest descriptor counts at least this many parameters.
+        max_parameters: Only models whose latest descriptor counts at most this many.
         sort: ``last_seen_at`` or ``canonical_id``, ``-`` for descending.
 
     Returns:
@@ -263,6 +274,7 @@ def list_models_endpoint(  # noqa: PLR0913 — every argument is a documented qu
         ValidationError: ``sort`` names neither key.
     """
     rows = list_models_with_latest_descriptor(request.app.state.database)
+    names = display_names(rows)
     filters = {
         "provider_kind": provider_kind,
         "canonical_id": canonical_id,
@@ -273,10 +285,24 @@ def list_models_endpoint(  # noqa: PLR0913 — every argument is a documented qu
     for field, wanted in filters.items():
         if wanted is not None:
             rows = tuple(row for row in rows if getattr(row, field) == wanted)
+    # A model whose descriptor never reported a parameter count is outside every bound rather
+    # than at zero: ADR-0016, an unsupported measurement is not a number to compare.
+    if min_parameters is not None:
+        rows = tuple(
+            row
+            for row in rows
+            if row.parameter_count is not None and row.parameter_count >= min_parameters
+        )
+    if max_parameters is not None:
+        rows = tuple(
+            row
+            for row in rows
+            if row.parameter_count is not None and row.parameter_count <= max_parameters
+        )
     return {
         "items": [
             {
-                **_identity_json(row),
+                **_identity_json(row, names[row.canonical_id]),
                 "quantization": row.quantization,
                 "parameter_count": row.parameter_count,
                 "max_context": row.max_context,
@@ -348,8 +374,9 @@ def get_model_endpoint(request: Request, model_ref: str) -> dict[str, Any]:
         model_ref,
         now=datetime.now(UTC),
     )
+    names = display_names_of(request.app.state.database)
     return {
-        **_identity_json(detail),
+        **_identity_json(detail, names.get(detail.canonical_id, detail.provider_model_name)),
         "enabled": detail.enabled,
         "aliases": [dict(alias) for alias in detail.aliases],
         "resolved_alias": detail.resolved_alias,

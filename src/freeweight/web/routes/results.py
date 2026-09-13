@@ -45,6 +45,7 @@ from freeweight.services.export import (
 from freeweight.services.results import (
     DEFAULT_RESULTS_LIMIT,
     ResultsQuery,
+    context_fit,
     inspect_case,
     inspection_json,
     query_results,
@@ -108,6 +109,29 @@ def _query_from(  # noqa: PLR0913 — this *is* the documented filter set
         limit=limit,
         cursor=cursor,
     )
+
+
+@api_router.get("/results/context-fit", summary="How much context fits, per model and profile")
+def context_fit_endpoint(request: Request) -> dict[str, Any]:
+    """Return the latest ``native.memory_kv`` context-fit reading per model, profile and machine.
+
+    Added for the console (row WX7) and read by LoadCoach's models page through it (row WX9).
+    "How much context fits in VRAM" was already measured and had no way out of FreeWeight: the
+    metric query can return the three keys, but only a caller that already knew which three, that
+    the three must come from one run, and that a number without its runtime profile is a claim
+    about the configuration rather than the model. That fold is this route.
+
+    Declared above ``GET /results`` in this module only for readability; the paths do not overlap.
+
+    Returns:
+        ``{"items": [...]}`` — a reading per (model, runtime profile, machine). Empty where
+        ``native.memory_kv`` has never run, which the caller reports as unmeasured and never as
+        zero (ADR-0016).
+
+    Raises:
+        DatabaseUnavailable: The database could not be read, answered as ``503``.
+    """
+    return {"items": [reading.as_json() for reading in context_fit(request.app.state.database)]}
 
 
 @api_router.get("/results", summary="Stored metrics, filtered")

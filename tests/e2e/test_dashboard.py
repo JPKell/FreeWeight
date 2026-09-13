@@ -443,7 +443,13 @@ class TestTheApiRoute:
         unsupported under the fake provider: the serializer's own rule is what this checks, and
         ``TestTheAntiLieProperty`` already covers where a real unsupported figure comes from.
         """
-        from freeweight.services.results import Dashboard, HeatmapCell, MetricHeatmap, SummaryCards
+        from freeweight.services.results import (
+            Dashboard,
+            HeatmapCell,
+            MetricHeatmap,
+            SummaryCards,
+            TestsMatrix,
+        )
 
         cell = HeatmapCell(
             model_canonical_id="fake/model:8b-q8_0",
@@ -478,6 +484,7 @@ class TestTheApiRoute:
                 headline_metric={"native.echo": "harness_roundtrip_success"},
                 separated=False,
             ),
+            tests_matrix=TestsMatrix(models=(), tests=(), cells={}, skip_reasons={}, run_ids={}),
             quality_vs_speed=(),
             quality_vs_vram=(),
             panels=(),

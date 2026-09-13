@@ -14,7 +14,11 @@ The layout this module reads::
     <directory>/terse.manifest.json         the reviewed manifest, a SetSpec envelope
 
 **Nothing here writes.** The directory belongs to the operator; FreeWeight's own record of what it
-has *measured* is the ``adapters`` table, which outlives the directory on purpose (spec §10).
+has *measured* is the ``adapters`` table, which outlives the directory on purpose (spec §10). The
+one write FreeWeight makes into it is a *draft* — ``<name>.manifest.draft.json``, proposed and
+never registered ([ADR-0145](../../../docs/adr/)) — and it lives in
+:func:`freeweight.services.adapters.draft_manifest`, not here, because this module is what decides
+whether a manifest may be believed and a drafter must not be able to reach that decision.
 
 This module is also the SetSpec seam. A manifest is validated through
 ``setspec.model.v1.AdapterManifestIn``, and the conversion to ModelRack's ``AdapterRegistration``
@@ -174,8 +178,8 @@ class DirectoryReading:
         drafts: ``*.manifest.draft.json`` files present. **Nothing trusts a draft**: "the scan
             drafts, a human keeps" (ADR-0061 rule 4) is enforced by the suffix rather than by a
             flag inside the document, so a file nobody renamed cannot be mistaken for one somebody
-            reviewed. FreeWeight writes no drafts; they are listed because an operator sharing a
-            directory with LoadCoach will have them.
+            reviewed. Drafts come from ``POST /api/v1/adapters/{name}/draft`` (ADR-0145) or from
+            ``loadcoach adapters scan`` on a shared directory.
         unmanifested: Artifacts with neither a manifest nor a draft — present, and unusable until
             somebody reviews one.
     """
