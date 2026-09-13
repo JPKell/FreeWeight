@@ -728,7 +728,10 @@ def config_schema_document(config_path: str | Path | None = None) -> dict[str, A
                 "prefix": "provider" if name == DEFAULT_PROFILE_NAME else f"providers.{name}",
                 "kind": profile.kind,
             }
-            for name, profile in sorted(profiles.items())
+            # `default` first — it is the [provider] block, and the one every file has.
+            for name, profile in sorted(
+                profiles.items(), key=lambda one: (one[0] != DEFAULT_PROFILE_NAME, one[0])
+            )
         ],
     }
 
