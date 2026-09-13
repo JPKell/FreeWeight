@@ -9,6 +9,26 @@ packaging and release standards §3.
 
 ### Added
 
+- **Saved provider profiles, one of them active** (row WX13,
+  [ADR-0144](docs/adr/0144-freeweight-keeps-several-provider-profiles-and-runs-one.md), which
+  amends ADR-0077 for this application alone). A `[providers.<name>]` table is a provider profile
+  with the same keys as `[provider]`, and `[provider] active` names the one that runs.
+  - **Nothing changes for an existing configuration.** The `[provider]` block *is* the profile
+    named `default`, and `active` defaults to it, so a file written before this release resolves
+    to a byte-identical provider. Adding a profile still changes nothing until `active` names it;
+    switching takes effect at the next restart.
+  - Two refusals, both naming the fix: a `[providers.default]` table beside a `[provider]` block
+    that sets any key, and an `active` that names no profile (the message lists the ones that
+    exist). A `FREEWEIGHT_PROVIDER__*` variable configures the `default` profile, so it is refused
+    by name while another profile is active rather than quietly doing nothing.
+  - `config schema --json` states `provider_profiles` — the selecting key, the active name, the
+    kinds this build can construct, and each profile's name, prefix and kind — so WeightRoomGym
+    renders a card per profile without hardcoding a key (ADR-0127 rule 3). Each profile's
+    `base_url` and `provider.active` are security keys there.
+  - `config show`'s per-leaf source for a `provider.*` key names the profile table it came from.
+  - `GET`/`PUT /provider` and the Provider page edit **the active profile's** block, and the page
+    says which profile that is. `active` is not writable there.
+
 - **Five additive API surfaces the console needed** (row WX7; `api.md` §2, §2a, §5, §5a):
   - **`display_name` on every model body.** The provider's own name, except where two or more
     *enabled* models share it, in which case every model carrying that name is shown by

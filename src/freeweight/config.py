@@ -18,7 +18,7 @@ import os
 import tomllib
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, ClassVar, Literal
+from typing import Any, ClassVar, Final, Literal
 
 from baseaicore import ConfigurationError, RuntimeProfile
 from pydantic import (
@@ -33,6 +33,7 @@ from pydantic import (
 )
 
 __all__ = [
+    "DEFAULT_PROFILE_NAME",
     "EXAMPLE_CONFIG_TOML",
     "ENV_PREFIX",
     "LOOPBACK_HOSTS",
@@ -69,6 +70,17 @@ ENV_PREFIX = "FREEWEIGHT_"
 LOOPBACK_HOSTS: frozenset[str] = frozenset({"127.0.0.1", "localhost", "::1"})
 _ALL_INTERFACES_HOST = "0.0.0.0"  # noqa: S104 — compared against, never bound to, by this module
 _RESERVED_ENV_SUFFIXES = frozenset({"CONFIG", "DATA_DIR", "LOG_LEVEL"})
+
+
+DEFAULT_PROFILE_NAME: Final = "default"
+"""The name of the profile the ``[provider]`` block is (ADR-0144 rule 2)."""
+
+DERIVED_KEYS: Final = frozenset({"providers.profiles"})
+"""Model paths that no configuration file writes, and that are therefore not keys.
+
+``providers.profiles`` is filled in by the loader from the ``[providers.<name>]`` tables and the
+``[provider]`` block (ADR-0144 rules 1 and 2); an operator writes those, never this.
+"""
 
 
 class InsecureBindingError(ConfigurationError):
@@ -415,13 +427,15 @@ class RuntimeSettings(BaseModel):
 
 
 class ProviderSettings(BaseModel):
-    """The default model provider FreeWeight talks to.
+    """One provider profile — ``[provider]`` itself, or any ``[providers.<name>]`` (ADR-0144).
 
-    One provider, not a registry. FreeWeight measures one machine's models one run at a time: it
-    has no candidate pool and no scoring, so it has nothing to disambiguate between registrations
-    and no use for LoadCoach's `[providers.<name>]` table
-    (ADR-0077). That divergence is deliberate; a
-    second provider here would be its own phase with its own evidence.
+    One provider *runs*, not a registry: FreeWeight measures one machine's models one run at a
+    time, so it has no candidate pool, no scoring and nothing to route between. It does have a
+    switch, and ADR-0144 is that switch — several saved profiles, of which ``[provider] active``
+    names exactly one. The ``[provider]`` block every existing file carries **is** the profile
+    named ``default``, read where it has always been read; nothing about such a file changes.
+    LoadCoach's identically-spelled ``[providers.<name>]`` blocks are registrations in a routing
+    pool (ADR-0077), which is a different meaning of the same shape.
 
     Three keys serve ``kind = "llamacpp"`` and nothing else, because Ollama needs none of them:
     llama.cpp is a server FreeWeight launches and supervises over a directory of GGUF weights
@@ -431,6 +445,16 @@ class ProviderSettings(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
+    active: str = Field(
+        default=DEFAULT_PROFILE_NAME,
+        description=(
+            "Which provider profile runs, on the [provider] block only (ADR-0144). 'default' is "
+            "this block itself; any other name must be a [providers.<name>] table. Setting it "
+            "inside a [providers.<name>] table is refused, because a profile does not choose "
+            "itself."
+        ),
+        examples=["default"],
+    )
     kind: str = Field(
         default="ollama",
         description="Which provider serves the models: ollama, llamacpp, or fake for tests.",
@@ -543,10 +567,33 @@ class AdapterSettings(BaseModel):
         return Path(raw).expanduser() if raw else None
 
 
-class ProvidersSettings(BaseModel):
-    """Cross-provider policy, distinct from the single default provider's own settings."""
+def _profile_valued(schema: dict[str, Any]) -> None:
+    """Say in the JSON schema that an extra key under ``[providers]`` is a profile table.
 
-    model_config = ConfigDict(extra="forbid")
+    ``extra="allow"`` alone emits ``additionalProperties: true``, which carries no type and is
+    less than the truth: :meth:`ProvidersSettings._collect_profiles` refuses an extra that is not
+    a profile table, so every extra key **is** a :class:`ProviderSettings`. A settings form
+    generated from ``config schema --json`` (ADR-0127) needs that or it has to show an operator's
+    ``[providers.fast]`` keys raw. The reference is taken from the ``profiles`` field's own schema
+    rather than written out, so it cannot name a definition this document does not carry.
+
+    Args:
+        schema: This model's generated schema, mutated in place as pydantic's
+            ``json_schema_extra`` callable contract expects.
+    """
+    schema["additionalProperties"] = schema["properties"]["profiles"]["additionalProperties"]
+
+
+class ProvidersSettings(BaseModel):
+    """Cross-provider policy, plus the named provider profiles themselves (ADR-0144).
+
+    ``allow_remote`` is policy — may a remote provider be reached at all. Every *other* key under
+    ``[providers]`` is a profile, so this model allows extras and validates them itself rather
+    than forbidding them: ``[providers.fast]`` and ``[providers] allow_remote`` share one TOML
+    table and pydantic sees both in one mapping.
+    """
+
+    model_config = ConfigDict(extra="allow", json_schema_extra=_profile_valued)
 
     allow_remote: bool = Field(
         default=False,
@@ -556,6 +603,52 @@ class ProvidersSettings(BaseModel):
         ),
         examples=[False],
     )
+    profiles: dict[str, ProviderSettings] = Field(
+        default_factory=dict,
+        description=(
+            "The saved provider profiles, keyed by their operator-chosen names (ADR-0144). "
+            "Written as [providers.<name>] tables; 'default' is the [provider] block itself and "
+            "is filled in by the loader, so it is never written here."
+        ),
+        examples=[{}],
+    )
+
+    @model_validator(mode="after")
+    def _collect_profiles(self) -> ProvidersSettings:
+        """Lift every extra key under ``[providers]`` into :attr:`profiles`.
+
+        Returns:
+            This model, with the extras consumed.
+
+        Raises:
+            ValueError: An extra key whose value is not a table — a typo like
+                ``[providers] allow_remot = true`` arrives here as a scalar, and a scalar is not a
+                profile, so ``extra="allow"`` would otherwise turn every misspelling into a
+                silently ignored key. Or a profile table that sets ``active``, which only the
+                ``[provider]`` block may do (ADR-0144 rule 3).
+        """
+        extras = self.__pydantic_extra__ or {}
+        if not extras:
+            return self
+        collected = dict(self.profiles)
+        for name, value in extras.items():
+            if not isinstance(value, dict):
+                raise ValueError(
+                    f"[providers] has an unknown key {name!r}. A key under [providers] is either "
+                    "`allow_remote` or a provider profile table `[providers.<name>]`; "
+                    f"{name!r} is neither."
+                )
+            if value.get("active"):
+                raise ValueError(
+                    f"[providers.{name}] sets `active`, which chooses the running profile and "
+                    "belongs on the [provider] block alone (ADR-0144). Write "
+                    f'`[provider] active = "{name}"` instead.'
+                )
+            collected[name] = ProviderSettings.model_validate(value)
+        object.__setattr__(self, "profiles", collected)
+        if self.__pydantic_extra__ is not None:
+            self.__pydantic_extra__.clear()
+        return self
 
 
 class TelemetrySettings(BaseModel):
@@ -1216,6 +1309,57 @@ class Settings(BaseModel):
     logging: LoggingSettings = Field(default_factory=LoggingSettings)
     console: ConsoleSettings = Field(default_factory=ConsoleSettings)
 
+    @property
+    def active_profile_name(self) -> str:
+        """The name of the provider profile this configuration runs (ADR-0144 rule 3)."""
+        return self.provider.active or DEFAULT_PROFILE_NAME
+
+    @model_validator(mode="after")
+    def _resolve_active_profile(self) -> Settings:
+        """Fill in the ``default`` profile, then point :attr:`provider` at the active one.
+
+        ADR-0144 rules 2, 4 and 5. After this runs, ``settings.provider`` **is** the profile that
+        will be used, so every reader of that attribute — ``build_provider``, the health check,
+        :meth:`RuntimeSettings.refused_under` below, the CLI, the scheduler — is correct without
+        knowing profiles exist, and ``settings.providers.profiles`` carries all of them (the
+        ``[provider]`` block among them, under the name ``default``) for the settings document and
+        the UI.
+
+        Returns:
+            This model, with the active profile resolved.
+
+        Raises:
+            ValueError: ``[providers.default]`` is written beside a ``[provider]`` block that sets
+                any key — two definitions of one profile, the one collision ADR-0077 rule 3's
+                reasoning still catches here — or ``[provider] active`` names a profile that does
+                not exist, which is refused with the names that do.
+        """
+        profiles = dict(self.providers.profiles)
+        block_keys = sorted(self.provider.model_fields_set - {"active"})
+        if DEFAULT_PROFILE_NAME in profiles and block_keys:
+            raise ValueError(
+                f"[providers.{DEFAULT_PROFILE_NAME}] and the [provider] block (which sets "
+                f"{', '.join(block_keys)}) are two definitions of the profile "
+                f"{DEFAULT_PROFILE_NAME!r}. The [provider] block is that profile (ADR-0144 rule "
+                f"2): delete [providers.{DEFAULT_PROFILE_NAME}], or rename it."
+            )
+        profiles.setdefault(
+            DEFAULT_PROFILE_NAME,
+            self.provider.model_copy(update={"active": DEFAULT_PROFILE_NAME}),
+        )
+        name = self.active_profile_name
+        if name not in profiles:
+            raise ValueError(
+                f"provider.active = {name!r} names no provider profile. Configured profiles: "
+                f"{', '.join(sorted(profiles))}. A profile is a [providers.<name>] table; "
+                f"{DEFAULT_PROFILE_NAME!r} is the [provider] block itself."
+            )
+        object.__setattr__(self.providers, "profiles", profiles)
+        object.__setattr__(
+            self, "provider", profiles[name].model_copy(update={"active": self.provider.active})
+        )
+        return self
+
     @model_validator(mode="after")
     def _check_runtime_against_provider(self) -> Settings:
         """Refuse a ``[runtime]`` key the configured provider cannot honour (ADR-0120 rule 4).
@@ -1413,9 +1557,23 @@ def env_var_for(path: str) -> str:
 
 
 def _track_sources(
-    file_data: dict[str, Any], env_data: dict[str, Any], cli_data: dict[str, Any]
+    file_data: dict[str, Any],
+    env_data: dict[str, Any],
+    cli_data: dict[str, Any],
+    *,
+    active_profile: str = DEFAULT_PROFILE_NAME,
 ) -> dict[str, str]:
-    """Report, for every leaf field, which layer produced its effective value."""
+    """Report, for every leaf field, which layer produced its effective value.
+
+    Args:
+        file_data: The file's own mapping.
+        env_data: What the environment set.
+        cli_data: What the command line set.
+        active_profile: The profile ``[provider] active`` resolved to (ADR-0144). When it is not
+            ``default``, ``settings.provider`` holds that profile's values, so the ``provider.*``
+            rows are re-labelled with the table they actually came from — reporting them as
+            *default* would deny that the operator configured them at all.
+    """
     sources: dict[str, str] = {}
     for section_name, section_field in Settings.model_fields.items():
         section_model = section_field.annotation
@@ -1423,6 +1581,8 @@ def _track_sources(
             continue
         for field_name in section_model.model_fields:
             path = f"{section_name}.{field_name}"
+            if path in DERIVED_KEYS:
+                continue
             if section_name in cli_data and field_name in cli_data[section_name]:
                 sources[path] = "cli"
             elif section_name in env_data and field_name in env_data[section_name]:
@@ -1431,6 +1591,22 @@ def _track_sources(
                 sources[path] = "file"
             else:
                 sources[path] = "default"
+    profile_tables = {
+        name: table
+        for name, table in (file_data.get("providers") or {}).items()
+        if isinstance(table, dict)
+    }
+    for name, table in profile_tables.items():
+        for field_name in table:
+            sources[f"providers.{name}.{field_name}"] = "file"
+    if active_profile != DEFAULT_PROFILE_NAME:
+        active_table = profile_tables.get(active_profile, {})
+        for field_name in ProviderSettings.model_fields:
+            if field_name == "active":
+                continue
+            sources[f"provider.{field_name}"] = (
+                f"file [providers.{active_profile}]" if field_name in active_table else "default"
+            )
     return sources
 
 
@@ -1446,6 +1622,46 @@ def _read_file(resolved_path: Path) -> tuple[dict[str, Any], bool]:
             f"Configuration file {resolved_path} is not valid TOML: {exc}",
             details={"file": str(resolved_path)},
         ) from exc
+
+
+def _refuse_inert_provider_layer(
+    settings: Settings, env_data: dict[str, Any], cli_data: dict[str, Any], resolved_path: Path
+) -> None:
+    """Refuse an environment or CLI ``provider.*`` value that would configure an idle profile.
+
+    The environment and the command line set keys of the ``[provider]`` block, and that block is
+    the profile named ``default`` (ADR-0144 rule 2). When another profile is active the value is
+    therefore *correct and inert*: it configures a profile this process will not use. Configuration
+    Standards §7 has the environment beat the file field by field, so a value that quietly does
+    nothing is the one outcome that cannot stand — it is named here instead.
+
+    Args:
+        settings: The validated settings, for the active profile's name.
+        env_data: What the environment set, nested as the file is.
+        cli_data: What the command line set.
+        resolved_path: The file, for the error's details.
+
+    Raises:
+        ConfigurationError: A layer above the file sets a ``[provider]`` key other than ``active``
+            while ``provider.active`` names some other profile.
+    """
+    active = settings.active_profile_name
+    if active == DEFAULT_PROFILE_NAME:
+        return
+    for layer, data in (("environment", env_data), ("command line", cli_data)):
+        keys = sorted(set(data.get("provider") or {}) - {"active"})
+        if not keys:
+            continue
+        named = ", ".join(
+            env_var_for(f"provider.{key}") if layer == "environment" else f"provider.{key}"
+            for key in keys
+        )
+        raise ConfigurationError(
+            f"{named} set on the {layer} configures the [provider] block, which is the provider "
+            f"profile {DEFAULT_PROFILE_NAME!r} — but provider.active = {active!r}, so the value "
+            "would be inert. Put it in the profile you are running, or run 'default'.",
+            details={"file": str(resolved_path), "active_profile": active, "keys": keys},
+        )
 
 
 def _validate(merged: dict[str, Any], resolved_path: Path) -> Settings:
@@ -1485,19 +1701,31 @@ def load_settings(
     cli_data = cli_overrides or {}
     merged = _deep_merge(_deep_merge(file_data, env_data), cli_data)
     settings = _validate(merged, resolved_path)
-    sources = _track_sources(file_data, env_data, cli_data)
+    _refuse_inert_provider_layer(settings, env_data, cli_data, resolved_path)
+    sources = _track_sources(
+        file_data, env_data, cli_data, active_profile=settings.active_profile_name
+    )
     return LoadedSettings(
         settings=settings, config_path=resolved_path, config_file_used=file_used, sources=sources
     )
 
 
 def leaf_keys() -> tuple[str, ...]:
-    """Every ``section.field`` dotted path :class:`Settings` recognizes."""
+    """Every ``section.field`` dotted path :class:`Settings` recognizes.
+
+    :data:`DERIVED_KEYS` is left out: it holds paths the model carries but no file ever writes,
+    which would otherwise appear in the schema document as an editable key and in the
+    configuration reference as a row (ADR-0144).
+    """
     keys: list[str] = []
     for section_name, section_field in Settings.model_fields.items():
         section_model = section_field.annotation
         if isinstance(section_model, type) and issubclass(section_model, BaseModel):
-            keys.extend(f"{section_name}.{field_name}" for field_name in section_model.model_fields)
+            keys.extend(
+                path
+                for field_name in section_model.model_fields
+                if (path := f"{section_name}.{field_name}") not in DERIVED_KEYS
+            )
     return tuple(keys)
 
 
@@ -1532,8 +1760,17 @@ def load_settings_tolerant(
         if section not in known_sections:
             problems.append(f"unknown configuration key '{section}'")
             continue
-        if not isinstance(fields, dict):
-            clean_file[section] = fields  # not a table; let validation raise its own type error
+        section_model = Settings.model_fields[section].annotation
+        allows_extra = (
+            isinstance(section_model, type)
+            and issubclass(section_model, BaseModel)
+            and section_model.model_config.get("extra") == "allow"
+        )
+        if not isinstance(fields, dict) or allows_extra:
+            # Not a table (let validation raise its own type error), or a section that validates
+            # its own extra keys — ``[providers]`` and its ``[providers.<name>]`` profile tables
+            # (ADR-0144), which are keys this walk cannot enumerate and must not strip.
+            clean_file[section] = fields
             continue
         clean_fields = {}
         for field_name, value in fields.items():
@@ -1547,7 +1784,8 @@ def load_settings_tolerant(
     env_data = _read_env(ENV_PREFIX)
     merged = _deep_merge(_deep_merge(clean_file, env_data), {})
     settings = _validate(merged, resolved_path)
-    sources = _track_sources(clean_file, env_data, {})
+    _refuse_inert_provider_layer(settings, env_data, {}, resolved_path)
+    sources = _track_sources(clean_file, env_data, {}, active_profile=settings.active_profile_name)
     loaded = LoadedSettings(
         settings=settings, config_path=resolved_path, config_file_used=file_used, sources=sources
     )
@@ -1589,7 +1827,10 @@ long_context_max_tokens = 32000
 # to what the card serves there. Hashed like long_context_max_tokens (ADR-0121).
 max_fit_context_tokens = 131072
 
+# This block is the provider profile named "default" (ADR-0144). A file that has only this block
+# -- which is every file written before profiles existed -- runs it, unchanged.
 [provider]
+# active = "default"                    # which profile runs; the default is this block itself
 kind = "ollama"
 base_url = "http://127.0.0.1:11434"
 timeout_seconds = 300.0
@@ -1602,6 +1843,13 @@ timeout_seconds = 300.0
 
 [providers]
 allow_remote = false
+
+# Further profiles, each with the same keys as [provider]. Adding one changes nothing about what
+# runs; `[provider] active = "served"` is what switches, and takes effect at the next restart.
+# The name "default" is taken by the [provider] block above and writing it here is refused.
+# [providers.served]
+# kind = "llamacpp"
+# model_directory = "~/ai/models/llm"
 
 [adapters]
 # LoRA adapters (not the [external] benchmark-harness sense). Empty means off.

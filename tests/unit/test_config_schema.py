@@ -126,3 +126,45 @@ def test_a_database_sourced_runtime_value_is_reported_in_sources(
     document = config_schema_document()
 
     assert document["sources"]["telemetry.interval_ms"] == "database"
+
+
+def test_the_document_states_every_provider_profile_and_where_its_keys_live(
+    tmp_path: Path,
+) -> None:
+    """ADR-0144 rule 7: enough for a form generator to group the keys without knowing any."""
+    config_file = tmp_path / "config.toml"
+    config_file.write_text(
+        '[provider]\nactive = "served"\nkind = "ollama"\n\n[providers.served]\n'
+        'kind = "llamacpp"\nmodel_directory = "/models"\n',
+        encoding="utf-8",
+    )
+
+    document = config_schema_document(config_file)
+
+    assert document["provider_profiles"] == {
+        "key": "provider.active",
+        "active": "served",
+        "kinds": ["fake", "llamacpp", "ollama"],
+        "profiles": [
+            {"name": "default", "prefix": "provider", "kind": "ollama"},
+            {"name": "served", "prefix": "providers.served", "kind": "llamacpp"},
+        ],
+    }
+    # A profile's endpoint decides where prompts go, so it is a security key like `provider`'s.
+    assert "providers.served.base_url" in document["security_keys"]
+    assert "provider.active" in document["security_keys"]
+    # The profile keys are typed, not `additionalProperties: true` (the WX9 finding, avoided).
+    providers_schema = document["json_schema"]["$defs"]["ProvidersSettings"]
+    assert providers_schema["additionalProperties"] == {"$ref": "#/$defs/ProviderSettings"}
+
+
+def test_a_file_with_no_profiles_states_the_one_it_has(tmp_path: Path) -> None:
+    config_file = tmp_path / "config.toml"
+    config_file.write_text('[provider]\nkind = "llamacpp"\n', encoding="utf-8")
+
+    document = config_schema_document(config_file)
+
+    assert document["provider_profiles"]["active"] == "default"
+    assert document["provider_profiles"]["profiles"] == [
+        {"name": "default", "prefix": "provider", "kind": "llamacpp"}
+    ]

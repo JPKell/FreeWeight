@@ -714,8 +714,17 @@
       },
       "ProviderSettings": {
         "additionalProperties": false,
-        "description": "The default model provider FreeWeight talks to.\n\nOne provider, not a registry. FreeWeight measures one machine's models one run at a time: it\nhas no candidate pool and no scoring, so it has nothing to disambiguate between registrations\nand no use for LoadCoach's `[providers.<name>]` table\n(ADR-0077). That divergence is deliberate; a\nsecond provider here would be its own phase with its own evidence.\n\nThree keys serve ``kind = \"llamacpp\"`` and nothing else, because Ollama needs none of them:\nllama.cpp is a server FreeWeight launches and supervises over a directory of GGUF weights\n(ADR-0062), where Ollama is a\ndaemon that already knows where its models are.",
+        "description": "One provider profile \u2014 ``[provider]`` itself, or any ``[providers.<name>]`` (ADR-0144).\n\nOne provider *runs*, not a registry: FreeWeight measures one machine's models one run at a\ntime, so it has no candidate pool, no scoring and nothing to route between. It does have a\nswitch, and ADR-0144 is that switch \u2014 several saved profiles, of which ``[provider] active``\nnames exactly one. The ``[provider]`` block every existing file carries **is** the profile\nnamed ``default``, read where it has always been read; nothing about such a file changes.\nLoadCoach's identically-spelled ``[providers.<name>]`` blocks are registrations in a routing\npool (ADR-0077), which is a different meaning of the same shape.\n\nThree keys serve ``kind = \"llamacpp\"`` and nothing else, because Ollama needs none of them:\nllama.cpp is a server FreeWeight launches and supervises over a directory of GGUF weights\n(ADR-0062), where Ollama is a\ndaemon that already knows where its models are.",
         "properties": {
+          "active": {
+            "default": "default",
+            "description": "Which provider profile runs, on the [provider] block only (ADR-0144). 'default' is this block itself; any other name must be a [providers.<name>] table. Setting it inside a [providers.<name>] table is refused, because a profile does not choose itself.",
+            "examples": [
+              "default"
+            ],
+            "title": "Active",
+            "type": "string"
+          },
           "base_url": {
             "default": "http://127.0.0.1:11434",
             "description": "The provider's API endpoint. Ignored by kind='llamacpp'.",
@@ -810,8 +819,10 @@
         "type": "object"
       },
       "ProvidersSettings": {
-        "additionalProperties": false,
-        "description": "Cross-provider policy, distinct from the single default provider's own settings.",
+        "additionalProperties": {
+          "$ref": "#/$defs/ProviderSettings"
+        },
+        "description": "Cross-provider policy, plus the named provider profiles themselves (ADR-0144).\n\n``allow_remote`` is policy \u2014 may a remote provider be reached at all. Every *other* key under\n``[providers]`` is a profile, so this model allows extras and validates them itself rather\nthan forbidding them: ``[providers.fast]`` and ``[providers] allow_remote`` share one TOML\ntable and pydantic sees both in one mapping.",
         "properties": {
           "allow_remote": {
             "default": false,
@@ -821,6 +832,17 @@
             ],
             "title": "Allow Remote",
             "type": "boolean"
+          },
+          "profiles": {
+            "additionalProperties": {
+              "$ref": "#/$defs/ProviderSettings"
+            },
+            "description": "The saved provider profiles, keyed by their operator-chosen names (ADR-0144). Written as [providers.<name>] tables; 'default' is the [provider] block itself and is filled in by the loader, so it is never written here.",
+            "examples": [
+              {}
+            ],
+            "title": "Profiles",
+            "type": "object"
           }
         },
         "title": "ProvidersSettings",
@@ -1254,6 +1276,22 @@
     "type": "object"
   },
   "problems": [],
+  "provider_profiles": {
+    "active": "default",
+    "key": "provider.active",
+    "kinds": [
+      "fake",
+      "llamacpp",
+      "ollama"
+    ],
+    "profiles": [
+      {
+        "kind": "ollama",
+        "name": "default",
+        "prefix": "provider"
+      }
+    ]
+  },
   "runtime_changeable": [
     {
       "description": "How often the machine telemetry sampler reads the host and the GPUs. Lower is more detail and more overhead; the overhead is measured and recorded on every run.",
@@ -1347,6 +1385,7 @@
     "goals.root",
     "judge.allow_remote",
     "logging.include_content",
+    "provider.active",
     "provider.base_url",
     "providers.allow_remote",
     "sandbox.tier",
@@ -1410,6 +1449,7 @@
     "logging.format": "default",
     "logging.include_content": "default",
     "logging.level": "default",
+    "provider.active": "default",
     "provider.base_url": "default",
     "provider.kind": "default",
     "provider.memory_high_bytes": "default",

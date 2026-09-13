@@ -160,10 +160,14 @@ GET    /api/v1/runs/{id}/grading             POST   /api/v1/runs/{id}/grades
 GET    /api/v1/judges                        POST   /api/v1/judges/validate
 ```
 
-`GET`/`PUT /provider` read and write the `[provider]` block in the configuration file itself, in
-place and with the operator's comments intact
-([ADR-0117](../../adr/0117-provider-registrations-are-edited-in-place-in-the-config-file.md)); the
-file stays the source of truth, and every other key in it stays config-only. The Models page's
+`GET`/`PUT /provider` read and write **the active provider profile's** block in the configuration
+file itself, in place and with the operator's comments intact
+([ADR-0117](../../adr/0117-provider-registrations-are-edited-in-place-in-the-config-file.md),
+[ADR-0144](../../adr/0144-freeweight-keeps-several-provider-profiles-and-runs-one.md) rule 6) —
+`[provider]` unless its `active` key names a `[providers.<name>]`, and the page says which; the
+file stays the source of truth, and every other key in it stays config-only. `active` itself is
+not writable there: switching profile replaces a supervised server, so it is a file edit and a
+restart. The Models page's
 Disable button records an operator's decision that a discovered model may not be measured, which a
 run then refuses by name ([ADR-0118](../../adr/0118-a-discovered-model-can-be-disabled.md)).
 
@@ -440,12 +444,15 @@ verification I18 exists to make.
               artifact_dir = "<data>/artifacts"
               backup_retention = 5   # automatic pre-migration backups kept (§7)
               statement_timeout_ms = unset          # PostgreSQL only; also sets lock_timeout
-[provider]    kind = "ollama"      base_url = "http://127.0.0.1:11434"  timeout_seconds = 300
+[provider]    active = "default"   # which saved profile runs; this block is "default" (ADR-0144)
+              kind = "ollama"      base_url = "http://127.0.0.1:11434"  timeout_seconds = 300
               # kind = "llamacpp" serves GGUF weights from a directory this application supervises
               model_directory = ""                 # required for kind = "llamacpp"; no default
               state_dir = ""                       # "" = <data>/llamacpp
               server_path = "llama-server"         # resolved on PATH unless absolute
 [providers]   allow_remote = false
+[providers.<name>]                                 # a further saved profile, same keys (ADR-0144)
+              kind = "llamacpp"    model_directory = "~/ai/models/llm"
 [adapters]    directory = ""                       # "" = adapters off (ADR-0061 rule 2)
 [runtime]     context_size = unset                 # tokens; unset = let the provider choose
               flash_attention = unset   kv_cache_precision = unset   # llamacpp only (ADR-0120)
@@ -486,6 +493,19 @@ verification I18 exists to make.
               capability_weights_path = unset      # custom capability_weights.toml; unset = shipped
 [logging]     level = "INFO"       include_content = false
 ```
+
+**`[provider]` is a saved profile, and one profile runs**
+([ADR-0144](../../adr/0144-freeweight-keeps-several-provider-profiles-and-runs-one.md)). Every
+`[providers.<name>]` table holds the same keys as `[provider]`; `[provider] active` names the one
+in use and defaults to `"default"`, which **is** the `[provider]` block itself — so a file written
+before profiles existed is one profile, active, unchanged. Adding a profile changes nothing about
+what runs until `active` names it, and switching takes effect at the next restart. The two
+refusals: a `[providers.default]` table beside a `[provider]` block that sets any key (two
+definitions of one profile), and an `active` that names no profile (the message lists the ones
+that exist). An `FREEWEIGHT_PROVIDER__*` variable configures the `default` profile, so it is
+refused by name while another profile is active rather than silently doing nothing. A profile is
+configuration: its name is never recorded on a run, and what a result carries is the provider kind
+and the runtime profile, exactly as before.
 
 **`[evidence]` is ADR-0017's policy, and a change to it is a new policy.** Every parameter is
 recorded on the evidence it produces beside a `policy_version`; customising any of them, or

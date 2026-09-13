@@ -113,3 +113,52 @@ def test_the_probe_sees_the_settings_the_candidate_would_load(config_path: Path)
 
     assert seen == ["fake"]
     assert load_settings(config_path=config_path).settings.provider.kind == "fake"
+
+
+# --- ADR-0144: the page edits the profile that is running -------------------------------------
+
+
+_PROFILES = """\
+[provider]
+active = "served"
+kind = "ollama"                  # the profile named "default", not the one running
+
+[providers.served]
+kind = "llamacpp"
+model_directory = "/models"      # keep me
+"""
+
+
+def test_a_write_lands_in_the_active_profiles_table(tmp_path: Path) -> None:
+    path = tmp_path / "config.toml"
+    path.write_text(_PROFILES, encoding="utf-8")
+
+    save_provider(path, {"timeout_seconds": 120.0})
+
+    text = path.read_text(encoding="utf-8")
+    assert 'model_directory = "/models"      # keep me' in text
+    assert text.index("timeout_seconds") > text.index("[providers.served]")
+    settings = load_settings(config_path=path).settings
+    assert settings.provider.timeout_seconds == 120.0
+    # The `default` profile is untouched: this edit was never about it.
+    assert settings.providers.profiles["default"].timeout_seconds == 300.0
+
+
+def test_the_view_names_the_profile_it_describes(tmp_path: Path) -> None:
+    path = tmp_path / "config.toml"
+    path.write_text(_PROFILES, encoding="utf-8")
+
+    view = describe_provider(load_settings(config_path=path).settings)
+
+    assert view.active == "served"
+    assert view.profiles == ("default", "served")
+    assert view.kind == "llamacpp"
+    assert view.as_json()["active"] == "served"
+
+
+def test_active_is_not_writable_from_the_provider_page(tmp_path: Path) -> None:
+    path = tmp_path / "config.toml"
+    path.write_text(_PROFILES, encoding="utf-8")
+
+    with pytest.raises(ValidationError):
+        save_provider(path, {"active": "default"})
