@@ -935,6 +935,7 @@ def create_run(
     adapter_entries: Sequence[AdapterEntry] = (),
     require_context_fit: bool = False,
     context_from_fit: bool = False,
+    context_fit_margin_tokens: int = context_fit_benchmark.REFINE_STEP_TOKENS,
     clock: Clock = utc_now,
 ) -> RunSummary:
     """Validate a run request, persist it as ``queued``, and return it.
@@ -984,6 +985,8 @@ def create_run(
         context_from_fit: Serve this run at the applicable fit's usable context (ADR-0152)
             instead of ``runtime_profile.context_size`` (ADR-0148 §6). The caller passes it only
             when nothing stated a context explicitly.
+        context_fit_margin_tokens: ``benchmarks.context_fit_margin_tokens`` — what
+            ``context_from_fit`` holds back below the measured fit (ADR-0153).
         allow_prompt_override: Whether to proceed when a prompt this suite declares has been
             replaced from the user's override directory. ``False`` refuses the run: an overridden
             prompt invalidates comparison with results produced by the shipped one, so the run has
@@ -1116,7 +1119,10 @@ def create_run(
             if fitted is not None and context_from_fit:
                 # ADR-0152: one step below what was measured, so a busier card still launches it.
                 runtime_profile = dataclasses.replace(
-                    runtime_profile, context_size=context_fit_benchmark.usable_context(fitted)
+                    runtime_profile,
+                    context_size=context_fit_benchmark.usable_context(
+                        fitted, context_fit_margin_tokens
+                    ),
                 )
         profile_row = RuntimeProfileRepository().get_or_create(
             session,

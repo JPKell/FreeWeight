@@ -790,6 +790,10 @@ class BenchmarkSettings(BaseModel):
         require_context_fit: Refuse every benchmark of a model until ``native.context_fit`` has
             measured it on this machine, and run each benchmark at the measured context
             (ADR-0148 §5–6). Only a provider that can set a context is gated.
+        context_fit_margin_tokens: Tokens held back below a measured fit. Benchmarks run at, and
+            ``GET /results/context-fit`` reports as ``usable_context_tokens``, the fit less this
+            (ADR-0152, ADR-0153). One refinement step, 4 096, by default; ``0`` uses the fit as
+            measured.
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -823,6 +827,16 @@ class BenchmarkSettings(BaseModel):
             "context it fits on this machine, then run each benchmark at that context (ADR-0148)."
         ),
         examples=[True],
+    )
+    context_fit_margin_tokens: int = Field(
+        default=4096,
+        ge=0,
+        le=65_536,
+        description=(
+            "Tokens of context held back below a measured fit: benchmarks run at, and the console "
+            "applies to LoadCoach, the fit less this (ADR-0153). 0 uses the fit as measured."
+        ),
+        examples=[4096],
     )
 
 
@@ -1843,6 +1857,9 @@ max_fit_context_tokens = 262144
 # fits here, then run each benchmark at that context (ADR-0148). Only a provider that can set a
 # context is gated.
 require_context_fit = true
+# Tokens held back below a measured context fit: benchmarks run at, and the console applies to
+# LoadCoach, the fit less this. One ladder refinement step by default; 0 uses the fit exactly.
+context_fit_margin_tokens = 4096
 
 # This block is the provider profile named "default" (ADR-0144). A file that has only this block
 # -- which is every file written before profiles existed -- runs it, unchanged.

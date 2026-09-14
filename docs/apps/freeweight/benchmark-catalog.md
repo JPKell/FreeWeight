@@ -106,9 +106,11 @@ token, which is a fabricated measurement, not an approximate one
 
 Run it by hand, once per model and runtime profile, before anything else. With
 `benchmarks.require_context_fit` on (the default), every other suite of that model is refused with
-`CONTEXT_FIT_REQUIRED` until it has completed, and then runs at its usable context — the fit less one 4 096-token
-step ([ADR-0152](../../adr/0152-a-context-fit-is-used-one-step-below-what-was-measured.md)) — unless a
-context is stated explicitly. `native.memory_kv`'s own maximum-fit test is served at the run's
+`CONTEXT_FIT_REQUIRED` until it has completed, and then runs at its usable context — the fit less
+`benchmarks.context_fit_margin_tokens`, 4 096 by default
+([ADR-0152](../../adr/0152-a-context-fit-is-used-one-step-below-what-was-measured.md),
+[ADR-0153](../../adr/0153-the-context-fit-margin-is-a-setting.md)) — unless a context is stated
+explicitly. `native.memory_kv`'s own maximum-fit test is served at the run's
 context and cannot climb past it; this suite is where the number comes from.
 
 ### 3.3 `native.token_economy` — Token efficiency

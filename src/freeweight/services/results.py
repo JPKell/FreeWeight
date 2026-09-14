@@ -39,7 +39,7 @@ from typing import TYPE_CHECKING, Any, ClassVar, Final
 from baseaicore import NotFoundError, SuiteError, ValidationError, to_rfc3339
 from weightsdb import DatabaseUnavailable
 
-from freeweight.benchmarks.context_fit.benchmark import usable_context
+from freeweight.benchmarks.context_fit.benchmark import REFINE_STEP_TOKENS, usable_context
 
 if TYPE_CHECKING:
     from sqlalchemy.orm import Session
@@ -1443,8 +1443,8 @@ class ContextFit:
         observed_mb_per_1k_context: Measured KV cost per 1 000 tokens, or ``None``.
         run_id: The run these came from.
 
-    The wire form adds ``usable_context_tokens``, the fit less one step (ADR-0152), derived here
-    rather than stored so the margin has one definition.
+        usable_context_tokens: The fit less ``benchmarks.context_fit_margin_tokens`` — the context
+            benchmarks run at and the console applies (ADR-0152, ADR-0153) — or ``None``.
         measured_at: When that run was created.
     """
 
@@ -1456,6 +1456,7 @@ class ContextFit:
     observed_mb_per_1k_context: float | None
     run_id: str
     measured_at: datetime
+    usable_context_tokens: int | None = None
 
     def as_json(self) -> dict[str, Any]:
         """The wire form ``GET /api/v1/results/context-fit`` returns for one reading."""
@@ -1468,11 +1469,7 @@ class ContextFit:
                 if self.max_successful_context_tokens is None
                 else self.max_successful_context_tokens
             ),
-            "usable_context_tokens": (
-                None
-                if self.max_successful_context_tokens is None
-                else usable_context(int(self.max_successful_context_tokens))
-            ),
+            "usable_context_tokens": self.usable_context_tokens,
             "capped_by_configuration": self.capped_by_configuration,
             "observed_mb_per_1k_context": (
                 "unsupported"
@@ -1484,7 +1481,9 @@ class ContextFit:
         }
 
 
-def context_fit(database: Database) -> tuple[ContextFit, ...]:
+def context_fit(
+    database: Database, *, margin_tokens: int = REFINE_STEP_TOKENS
+) -> tuple[ContextFit, ...]:
     """The latest context-fit reading per (model, runtime profile, machine).
 
     One metric-level query over ``native.context_fit``, folded. The rows arrive newest run first, so
@@ -1495,6 +1494,7 @@ def context_fit(database: Database) -> tuple[ContextFit, ...]:
 
     Args:
         database: The application's database handle.
+        margin_tokens: ``benchmarks.context_fit_margin_tokens``, for ``usable_context_tokens``.
 
     Returns:
         One reading per key, model then profile then machine. Empty on an installation that has
@@ -1530,6 +1530,11 @@ def context_fit(database: Database) -> tuple[ContextFit, ...]:
             observed_mb_per_1k_context=held.get("observed_mb_per_1k_context"),
             run_id=held["run_id"],
             measured_at=held["measured_at"],
+            usable_context_tokens=(
+                None
+                if held.get("max_successful_context_tokens") is None
+                else usable_context(int(held["max_successful_context_tokens"]), margin_tokens)
+            ),
         )
         for (model, profile, machine), held in sorted(readings.items())
     )

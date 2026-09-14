@@ -83,3 +83,6 @@ def test_a_fit_is_used_one_step_below_the_measurement_and_never_below_one_step()
     assert usable_context(40960) == 36864
     assert usable_context(8192) == 4096
     assert usable_context(4096) == 4096
+    assert usable_context(40960, 8192) == 32768
+    assert usable_context(40960, 0) == 40960
+    assert usable_context(8192, 8192) == 4096

@@ -35,6 +35,7 @@ def _start(
     *,
     require_context_fit: bool = False,
     context_from_fit: bool = False,
+    context_fit_margin_tokens: int = 4096,
 ) -> Any:  # noqa: ANN401 — a RunSummary
     execution = ExecutionConfig.resolve(
         ExecutionSettings(
@@ -56,6 +57,7 @@ def _start(
         runtime_profile=profile,
         require_context_fit=require_context_fit,
         context_from_fit=context_from_fit,
+        context_fit_margin_tokens=context_fit_margin_tokens,
     )
 
 
@@ -171,3 +173,28 @@ def test_the_fit_is_refined_between_the_last_rung_that_served_and_the_first_refu
     values = {m.metric_key: m.numeric_value for m in detail.metrics if m.run_test_id is None}
     assert values["max_successful_context_tokens"] == 36864
     assert values["max_context_capped_by_configuration"] == 0.0
+
+
+def test_the_margin_below_the_fit_is_a_setting(
+    environment: Any,  # noqa: ANN401 — a RunEnvironment
+) -> None:
+    """ADR-0153: ``benchmarks.context_fit_margin_tokens``; ``0`` serves the fit as measured."""
+    _complete(environment, "native.context_fit")
+
+    exact = _start(
+        environment,
+        "native.performance",
+        require_context_fit=True,
+        context_from_fit=True,
+        context_fit_margin_tokens=0,
+    )
+    wider = _start(
+        environment,
+        "native.performance",
+        require_context_fit=True,
+        context_from_fit=True,
+        context_fit_margin_tokens=8192,
+    )
+
+    assert exact.served_context == 32768
+    assert wider.served_context == 24576

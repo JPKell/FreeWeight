@@ -21,6 +21,8 @@ packaging and release standards §3.
 - **A fit is used one step below what was measured.** Benchmarks run at, and
   `GET /results/context-fit` reports as `usable_context_tokens`, the fit less 4 096 tokens, so a
   card with less free memory than on the day it was measured still launches the model (ADR-0152).
+  The margin is `[benchmarks] context_fit_margin_tokens` (default `4096`; `0` uses the fit exactly,
+  ADR-0153).
 - **Benchmarks wait for the fit and run at it.** `[benchmarks] require_context_fit` (default `true`):
   on a provider that can set a context, a run of any other suite is refused with
   `CONTEXT_FIT_REQUIRED` (409; CLI exit 2) until an applicable fit exists, and a run with no explicit

@@ -2,6 +2,7 @@
   "application": "freeweight",
   "config_only": [
     "adapters.directory",
+    "benchmarks.context_fit_margin_tokens",
     "benchmarks.long_context_max_tokens",
     "benchmarks.max_fit_context_tokens",
     "benchmarks.require_context_fit",
@@ -107,8 +108,19 @@
       },
       "BenchmarkSettings": {
         "additionalProperties": false,
-        "description": "The ``[benchmarks]`` section: limits a machine, not a suite author, decides.\n\nA shipped suite's content is fixed and hashed \u2014 that is what makes two runs of it comparable.\nWhat is *not* fixed is how far a sweep can go before the machine running it cannot serve the\ncontext any more, and that is a property of the hardware rather than of the benchmark.\n\nAttributes:\n    long_context_max_tokens: The ceiling of ``native.long_context``'s depth sweep. The shipped\n        ladder doubles \u2014 2 000, 4 000, 8 000, 16 000, 32 000 \u2014 and is truncated to, or extended\n        by doubling up to, this value. Raising it on a machine that can serve more turns\n        ``effective_context_tokens`` from a floor into a measurement; lowering it on a small\n        card keeps the suite runnable instead of failing every rung.\n\n        **It separates results.** The effective ladder is hashed into the suite's\n        ``dataset_hashes``, so a 32 000-token sweep and a 128 000-token sweep are two different\n        measurements and are never averaged \u2014 a sweep that stopped earlier reports a smaller\n        effective context for reasons that have nothing to do with the model.\n    max_fit_context_tokens: The ceiling of ``native.memory_kv``'s maximum-context-fit ladder,\n        ``8 192 \u2026 262 144`` (ADR-0151), fitted the same way and hashed the same way\n        (ADR-0121 \u00a71). The test climbs \"until something refuses\"; on a provider that spills to\n        host RAM instead of refusing, this ceiling is what stops the climb before the machine\n        does. ``native.context_fit`` climbs the same ladder (ADR-0148).\n    require_context_fit: Refuse every benchmark of a model until ``native.context_fit`` has\n        measured it on this machine, and run each benchmark at the measured context\n        (ADR-0148 \u00a75\u20136). Only a provider that can set a context is gated.",
+        "description": "The ``[benchmarks]`` section: limits a machine, not a suite author, decides.\n\nA shipped suite's content is fixed and hashed \u2014 that is what makes two runs of it comparable.\nWhat is *not* fixed is how far a sweep can go before the machine running it cannot serve the\ncontext any more, and that is a property of the hardware rather than of the benchmark.\n\nAttributes:\n    long_context_max_tokens: The ceiling of ``native.long_context``'s depth sweep. The shipped\n        ladder doubles \u2014 2 000, 4 000, 8 000, 16 000, 32 000 \u2014 and is truncated to, or extended\n        by doubling up to, this value. Raising it on a machine that can serve more turns\n        ``effective_context_tokens`` from a floor into a measurement; lowering it on a small\n        card keeps the suite runnable instead of failing every rung.\n\n        **It separates results.** The effective ladder is hashed into the suite's\n        ``dataset_hashes``, so a 32 000-token sweep and a 128 000-token sweep are two different\n        measurements and are never averaged \u2014 a sweep that stopped earlier reports a smaller\n        effective context for reasons that have nothing to do with the model.\n    max_fit_context_tokens: The ceiling of ``native.memory_kv``'s maximum-context-fit ladder,\n        ``8 192 \u2026 262 144`` (ADR-0151), fitted the same way and hashed the same way\n        (ADR-0121 \u00a71). The test climbs \"until something refuses\"; on a provider that spills to\n        host RAM instead of refusing, this ceiling is what stops the climb before the machine\n        does. ``native.context_fit`` climbs the same ladder (ADR-0148).\n    require_context_fit: Refuse every benchmark of a model until ``native.context_fit`` has\n        measured it on this machine, and run each benchmark at the measured context\n        (ADR-0148 \u00a75\u20136). Only a provider that can set a context is gated.\n    context_fit_margin_tokens: Tokens held back below a measured fit. Benchmarks run at, and\n        ``GET /results/context-fit`` reports as ``usable_context_tokens``, the fit less this\n        (ADR-0152, ADR-0153). One refinement step, 4 096, by default; ``0`` uses the fit as\n        measured.",
         "properties": {
+          "context_fit_margin_tokens": {
+            "default": 4096,
+            "description": "Tokens of context held back below a measured fit: benchmarks run at, and the console applies to LoadCoach, the fit less this (ADR-0153). 0 uses the fit as measured.",
+            "examples": [
+              4096
+            ],
+            "maximum": 65536,
+            "minimum": 0,
+            "title": "Context Fit Margin Tokens",
+            "type": "integer"
+          },
           "long_context_max_tokens": {
             "default": 32000,
             "description": "Ceiling of native.long_context's depth sweep. Hashed into that suite's dataset_hashes, so two ceilings are two measurements.",
@@ -1409,6 +1421,7 @@
   "sources": {
     "adapters.directory": "default",
     "auth.tokens": "default",
+    "benchmarks.context_fit_margin_tokens": "default",
     "benchmarks.long_context_max_tokens": "default",
     "benchmarks.max_fit_context_tokens": "default",
     "benchmarks.require_context_fit": "default",

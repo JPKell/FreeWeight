@@ -131,7 +131,15 @@ def context_fit_endpoint(request: Request) -> dict[str, Any]:
     Raises:
         DatabaseUnavailable: The database could not be read, answered as ``503``.
     """
-    return {"items": [reading.as_json() for reading in context_fit(request.app.state.database)]}
+    return {
+        "items": [
+            reading.as_json()
+            for reading in context_fit(
+                request.app.state.database,
+                margin_tokens=request.app.state.settings.benchmarks.context_fit_margin_tokens,
+            )
+        ]
+    }
 
 
 @api_router.get("/results", summary="Stored metrics, filtered")

@@ -261,6 +261,7 @@ def start(  # noqa: PLR0913 — every parameter is a documented run option, not 
                 label=label,
                 allow_prompt_override=allow_prompt_override,
                 require_context_fit=settings.benchmarks.require_context_fit,
+                context_fit_margin_tokens=settings.benchmarks.context_fit_margin_tokens,
                 context_from_fit=context_size is None,
                 adapter_name=adapter,
                 adapter_entries=entries,
@@ -388,6 +389,7 @@ def _serving_mode_ab(  # noqa: PLR0913 — every argument is one of `run start`'
                 label=label,
                 allow_prompt_override=allow_prompt_override,
                 require_context_fit=settings.benchmarks.require_context_fit,
+                context_fit_margin_tokens=settings.benchmarks.context_fit_margin_tokens,
                 context_from_fit=context_size is None,
                 adapter_entries=entries if registered else (),
             )

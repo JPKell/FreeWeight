@@ -286,8 +286,9 @@ profile, machine)**: `max_successful_context_tokens`, `capped_by_configuration`,
 console (row WX7) and read by LoadCoach's models page through it (row WX9). It read
 `native.memory_kv` until ADR-0148, whose suite serves each rung at its own context;
 `observed_mb_per_1k_context` is `null` there, because that suite fits no slope.
-`usable_context_tokens` is the fit less one 4 096-token step — the context FreeWeight's benchmarks
-run at and the number the console applies to LoadCoach (ADR-0152); `null` when nothing served.
+`usable_context_tokens` is the fit less `benchmarks.context_fit_margin_tokens` (4 096 by default) —
+the context FreeWeight's benchmarks run at and the number the console applies to LoadCoach
+(ADR-0152, ADR-0153); `null` when nothing served.
 
 ```json
 {"items": [

@@ -61,19 +61,21 @@ REFINE_STEP_TOKENS = 4096
 multiples of it, so three launches take a 32 768-token gap to one step."""
 
 
-def usable_context(fit_tokens: int) -> int:
-    """The context a model is used at: its measured fit less one refinement step (ADR-0152).
+def usable_context(fit_tokens: int, margin_tokens: int = REFINE_STEP_TOKENS) -> int:
+    """The context a model is used at: its measured fit less a margin (ADR-0152, ADR-0153).
 
     A fit launched and served once, on a card whose other tenants take a varying share of its
-    memory; one step of KV cache is the room left for that variation.
+    memory; the margin is KV cache left for that variation. It is
+    ``benchmarks.context_fit_margin_tokens``, one refinement step by default.
 
     Args:
         fit_tokens: ``max_successful_context_tokens``.
+        margin_tokens: How many tokens to hold back; ``0`` uses the fit as measured.
 
     Returns:
-        ``fit_tokens - REFINE_STEP_TOKENS``, and never less than one step.
+        ``fit_tokens - margin_tokens``, never below one refinement step unless the fit itself is.
     """
-    return max(fit_tokens - REFINE_STEP_TOKENS, REFINE_STEP_TOKENS)
+    return max(fit_tokens - margin_tokens, min(fit_tokens, REFINE_STEP_TOKENS))
 
 
 _DERIVED_KEYS = frozenset({"max_successful_context_tokens", "max_context_capped_by_configuration"})
