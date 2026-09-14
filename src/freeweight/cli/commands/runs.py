@@ -260,6 +260,8 @@ def start(  # noqa: PLR0913 — every parameter is a documented run option, not 
                 ),
                 label=label,
                 allow_prompt_override=allow_prompt_override,
+                require_context_fit=settings.benchmarks.require_context_fit,
+                context_from_fit=context_size is None,
                 adapter_name=adapter,
                 adapter_entries=entries,
             )
@@ -385,6 +387,8 @@ def _serving_mode_ab(  # noqa: PLR0913 — every argument is one of `run start`'
                 runtime_profile=profile,
                 label=label,
                 allow_prompt_override=allow_prompt_override,
+                require_context_fit=settings.benchmarks.require_context_fit,
+                context_from_fit=context_size is None,
                 adapter_entries=entries if registered else (),
             )
         except SuiteError as exc:
@@ -432,7 +436,8 @@ def _start_failure_code(code: str) -> int:
     exist — while anything else at this point is the database or the provider being unavailable
     (``4``). Both are stable and both are tested.
     """
-    return 2 if code in {"MODEL_NOT_FOUND", "BENCHMARK_NOT_FOUND", "VALIDATION_ERROR"} else 4
+    usage = {"MODEL_NOT_FOUND", "BENCHMARK_NOT_FOUND", "VALIDATION_ERROR", "CONTEXT_FIT_REQUIRED"}
+    return 2 if code in usage else 4
 
 
 def _reload(database: Database, run_id: str) -> Any:  # noqa: ANN401 — a RunSummary

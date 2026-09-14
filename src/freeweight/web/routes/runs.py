@@ -280,6 +280,8 @@ def create_run_endpoint(request: Request, body: dict[str, Any]) -> JSONResponse:
         label=body.get("label"),
         adapter_name=(str(adapter) if (adapter := body.get("adapter")) else None),
         adapter_entries=entries,
+        require_context_fit=settings.benchmarks.require_context_fit,
+        context_from_fit="context_size" not in runtime_body,
     )
     return JSONResponse(status_code=status.HTTP_201_CREATED, content=_summary_json(summary))
 
@@ -731,6 +733,8 @@ def start_run_form(
             ),
             adapter_entries=entries,
             label=label or None,
+            require_context_fit=settings.benchmarks.require_context_fit,
+            context_from_fit=True,
         )
     except (SuiteError, BenchmarkNotFound) as exc:
         database: Database = request.app.state.database

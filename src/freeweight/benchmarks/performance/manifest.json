@@ -1,7 +1,7 @@
 {
   "key": "native.performance",
   "name": "Native Performance",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "category": "performance",
   "runner": "native",
   "headline_metric": "decode_tokens_per_second",
@@ -104,6 +104,12 @@
       "metric_key": "load_ms",
       "unit": "ms",
       "higher_is_better": false,
+      "aggregation": "mean"
+    },
+    {
+      "metric_key": "prompt_tokens_per_second_at_4096",
+      "unit": "tokens/s",
+      "higher_is_better": true,
       "aggregation": "mean"
     }
   ],

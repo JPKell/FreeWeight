@@ -34,12 +34,19 @@ one of *its* prompts changes (ADR-0028 §1).
 from __future__ import annotations
 
 import json
+import math
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from freeweight.domain.aggregation import AggregatedMetric
 from freeweight.domain.benchmark import BenchmarkCase, BenchmarkManifest, MetricDefinition
-from freeweight.domain.metrics import MeasurementClass
+from freeweight.domain.metrics import (
+    REASON_NO_SUCCESSES,
+    MeasurementClass,
+    MetricResult,
+    unavailable,
+)
 from freeweight.domain.scoring import ScoreMethod, ScoreResult
 from freeweight.services.prompts import PromptLibrary, load_pack, prompt_subset_hash
 
@@ -47,13 +54,62 @@ if TYPE_CHECKING:
     from collections.abc import Iterator, Mapping, Sequence
 
 __all__ = [
+    "FIXED_PROMPT_CASE",
+    "FIXED_PROMPT_RATE_KEY",
     "PROMPT_ID",
+    "PROMPT_PROCESSING_KEY",
+    "SUITE_KEY",
     "PerformanceBenchmark",
     "PerformanceTest",
     "ResponseArrivedScorer",
     "build",
+    "derive",
     "load_manifest",
 ]
+
+SUITE_KEY = "native.performance"
+PROMPT_PROCESSING_KEY = "performance.prompt_processing"
+
+FIXED_PROMPT_CASE = "prompt-4096"
+"""The prompt size ``capabilities.speed`` reads (ADR-0150): the largest catalog size every fit
+ladder serves, so a model's speed does not depend on how much context it was benchmarked at."""
+
+FIXED_PROMPT_RATE_KEY = "prompt_tokens_per_second_at_4096"
+
+
+def derive(prompt_rates: Sequence[float]) -> tuple[AggregatedMetric, ...]:
+    """Turn the ``prompt-4096`` samples' prompt rates into ``prompt_tokens_per_second_at_4096``.
+
+    Args:
+        prompt_rates: Provider prompt tokens per prompt-evaluation second, one per completed sample
+            of :data:`FIXED_PROMPT_CASE`.
+
+    Returns:
+        One run-level row: their mean, or unavailable with ``no_successful_samples`` when that case
+        never completed — a model that could not be asked it has no figure, not a zero.
+    """
+    result = (
+        MetricResult(math.fsum(prompt_rates) / len(prompt_rates))
+        if prompt_rates
+        else unavailable(REASON_NO_SUCCESSES)
+    )
+    return (
+        AggregatedMetric(
+            metric_key=FIXED_PROMPT_RATE_KEY,
+            run_test_id=None,
+            numeric_value=result.numeric_value,
+            unavailable_reason=result.unavailable_reason,
+            unit="tokens/s",
+            aggregation="mean",
+            higher_is_better=True,
+            sample_count=len(prompt_rates),
+            excluded_count=0,
+            stddev=None,
+            coefficient_of_variation=None,
+            measurement_class=MeasurementClass.WARM,
+        ),
+    )
+
 
 _MANIFEST_PATH = Path(__file__).parent / "manifest.json"
 

@@ -786,6 +786,10 @@ class BenchmarkSettings(BaseModel):
             ``8 192 … 131 072``, fitted the same way and hashed the same way (ADR-0121 §1). The
             test climbs "until something refuses"; on a provider that spills to host RAM instead
             of refusing, this ceiling is what stops the climb before the machine does.
+            ``native.context_fit`` climbs the same ladder (ADR-0148).
+        require_context_fit: Refuse every benchmark of a model until ``native.context_fit`` has
+            measured it on this machine, and run each benchmark at the measured context
+            (ADR-0148 §5–6). Only a provider that can set a context is gated.
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -810,6 +814,14 @@ class BenchmarkSettings(BaseModel):
             "(ADR-0121). Lower it on a provider that spills to host RAM instead of refusing."
         ),
         examples=[131072],
+    )
+    require_context_fit: bool = Field(
+        default=True,
+        description=(
+            "Refuse every benchmark of a model until native.context_fit has measured how much "
+            "context it fits on this machine, then run each benchmark at that context (ADR-0148)."
+        ),
+        examples=[True],
     )
 
 
@@ -1826,6 +1838,10 @@ long_context_max_tokens = 32000
 # climbs until the provider refuses; Ollama spills to host RAM instead of refusing, so lower this
 # to what the card serves there. Hashed like long_context_max_tokens (ADR-0121).
 max_fit_context_tokens = 131072
+# Refuse every benchmark of a model until native.context_fit has measured how much context it
+# fits here, then run each benchmark at that context (ADR-0148). Only a provider that can set a
+# context is gated.
+require_context_fit = true
 
 # This block is the provider profile named "default" (ADR-0144). A file that has only this block
 # -- which is every file written before profiles existed -- runs it, unchanged.

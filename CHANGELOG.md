@@ -7,6 +7,20 @@ packaging and release standards §3.
 
 ## [Unreleased]
 
+### Added (rows CF2, CF3, CF6)
+
+- **`native.context_fit` measures how much context a model fits on this card.** One case per rung
+  of the maximum-fit ladder, each served at its own rung, so the server is launched at that context
+  rather than at the run's; a rung past the model's trained context is skipped (ADR-0148).
+  `GET /results/context-fit` now reads it.
+- **Benchmarks wait for the fit and run at it.** `[benchmarks] require_context_fit` (default `true`):
+  on a provider that can set a context, a run of any other suite is refused with
+  `CONTEXT_FIT_REQUIRED` (409; CLI exit 2) until an applicable fit exists, and a run with no explicit
+  context is served at the measured one.
+- **`native.performance` `1.1.0` derives `prompt_tokens_per_second_at_4096`**, and
+  `capability_weights.toml` `1.1` scores speed's prefill half from it, so models benchmarked at
+  different contexts compare (ADR-0150).
+
 ### Added
 
 - **`GET /dashboard` says how well each test did.** Every `tests_matrix` cell carries

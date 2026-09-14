@@ -98,6 +98,18 @@ token, which is a fabricated measurement, not an approximate one
 ([ADR-0027 §3](../../adr/0027-multi-gpu-semantics.md)). The context axis of every test is the
 **served** context, recorded with its source, not the advertised maximum.
 
+### 3.2a `native.context_fit` — Context fit
+
+| Test | Method | Key metrics |
+|---|---|---|
+| Maximum context | One case per rung of the maximum-fit ladder (`8192 …`, fitted to `benchmarks.max_fit_context_tokens`), each **served at its own rung** — the server is launched at that context — until a launch is refused; a rung past the model's trained context is skipped ([ADR-0148](../../adr/0148-context-fit-is-its-own-suite-and-gates-benchmarks.md)) | `max_successful_context_tokens`, `max_context_capped_by_configuration` |
+
+Run it by hand, once per model and runtime profile, before anything else. With
+`benchmarks.require_context_fit` on (the default), every other suite of that model is refused with
+`CONTEXT_FIT_REQUIRED` until it has completed, and then runs at the context it measured unless a
+context is stated explicitly. `native.memory_kv`'s own maximum-fit test is served at the run's
+context and cannot climb past it; this suite is where the number comes from.
+
 ### 3.3 `native.token_economy` — Token efficiency
 
 Collected automatically on **every** benchmark, not only here: input/output/thinking/tool tokens,
@@ -453,7 +465,7 @@ shipped with defaults, versioned with the evidence.
 | `judging` | `native.judge`, JudgeBench, LLMBar (bias metrics reduce the score) |
 | `critiquing` | `native.critique` (regression rate reduces the score) |
 | `long_context` | `native.long_context` effective context, RULER |
-| `speed` / `latency` | `native.performance` decode throughput, TTFT |
+| `speed` / `latency` | `native.performance` decode throughput, prompt throughput at 4 096 tokens (`prompt_tokens_per_second_at_4096`, [ADR-0150](../../adr/0150-the-speed-capability-reads-prompt-throughput-at-one-size.md)), TTFT |
 | `memory_efficiency` | `native.memory_kv` observed bytes/token, max context fit |
 | `token_efficiency` | `native.token_economy` |
 | `energy_efficiency` | `native.energy` |

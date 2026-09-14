@@ -1,0 +1,53 @@
+{
+  "key": "native.context_fit",
+  "name": "Native Context Fit",
+  "version": "1.0.0",
+  "category": "memory",
+  "runner": "native",
+  "headline_metric": "max_successful_context_tokens",
+  "scorer": "response_arrived",
+  "capabilities": [],
+  "requires": {
+    "provider_capabilities": [],
+    "sandbox": false,
+    "network": false
+  },
+  "dataset_hashes": {},
+  "prompt_ids": [
+    {
+      "prompt_id": "benchmarks.memory_kv.context_probe",
+      "version": "1.0.0",
+      "sha256": "sha256:82d957afbc871d295e32b2de85c207bd01267b126b12e412879a128b017daaf3"
+    }
+  ],
+  "prompt_subset_hash": "sha256:20b6ddcc573ed4d04be06af7651cc51ea7b0fbc4cad5adc9820edce51185235b",
+  "target_device": "gpu",
+  "metrics": [
+    {
+      "metric_key": "prompt_tokens",
+      "unit": "count",
+      "higher_is_better": true,
+      "aggregation": "mean"
+    },
+    {
+      "metric_key": "prompt_eval_ms",
+      "unit": "ms",
+      "higher_is_better": false,
+      "aggregation": "mean"
+    },
+    {
+      "metric_key": "max_successful_context_tokens",
+      "unit": "count",
+      "higher_is_better": true,
+      "aggregation": "max"
+    },
+    {
+      "metric_key": "max_context_capped_by_configuration",
+      "unit": "ratio",
+      "higher_is_better": false,
+      "aggregation": "max"
+    }
+  ],
+  "license": "project",
+  "description": "The largest context this model can be served at on this card, measured by launching it at each rung of the maximum-fit ladder until a launch is refused. Every other benchmark of the model waits for this one and then runs at its answer (ADR-0148)."
+}

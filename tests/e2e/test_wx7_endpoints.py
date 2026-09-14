@@ -187,16 +187,17 @@ class TestContextFit:
     """``GET /results/context-fit``, the pipe row WX9 reads."""
 
     def test_nothing_measured_is_an_empty_list(self, client: TestClient) -> None:
-        """An installation that never ran ``native.memory_kv`` has no reading, and says so."""
+        """An installation that never ran ``native.context_fit`` has no reading, and says so."""
         answer = client.get("/api/v1/results/context-fit")
 
         assert answer.status_code == 200, answer.text
         assert answer.json() == {"items": []}
 
-    def test_a_memory_kv_run_produces_one_reading(self, client: TestClient) -> None:
+    def test_a_context_fit_run_produces_one_reading(self, client: TestClient) -> None:
         """One reading per (model, runtime profile, machine), with the profile it was measured
-        under — a context number without its profile is a claim about the configuration."""
-        _completed_run(client, suite="native.memory_kv")
+        under — a context number without its profile is a claim about the configuration. Read
+        from ``native.context_fit`` since ADR-0148 §7."""
+        _completed_run(client, suite="native.context_fit")
 
         items = client.get("/api/v1/results/context-fit").json()["items"]
 

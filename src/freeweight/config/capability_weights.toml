@@ -29,7 +29,7 @@
 # evidence it produces carries a policy version derived from that file's content, never this
 # file's version, so the two are never mistaken for each other.
 
-version = "1.0"
+version = "1.1"
 
 notes = "Shipped defaults for FreeWeight 1.0-rc. Every scale is provisional until real routing data exists to fit it."
 
@@ -114,10 +114,11 @@ sources = [
 ]
 
 [capabilities.speed]
-# 100 tokens/s decode and 2 000 tokens/s prefill earn full marks on a consumer GPU.
+# 100 tokens/s decode and 2 000 tokens/s prefill earn full marks on a consumer GPU. Prefill is read
+# at one prompt size, because models are benchmarked at different contexts (ADR-0150).
 sources = [
   { suite = "native.performance", metric_key = "decode_tokens_per_second", weight = 0.7, full_score_at = 100 },
-  { suite = "native.performance", metric_key = "prompt_tokens_per_second", weight = 0.3, full_score_at = 2000 },
+  { suite = "native.performance", metric_key = "prompt_tokens_per_second_at_4096", weight = 0.3, full_score_at = 2000 },
 ]
 
 [capabilities.latency]

@@ -36,6 +36,9 @@ def _isolated_xdg_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterat
     for key in list(os.environ):
         if key.startswith("FREEWEIGHT_"):
             monkeypatch.delenv(key, raising=False)
+    # ADR-0148's gate is on by default and every run-journey test predates it. Tests of the gate
+    # itself delete this variable.
+    monkeypatch.setenv("FREEWEIGHT_BENCHMARKS__REQUIRE_CONTEXT_FIT", "false")
     yield
 
 

@@ -15,6 +15,16 @@ freeweight benchmarks show native.performance
 freeweight run start --model <ref> --suite native.performance
 ```
 
+**Measure the context first.** `native.context_fit` launches the model at each rung of a ladder
+until the card refuses, and records the largest context that served. Until it has run for a model,
+under the runtime profile you benchmark with, every other suite of that model is refused with
+`CONTEXT_FIT_REQUIRED`; afterwards each runs at the measured context unless you pass
+`--context-size`. `benchmarks.require_context_fit = false` turns the gate off (ADR-0148).
+
+```bash
+freeweight run start --model <ref> --suite native.context_fit
+```
+
 The full catalogue — every suite, its cases, its metrics and how each is scored — is the
 [benchmark catalogue](apps/freeweight/benchmark-catalog.md).
 

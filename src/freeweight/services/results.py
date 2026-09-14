@@ -1406,8 +1406,9 @@ def _available(session: Session) -> tuple[tuple[str, ...], tuple[str, ...], tupl
     return tuple(suites), tuple(models), tuple(machines)
 
 
-CONTEXT_FIT_SUITE: Final = "native.memory_kv"
-"""The suite that measures how much context fits. Nothing else records these three metrics."""
+CONTEXT_FIT_SUITE: Final = "native.context_fit"
+"""The suite that measures how much context fits (ADR-0148 §7). ``native.memory_kv`` records the
+same keys, but served at the run's own context, so its figure is a configuration, not a fit."""
 
 _CONTEXT_FIT_METRICS: Final = (
     "max_successful_context_tokens",
@@ -1476,7 +1477,7 @@ class ContextFit:
 def context_fit(database: Database) -> tuple[ContextFit, ...]:
     """The latest context-fit reading per (model, runtime profile, machine).
 
-    One metric-level query over ``native.memory_kv``, folded. The rows arrive newest run first, so
+    One metric-level query over ``native.context_fit``, folded. The rows arrive newest run first, so
     the first run seen for a key is the latest one and every later run of the same key is
     discarded — the same "latest run wins" rule the dashboard's heatmap applies, and the reason
     this is not an average: two sweeps under different profiles are two facts, not one blurred
@@ -1487,7 +1488,7 @@ def context_fit(database: Database) -> tuple[ContextFit, ...]:
 
     Returns:
         One reading per key, model then profile then machine. Empty on an installation that has
-        never run ``native.memory_kv`` — which is an absence of measurement, and the caller says
+        never run ``native.context_fit`` — which is an absence of measurement, and the caller says
         so rather than showing a zero.
 
     Raises:
