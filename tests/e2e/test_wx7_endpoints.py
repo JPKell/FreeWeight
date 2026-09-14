@@ -168,13 +168,19 @@ class TestDashboard:
             assert cell["status"] in {"completed", "failed", "skipped", "cancelled"}
             assert cell["model"] in matrix["models"]
             assert cell["test"] in matrix["tests"]
+            assert cell["mean_score"] is None or 0.0 <= cell["mean_score"] <= 1.0
         assert {cell["run_id"] for cell in matrix["cells"]} == {run_id}
+        assert any(cell["mean_score"] is not None for cell in matrix["cells"])
+        for metric in body["test_metrics"]:
+            assert metric["test"] in matrix["tests"]
+            assert metric["run_id"] == run_id
 
     def test_an_empty_database_has_an_empty_matrix(self, client: TestClient) -> None:
         """Nothing measured is an empty matrix, not a grid of zeroes."""
         body = client.get("/api/v1/dashboard").json()
 
         assert body["tests_matrix"] == {"models": [], "tests": [], "cells": []}
+        assert body["test_metrics"] == []
 
 
 class TestContextFit:

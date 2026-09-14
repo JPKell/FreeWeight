@@ -18,11 +18,12 @@ from __future__ import annotations
 
 import json
 from collections.abc import Callable
+from pathlib import Path
 from typing import Any
 
 import jsonschema
 import pytest
-from baseaicore import RuntimeProfile, canonical_json
+from baseaicore import DataClassification, IdentityConfidence, RuntimeProfile, canonical_json
 from setspec import SchemaVersion, json_schema_for
 from setspec.benchmark.v1 import BenchmarkRunSummaryOut, BenchmarkRunSummaryV1_1In
 
@@ -43,7 +44,30 @@ _RUN_SUMMARY_1_1 = SchemaVersion(1, 1)
 
 
 def _measured_run(environment: Any, profile: RuntimeProfile) -> str:  # noqa: ANN401 — RunEnvironment
-    """Create and execute one echo run under ``profile``; return its id."""
+    """Create and execute one echo run under ``profile``; return its id.
+
+    A stated ``True`` comes with an adapter for the fake's own base: ``create_run`` narrows the
+    flag to ``False`` on a base no adapter applies to, which is what the provider would launch.
+    """
+    from freeweight.infrastructure.adapters import AdapterEntry
+
+    identity = environment.provider.list_models()[0].identity
+    entries = (
+        AdapterEntry(
+            name="terse",
+            manifest_path=Path("/adapters/terse.manifest.json"),
+            artifact_path=Path("/adapters/terse.gguf"),
+            artifact_sha256="sha256:" + "c3" * 32,
+            source_sha256=None,
+            base_model_name=identity.provider_model_name,
+            base_artifact_digest=identity.artifact_digest,
+            base_confidence=IdentityConfidence.DIGEST,
+            declared_capabilities=(),
+            data_classification=DataClassification.INTERNAL,
+            notes=None,
+            available=True,
+        ),
+    )
     created = create_run(
         environment.database,
         environment.provider,
@@ -61,6 +85,7 @@ def _measured_run(environment: Any, profile: RuntimeProfile) -> str:  # noqa: AN
             measured_repetitions=1,
         ),
         runtime_profile=profile,
+        adapter_entries=entries if profile.adapters_registered else (),
     )
     RunScheduler(
         environment.database,

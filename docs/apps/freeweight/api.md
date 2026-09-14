@@ -354,9 +354,17 @@ want of VRAM still shows a headline number and nothing says half of it did not r
   "models": ["ollama/smollm2:135m@sha256:…"],
   "tests": ["echo.roundtrip"],
   "cells": [{"model": "ollama/smollm2:135m@sha256:…", "test": "echo.roundtrip",
-             "status": "completed", "skip_reason": null, "run_id": "…"}]
-}
+             "status": "completed", "skip_reason": null, "run_id": "…", "mean_score": 0.92}]
+},
+"test_metrics": [{"model": "ollama/smollm2:135m@sha256:…", "test": "echo.roundtrip",
+                  "metric_key": "harness_roundtrip_success", "value": 0.92, "unit": "ratio",
+                  "higher_is_better": true, "run_id": "…"}]
 ```
+
+`mean_score` is how well a cell did: the mean of that run test's sample scores, a failed sample
+counting `0` and a skipped or unscored sample left out. It is `null`, never `0`, when no sample
+could be scored. `test_metrics` is every test-level metric row of the same runs — the run-level
+roll-ups are the heatmap's — with `value` `"unsupported"` under the same convention as `cells`.
 
 `status` is the `run_tests` row's own: `completed`, `failed`, `skipped` or `cancelled`.
 `skip_reason` is present for a skip and required to be (spec §13) — "skipped" without one is

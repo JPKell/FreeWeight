@@ -148,7 +148,7 @@ from freeweight.infrastructure.db.repositories.runs import (
 )
 from freeweight.infrastructure.db.repositories.telemetry import TelemetryRepository
 from freeweight.services._json import json_safe
-from freeweight.services.adapters import adapter_row_for, resolve_subject
+from freeweight.services.adapters import adapter_row_for, resolve_subject, serves_base
 from freeweight.services.database import Database
 from freeweight.services.events import RunEventPublisher
 from freeweight.services.goals import LoadedGoal
@@ -1062,6 +1062,16 @@ def create_run(
         # hashable profile rather than an absence. Resolved once here so every use below — the
         # stored row, the served-context resolution and the fingerprint — sees the same object.
         runtime_profile = runtime_profile if runtime_profile is not None else RuntimeProfile()
+        # The caller's `adapters_registered` is the provider's serving mode; this base is launched
+        # with only the adapters declaring it as their base. Narrowed here, where the model is
+        # known, so a base with no adapters of its own records the clean server it really gets
+        # rather than being refused `PROFILE_MISMATCH` on every sample. Never widened.
+        if runtime_profile.adapters_registered and not serves_base(
+            adapter_entries,
+            base_model_name=model.provider_model_name,
+            base_artifact_digest=model.artifact_digest,
+        ):
+            runtime_profile = dataclasses.replace(runtime_profile, adapters_registered=False)
         profile_row = RuntimeProfileRepository().get_or_create(
             session,
             profile_hash=runtime_profile.profile_hash,

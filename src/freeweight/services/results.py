@@ -727,6 +727,9 @@ class TestsMatrix:
         skip_reasons: Why, for the cells whose status is ``skipped``; spec §13 requires the
             reason, and "skipped" without one is indistinguishable from "nobody got round to it".
         run_ids: The run each cell came from, so a cell links to its source as a heatmap cell does.
+        mean_scores: How well each cell did: the mean of its samples' scores, a failed sample
+            counting ``0`` and a skipped or unscored one left out. A cell with no scorable sample
+            has no key — never ``0`` (ADR-0016).
     """
 
     models: tuple[str, ...]
@@ -734,6 +737,7 @@ class TestsMatrix:
     cells: Mapping[tuple[str, str], str]
     skip_reasons: Mapping[tuple[str, str], str]
     run_ids: Mapping[tuple[str, str], str]
+    mean_scores: Mapping[tuple[str, str], float] = field(default_factory=dict)
 
     def status(self, model: str, test: str) -> str | None:
         """The outcome at ``(model, test)``, or ``None`` when that run recorded no such test."""
@@ -810,6 +814,8 @@ class Dashboard:
     suites_available: tuple[str, ...] = ()
     models_available: tuple[str, ...] = ()
     machines_available: tuple[str, ...] = ()
+    test_metrics: tuple[ResultRow, ...] = ()
+    """The test-level metric rows of the same latest runs, for a per-test chart."""
 
     @property
     def is_empty(self) -> bool:
@@ -884,10 +890,23 @@ def dashboard_summary_json(dashboard: Dashboard) -> dict[str, Any]:
                     "status": status,
                     "skip_reason": matrix.skip_reasons.get((model, test)),
                     "run_id": matrix.run_ids.get((model, test)),
+                    "mean_score": matrix.mean_scores.get((model, test)),
                 }
                 for (model, test), status in matrix.cells.items()
             ],
         },
+        "test_metrics": [
+            {
+                "model": row.model_canonical_id,
+                "test": row.run_test_key,
+                "metric_key": row.metric_key,
+                "value": "unsupported" if row.numeric_value is None else row.numeric_value,
+                "unit": row.unit,
+                "higher_is_better": row.higher_is_better,
+                "run_id": row.run_id,
+            }
+            for row in dashboard.test_metrics
+        ],
     }
 
 
@@ -1166,6 +1185,7 @@ def _tests_matrix(session: Session, rows: Sequence[ResultRow]) -> TestsMatrix:
             RunTest.status,
             RunTest.skip_reason,
             Run.id,
+            RunTest.id,
         )
         .join(Run, Run.id == RunTest.run_id)
         .join(Model, Model.id == Run.model_id)
@@ -1176,10 +1196,14 @@ def _tests_matrix(session: Session, rows: Sequence[ResultRow]) -> TestsMatrix:
     cells: dict[tuple[str, str], str] = {}
     skip_reasons: dict[tuple[str, str], str] = {}
     run_of: dict[tuple[str, str], str] = {}
-    for canonical_id, test_key, status, skip_reason, run_id in session.execute(statement):
+    run_test_of: dict[tuple[str, str], str] = {}
+    for canonical_id, test_key, status, skip_reason, run_id, run_test_id in session.execute(
+        statement
+    ):
         key = (canonical_id, test_key)
         cells[key] = status
         run_of[key] = run_id
+        run_test_of[key] = run_test_id
         if skip_reason:
             skip_reasons[key] = skip_reason
         else:
@@ -1190,7 +1214,35 @@ def _tests_matrix(session: Session, rows: Sequence[ResultRow]) -> TestsMatrix:
         cells=cells,
         skip_reasons=skip_reasons,
         run_ids=run_of,
+        mean_scores=_mean_scores(session, run_test_of),
     )
+
+
+def _mean_scores(
+    session: Session, run_test_of: Mapping[tuple[str, str], str]
+) -> dict[tuple[str, str], float]:
+    """Each matrix cell's mean sample score: a failed sample is ``0``, skipped and unscored ones
+    are left out, and a cell with nothing scorable has no entry. One grouped statement."""
+    from sqlalchemy import case, func, select
+
+    from freeweight.infrastructure.db.models_runs import Sample
+
+    if not run_test_of:
+        return {}
+    scored = case(
+        (Sample.status == "failed", 0.0), (Sample.status == "completed", Sample.score), else_=None
+    )
+    statement = (
+        select(Sample.run_test_id, func.avg(scored))
+        .where(Sample.run_test_id.in_(set(run_test_of.values())))
+        .group_by(Sample.run_test_id)
+    )
+    means = {run_test_id: mean for run_test_id, mean in session.execute(statement)}
+    return {
+        key: float(means[run_test_id])
+        for key, run_test_id in run_test_of.items()
+        if means.get(run_test_id) is not None
+    }
 
 
 def _heatmap(rows: Sequence[ResultRow]) -> MetricHeatmap:
@@ -1506,6 +1558,7 @@ def build_dashboard(database: Database, filter_: DashboardFilter) -> Dashboard:
         suites_available=suites,
         models_available=models,
         machines_available=machines,
+        test_metrics=tuple(row for row in rows if row.run_test_key is not None),
     )
 
 

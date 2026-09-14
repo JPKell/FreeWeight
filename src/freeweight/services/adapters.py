@@ -64,6 +64,7 @@ __all__ = [
     "read_entries",
     "resolve_subject",
     "serving_mode",
+    "serves_base",
     "subjects_for_model",
 ]
 
@@ -174,6 +175,38 @@ def serving_mode(provider: Any, entries: Sequence[AdapterEntry]) -> bool | None:
     if not provider.capabilities().adapter_hot_swap:
         return None
     return any(entry.available for entry in entries)
+
+
+def serves_base(
+    entries: Sequence[AdapterEntry], *, base_model_name: str, base_artifact_digest: str | None
+) -> bool:
+    """Whether any available adapter would reach this base's ``llama-server`` argv.
+
+    :func:`serving_mode` answers for the provider as a whole, before the run's model is known.
+    ModelRack launches each base with only the registrations whose declared base matches it, so a
+    directory holding only Qwen2.5-1.5B adapters launches every other base clean — and a profile
+    stating ``True`` there is refused as ``PROFILE_MISMATCH`` on every sample. This is the same
+    candidacy rule as ``LlamaCppProvider._verify`` and ``verify_adapter_base_compatibility``:
+    a declared digest must equal the base's; without one, the names must match.
+
+    Args:
+        entries: What the operator's adapter directory holds.
+        base_model_name: The base's provider model name.
+        base_artifact_digest: The base's artifact digest, or ``None`` when it exposes none.
+
+    Returns:
+        ``True`` when at least one available entry applies to this base. A digest-declaring entry
+        never applies to a base without a digest, because ModelRack refuses it.
+    """
+    return any(
+        entry.available
+        and (
+            entry.base_artifact_digest == base_artifact_digest
+            if entry.base_artifact_digest is not None
+            else entry.base_model_name == base_model_name
+        )
+        for entry in entries
+    )
 
 
 def can_serve_adapters(provider: Any) -> bool:

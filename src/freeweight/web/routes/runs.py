@@ -729,6 +729,7 @@ def start_run_form(
                 provider_kind=settings.provider.kind,
                 adapters_registered=_serving_mode(request, entries),
             ),
+            adapter_entries=entries,
             label=label or None,
         )
     except (SuiteError, BenchmarkNotFound) as exc:

@@ -430,6 +430,9 @@ class TestServingModeIsSeparableFromSelection:
                 runtime_profile=RuntimeSettings().to_profile(
                     provider_kind="ollama", adapters_registered=registered
                 ),
+                adapter_entries=(
+                    (_entry(env, "terse", artifact_digest=_ADAPTER_DIGEST),) if registered else ()
+                ),
             )
             for registered in (False, True)
         ]
@@ -441,6 +444,47 @@ class TestServingModeIsSeparableFromSelection:
             "the A/B measures the base; neither arm is an adapter subject"
         )
         assert all(get_run(env.database, run.id).run is not None for run in runs)
+
+    def test_a_base_with_no_adapters_of_its_own_records_a_clean_server(
+        self, run_environment: Callable[..., RunEnvironment]
+    ) -> None:
+        """ModelRack launches a base with only its own adapters, so ``True`` there is narrowed.
+
+        Left as ``True``, every sample was refused ``PROFILE_MISMATCH`` — on 2026-09-13 that was
+        every llama.cpp base except the Qwen2.5-1.5B the adapters were trained on.
+        """
+        from dataclasses import replace
+
+        from freeweight.config import RuntimeSettings
+
+        env = run_environment(script=_adapter_capable())
+        another_base = replace(
+            _entry(env, "pirate", artifact_digest=_SIBLING_DIGEST),
+            base_model_name="Qwen2.5-1.5B-Instruct.Q8_0",
+            base_artifact_digest="sha256:" + "ee" * 32,
+        )
+        runs = [
+            create_run(
+                env.database,
+                env.provider,
+                env.collector,
+                env.registry,
+                model_ref=env.model_ref,
+                suite_key="native.echo",
+                execution=ExecutionConfig.resolve(
+                    ExecutionSettings(warmup_repetitions=0, cooldown_seconds=0),
+                    measured_repetitions=1,
+                ),
+                runtime_profile=RuntimeSettings().to_profile(
+                    provider_kind="ollama", adapters_registered=registered
+                ),
+                adapter_entries=entries,
+            )
+            for registered, entries in ((False, ()), (True, (another_base,)))
+        ]
+
+        subjects = [subject_of_run(env.database, run.id) for run in runs]
+        assert subjects[0].runtime_profile_id == subjects[1].runtime_profile_id
 
 
 class TestTheFixedRegressionRowsAreBounded:

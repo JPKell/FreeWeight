@@ -7,6 +7,20 @@ packaging and release standards §3.
 
 ## [Unreleased]
 
+### Added
+
+- **`GET /dashboard` says how well each test did.** Every `tests_matrix` cell carries
+  `mean_score` (failed samples count `0`, skipped ones are left out, `null` when nothing was
+  scorable), and the body gains `test_metrics`, the test-level metric rows of the same runs, for
+  WeightRoomGym's per-test heatmap and bar chart.
+
+### Fixed
+
+- **llama.cpp runs on a base with no adapters of its own no longer fail every sample.** With an
+  `[adapters] directory` configured, every run recorded `adapters_registered=True`, but ModelRack
+  launches each base with only the adapters that declare it, so every other base was refused
+  `PROFILE_MISMATCH` before generating. `create_run` now narrows the flag to the run's base.
+
 ### Fixed (row WY10)
 
 - **The last synchronous work on the event loop left the web routes.** The Machines page is a plain
