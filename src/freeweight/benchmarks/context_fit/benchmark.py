@@ -39,6 +39,7 @@ __all__ = [
     "ContextFitTest",
     "build",
     "derive",
+    "usable_context",
 ]
 
 SUITE_KEY = "native.context_fit"
@@ -58,6 +59,22 @@ measures the arithmetic, not the card."""
 REFINE_STEP_TOKENS = 4096
 """The resolution the fit is refined to between two ladder rungs (ADR-0151). Refined rungs are
 multiples of it, so three launches take a 32 768-token gap to one step."""
+
+
+def usable_context(fit_tokens: int) -> int:
+    """The context a model is used at: its measured fit less one refinement step (ADR-0152).
+
+    A fit launched and served once, on a card whose other tenants take a varying share of its
+    memory; one step of KV cache is the room left for that variation.
+
+    Args:
+        fit_tokens: ``max_successful_context_tokens``.
+
+    Returns:
+        ``fit_tokens - REFINE_STEP_TOKENS``, and never less than one step.
+    """
+    return max(fit_tokens - REFINE_STEP_TOKENS, REFINE_STEP_TOKENS)
+
 
 _DERIVED_KEYS = frozenset({"max_successful_context_tokens", "max_context_capped_by_configuration"})
 _MANIFEST_PATH = Path(__file__).parent / "manifest.json"

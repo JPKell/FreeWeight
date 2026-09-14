@@ -108,7 +108,8 @@ def test_no_other_suite_starts_before_the_fit_and_every_suite_runs_at_it_afterwa
         environment, "native.performance", require_context_fit=True, context_from_fit=True
     )
 
-    assert summary.served_context == 32768
+    # ADR-0152: the measured 32 768 less one 4 096-token step.
+    assert summary.served_context == 28672
     assert summary.served_context_source == "configured"
 
 

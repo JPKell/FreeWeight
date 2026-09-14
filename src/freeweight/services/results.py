@@ -39,6 +39,8 @@ from typing import TYPE_CHECKING, Any, ClassVar, Final
 from baseaicore import NotFoundError, SuiteError, ValidationError, to_rfc3339
 from weightsdb import DatabaseUnavailable
 
+from freeweight.benchmarks.context_fit.benchmark import usable_context
+
 if TYPE_CHECKING:
     from sqlalchemy.orm import Session
 
@@ -1440,6 +1442,9 @@ class ContextFit:
             ``False`` when the model itself refused beyond it, ``None`` when the run did not say.
         observed_mb_per_1k_context: Measured KV cost per 1 000 tokens, or ``None``.
         run_id: The run these came from.
+
+    The wire form adds ``usable_context_tokens``, the fit less one step (ADR-0152), derived here
+    rather than stored so the margin has one definition.
         measured_at: When that run was created.
     """
 
@@ -1462,6 +1467,11 @@ class ContextFit:
                 "unsupported"
                 if self.max_successful_context_tokens is None
                 else self.max_successful_context_tokens
+            ),
+            "usable_context_tokens": (
+                None
+                if self.max_successful_context_tokens is None
+                else usable_context(int(self.max_successful_context_tokens))
             ),
             "capped_by_configuration": self.capped_by_configuration,
             "observed_mb_per_1k_context": (

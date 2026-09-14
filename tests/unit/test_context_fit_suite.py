@@ -3,7 +3,12 @@ from the rungs a run tried — never from the run's own served context."""
 
 from __future__ import annotations
 
-from freeweight.benchmarks.context_fit.benchmark import SERVE_CONTEXT_KEY, build, derive
+from freeweight.benchmarks.context_fit.benchmark import (
+    SERVE_CONTEXT_KEY,
+    build,
+    derive,
+    usable_context,
+)
 from freeweight.benchmarks.memory_kv.benchmark import MAX_FIT_LADDER_DATASET_KEY
 
 
@@ -71,3 +76,10 @@ def test_nothing_to_refine_without_a_served_rung_and_a_refused_one_above_it() ->
     assert test.next_cases({"fit-8192": True, "fit-16384": True, "fit-32768": True}) == ()
     assert test.next_cases({"fit-8192": False, "fit-16384": False}) == ()
     assert test.next_cases({"fit-8192": True, "fit-16384": None}) == ()
+
+
+def test_a_fit_is_used_one_step_below_the_measurement_and_never_below_one_step() -> None:
+    """ADR-0152."""
+    assert usable_context(40960) == 36864
+    assert usable_context(8192) == 4096
+    assert usable_context(4096) == 4096

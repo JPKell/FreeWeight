@@ -18,6 +18,9 @@ packaging and release standards §3.
   on multiples of 4 096 tokens, through the run engine's new optional `next_cases` hook; and
   `benchmarks.max_fit_context_tokens` defaults to 262 144, which also changes `native.memory_kv`'s
   default ladder (ADR-0151).
+- **A fit is used one step below what was measured.** Benchmarks run at, and
+  `GET /results/context-fit` reports as `usable_context_tokens`, the fit less 4 096 tokens, so a
+  card with less free memory than on the day it was measured still launches the model (ADR-0152).
 - **Benchmarks wait for the fit and run at it.** `[benchmarks] require_context_fit` (default `true`):
   on a provider that can set a context, a run of any other suite is refused with
   `CONTEXT_FIT_REQUIRED` (409; CLI exit 2) until an applicable fit exists, and a run with no explicit

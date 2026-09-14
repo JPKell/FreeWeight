@@ -981,9 +981,9 @@ def create_run(
         require_context_fit: Refuse this run with :class:`ContextFitRequired` when the model has
             no applicable ``native.context_fit`` measurement on this machine (ADR-0148 §5).
             Ignored for that suite itself and for a provider that cannot set a context.
-        context_from_fit: Serve this run at the applicable fit instead of
-            ``runtime_profile.context_size`` (ADR-0148 §6). The caller passes it only when
-            nothing stated a context explicitly.
+        context_from_fit: Serve this run at the applicable fit's usable context (ADR-0152)
+            instead of ``runtime_profile.context_size`` (ADR-0148 §6). The caller passes it only
+            when nothing stated a context explicitly.
         allow_prompt_override: Whether to proceed when a prompt this suite declares has been
             replaced from the user's override directory. ``False`` refuses the run: an overridden
             prompt invalidates comparison with results produced by the shipped one, so the run has
@@ -1114,7 +1114,10 @@ def create_run(
                     details={"model": model.canonical_id, "suite": suite_key},
                 )
             if fitted is not None and context_from_fit:
-                runtime_profile = dataclasses.replace(runtime_profile, context_size=fitted)
+                # ADR-0152: one step below what was measured, so a busier card still launches it.
+                runtime_profile = dataclasses.replace(
+                    runtime_profile, context_size=context_fit_benchmark.usable_context(fitted)
+                )
         profile_row = RuntimeProfileRepository().get_or_create(
             session,
             profile_hash=runtime_profile.profile_hash,

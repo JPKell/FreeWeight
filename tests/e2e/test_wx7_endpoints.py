@@ -208,6 +208,7 @@ class TestContextFit:
             "runtime_profile_hash",
             "machine_fingerprint",
             "max_successful_context_tokens",
+            "usable_context_tokens",
             "capped_by_configuration",
             "observed_mb_per_1k_context",
             "run_id",
