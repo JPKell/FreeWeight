@@ -3,13 +3,18 @@ becoming the context every later benchmark of the model runs at."""
 
 from __future__ import annotations
 
+import dataclasses
 from collections.abc import Callable
+from datetime import UTC, datetime
 from typing import Any
 
 import pytest
 from baseaicore import RuntimeProfile
+from modelrack import GenerationRequest, GenerationResult, ProviderUnavailable
+from modelrack.testing import FakeProvider, FakeScript
 
 from freeweight.config import ExecutionSettings
+from freeweight.services.models import discover_models
 from freeweight.services.runs import (
     ContextFitRequired,
     ExecutionConfig,
@@ -121,3 +126,47 @@ def test_an_explicit_context_wins_and_another_profile_needs_its_own_fit(
             RuntimeProfile(context_size=8192, keep_alive="1m"),
             require_context_fit=True,
         )
+
+
+class _Card(FakeProvider):
+    """A fake whose card refuses to launch a server past ``limit`` tokens, as llama-server does."""
+
+    def __init__(self, limit: int) -> None:
+        model = dataclasses.replace(FakeScript().models[0], max_context=262_144)
+        super().__init__(FakeScript(models=(model,)))
+        self._limit = limit
+
+    def generate(self, request: GenerationRequest) -> GenerationResult:
+        if (request.runtime_profile.context_size or 0) > self._limit:
+            message = "llama-server exited with code 1 before it became healthy"
+            raise ProviderUnavailable(message)
+        return super().generate(request)
+
+
+def test_the_fit_is_refined_between_the_last_rung_that_served_and_the_first_refused(
+    run_environment: Callable[..., Any],
+) -> None:
+    """ADR-0151: a card that holds 40 000 tokens is reported at 36 864, not at 32 768."""
+    base = run_environment(registry=build_registry(max_fit_context_tokens=131_072))
+    card = _Card(limit=40_000)
+    discover_models(base.database, card, now=datetime.now(UTC))
+    environment = dataclasses.replace(base, provider=card)
+
+    detail = _complete(environment, "native.context_fit")
+
+    test = detail.tests[0]
+    outcomes = {s.case_id: s.status for s in list_samples(environment.database, test.id)}
+    assert outcomes == {
+        "fit-8192": "completed",
+        "fit-16384": "completed",
+        "fit-32768": "completed",
+        "fit-65536": "failed",
+        "fit-131072": "failed",
+        "fit-49152": "failed",
+        "fit-40960": "failed",
+        "fit-36864": "completed",
+    }
+    assert test.total_cases == 8
+    values = {m.metric_key: m.numeric_value for m in detail.metrics if m.run_test_id is None}
+    assert values["max_successful_context_tokens"] == 36864
+    assert values["max_context_capped_by_configuration"] == 0.0

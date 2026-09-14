@@ -3343,7 +3343,9 @@ def _execute_test(  # noqa: PLR0913 — one test's execution needs all of its co
             # reproducible from the run record alone — a shuffle seeded from wall-clock time would
             # make "the same run, again" impossible to mean anything.
             random.Random(f"{config.seed}:{test.key}").shuffle(cases)  # noqa: S311 — order, not crypto
-        for case in cases:
+
+        def run_case(case: Any) -> None:  # noqa: ANN401 — a BenchmarkCase
+            nonlocal completed_samples, finished_cases
             _check_cancelled(database, run_id)
             skip_reason = _skips_for_context(
                 case, context.served_context, context.advertised_max_context
@@ -3394,6 +3396,25 @@ def _execute_test(  # noqa: PLR0913 — one test's execution needs all of its co
                 RunTestRepository().set_completed_cases(
                     session, run_test_id, completed=finished_cases
                 )
+
+        for case in cases:
+            run_case(case)
+        follow_up = getattr(test, "next_cases", None)
+        while follow_up is not None:
+            # ADR-0151: a test that chooses its next cases from the answers so far is asked after
+            # every round until it has nothing new. Outcomes are read back from the stored samples,
+            # so a resumed run asks the same questions and gets the same cases.
+            outcomes = _case_outcomes(database, run_test_id)
+            extra = [case for case in follow_up(outcomes) if case.case_id not in outcomes]
+            if not extra:
+                break
+            total_samples += len(extra) * config.measured_repetitions
+            with database.write() as session:
+                RunTestRepository().set_total_cases(
+                    session, run_test_id, total=len(outcomes) + len(extra)
+                )
+            for case in extra:
+                run_case(case)
     except _Cancelled:
         raise
     except Exception as exc:  # noqa: BLE001 — a failed test never fails its run (spec §13)
@@ -3422,6 +3443,26 @@ def _execute_test(  # noqa: PLR0913 — one test's execution needs all of its co
         data={"test": test.key, "run_test_id": run_test_id, "status": target.value},
     )
     return completed_samples
+
+
+def _case_outcomes(database: Database, run_test_id: str) -> dict[str, bool | None]:
+    """Every case one test has stored samples for, and how it went (ADR-0151).
+
+    Returns:
+        Case id → ``True`` when every sample completed, ``False`` when any did not, ``None`` when
+        the case was skipped.
+    """
+    with database.read() as session:
+        samples = _stored_samples(session, run_test_id)
+    outcomes: dict[str, bool | None] = {}
+    for sample in samples:
+        if sample.status == "skipped":
+            outcomes.setdefault(sample.case_id, None)
+            continue
+        served = sample.status == "completed"
+        held = outcomes.get(sample.case_id)
+        outcomes[sample.case_id] = served if held is None else held and served
+    return outcomes
 
 
 def _sample_event_type(status: str) -> str:

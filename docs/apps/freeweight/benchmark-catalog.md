@@ -84,7 +84,7 @@ measurement labelled `cold` | `warm` | `cache_reused`.
 | Theoretical KV requirement | From descriptor architecture fields: `2 × layers × kv_heads × head_dim × bytes_per_element` | `theoretical_kv_bytes_per_token` (or `unsupported` when fields are missing) |
 | Observed context slope | Equivalent generations at 1K…64K context; stabilized VRAM before generation | `observed_kv_bytes_per_token`, `observed_mb_per_1k_context`, fit quality |
 | Runtime overhead ratio | observed ÷ theoretical | `kv_overhead_ratio` — a *runtime efficiency* figure, never a quality figure |
-| Maximum context fit | Climb `8192 … 131072`, fitted to `benchmarks.max_fit_context_tokens` (hashed into `dataset_hashes`, ADR-0121), until OOM, rejection or the ceiling | `max_successful_context_tokens`, `max_context_capped_by_configuration` |
+| Maximum context fit | Climb `8192 … 262144`, fitted to `benchmarks.max_fit_context_tokens` (hashed into `dataset_hashes`, ADR-0121), until OOM, rejection or the ceiling | `max_successful_context_tokens`, `max_context_capped_by_configuration` |
 | KV precision comparison | Where the runtime supports f16/q8/q4 | VRAM, max context, throughput, quality delta per precision |
 | Cache reuse | Long shared prefix, several short follow-ups | Cold vs warm prefill ms, `reuse_speedup`, cached-token count where exposed |
 
@@ -102,7 +102,7 @@ token, which is a fabricated measurement, not an approximate one
 
 | Test | Method | Key metrics |
 |---|---|---|
-| Maximum context | One case per rung of the maximum-fit ladder (`8192 …`, fitted to `benchmarks.max_fit_context_tokens`), each **served at its own rung** — the server is launched at that context — until a launch is refused; a rung past the model's trained context is skipped ([ADR-0148](../../adr/0148-context-fit-is-its-own-suite-and-gates-benchmarks.md)) | `max_successful_context_tokens`, `max_context_capped_by_configuration` |
+| Maximum context | One case per rung of the maximum-fit ladder (`8192 …`, fitted to `benchmarks.max_fit_context_tokens`), each **served at its own rung** — the server is launched at that context — until a launch is refused, then halving the gap between the largest rung that served and the smallest refused, on multiples of 4 096 tokens, until it is one step; a rung past the model's trained context is skipped ([ADR-0148](../../adr/0148-context-fit-is-its-own-suite-and-gates-benchmarks.md), [ADR-0151](../../adr/0151-context-fit-refines-between-rungs-and-climbs-to-256k.md)) | `max_successful_context_tokens`, `max_context_capped_by_configuration` |
 
 Run it by hand, once per model and runtime profile, before anything else. With
 `benchmarks.require_context_fit` on (the default), every other suite of that model is refused with

@@ -42,3 +42,32 @@ def test_nothing_served_is_unavailable_never_zero() -> None:
 
     assert rows
     assert all(row.numeric_value is None and row.unavailable_reason for row in rows)
+
+
+def test_refinement_halves_the_gap_until_one_step_is_left() -> None:
+    """ADR-0151: 32 768 served and 65 536 refused leaves a gap three launches take to 4 096."""
+    test = build(max_fit_context_tokens=131_072).tests[0]
+    tried: dict[str, bool | None] = {
+        "fit-8192": True,
+        "fit-16384": True,
+        "fit-32768": True,
+        "fit-65536": False,
+        "fit-131072": False,
+    }
+    chosen = []
+    for served in (False, True, False):
+        (case,) = test.next_cases(tried)
+        assert case.ordinal == len(tried)
+        chosen.append(case.metadata[SERVE_CONTEXT_KEY])
+        tried[case.case_id] = served
+
+    assert chosen == [49152, 40960, 45056]
+    assert test.next_cases(tried) == ()
+
+
+def test_nothing_to_refine_without_a_served_rung_and_a_refused_one_above_it() -> None:
+    test = build(max_fit_context_tokens=32_768).tests[0]
+
+    assert test.next_cases({"fit-8192": True, "fit-16384": True, "fit-32768": True}) == ()
+    assert test.next_cases({"fit-8192": False, "fit-16384": False}) == ()
+    assert test.next_cases({"fit-8192": True, "fit-16384": None}) == ()

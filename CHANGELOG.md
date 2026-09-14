@@ -13,6 +13,11 @@ packaging and release standards §3.
   of the maximum-fit ladder, each served at its own rung, so the server is launched at that context
   rather than at the run's; a rung past the model's trained context is skipped (ADR-0148).
   `GET /results/context-fit` now reads it.
+- **The fit is refined between rungs, and the ladder climbs to 262 144.** After the doubling ladder
+  `native.context_fit` halves the gap between the largest rung that served and the smallest refused,
+  on multiples of 4 096 tokens, through the run engine's new optional `next_cases` hook; and
+  `benchmarks.max_fit_context_tokens` defaults to 262 144, which also changes `native.memory_kv`'s
+  default ladder (ADR-0151).
 - **Benchmarks wait for the fit and run at it.** `[benchmarks] require_context_fit` (default `true`):
   on a provider that can set a context, a run of any other suite is refused with
   `CONTEXT_FIT_REQUIRED` (409; CLI exit 2) until an applicable fit exists, and a run with no explicit

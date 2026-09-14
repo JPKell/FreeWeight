@@ -31,6 +31,7 @@ if TYPE_CHECKING:
     from freeweight.domain.aggregation import AggregatedMetric
 
 __all__ = [
+    "REFINE_STEP_TOKENS",
     "SERVE_CONTEXT_KEY",
     "SUITE_KEY",
     "TEST_KEY",
@@ -53,6 +54,10 @@ PROMPT_HEADROOM_TOKENS = 512
 """How far below its rung a case's prompt is sized. The filler is a character estimate, and a
 prompt that overshoots its own context would be refused by the server's context check — which
 measures the arithmetic, not the card."""
+
+REFINE_STEP_TOKENS = 4096
+"""The resolution the fit is refined to between two ladder rungs (ADR-0151). Refined rungs are
+multiples of it, so three launches take a 32 768-token gap to one step."""
 
 _DERIVED_KEYS = frozenset({"max_successful_context_tokens", "max_context_capped_by_configuration"})
 _MANIFEST_PATH = Path(__file__).parent / "manifest.json"
@@ -100,29 +105,65 @@ class ContextFitTest:
         Deliberately no ``required_context_tokens``: a declared requirement would skip a rung
         before it was tried, and trying it is the test.
         """
-        record = self.library.get(memory_kv.PROMPT_ID)
         for ordinal, rung in enumerate(self.ladder):
-            rendered = record.render(
-                {
-                    "passage": memory_kv._filler(max(rung - PROMPT_HEADROOM_TOKENS, 1)),  # noqa: SLF001
-                    "instruction": "Reply with the single word: ok.",
-                }
-            )
-            yield BenchmarkCase(
-                case_id=f"fit-{rung}",
-                ordinal=ordinal,
-                prompt=rendered.user,
-                system_prompt=rendered.system,
-                prompt_id=rendered.prompt_id,
-                prompt_version=rendered.version,
-                expectation={},
-                metadata={
-                    "suite": SUITE_KEY,
-                    "test": self.key,
-                    memory_kv.CONTEXT_TOKENS_DETAIL_KEY: rung,
-                    SERVE_CONTEXT_KEY: rung,
-                },
-            )
+            yield self._case(rung, ordinal)
+
+    def next_cases(self, outcomes: Mapping[str, bool | None]) -> Sequence[BenchmarkCase]:
+        """The rung halfway between the largest that served and the smallest refused above it.
+
+        ADR-0151. The ladder doubles, so after it the fit is only known to lie between two rungs;
+        this halves that gap, one launch at a time, on multiples of :data:`REFINE_STEP_TOKENS`,
+        until it is one step.
+
+        Args:
+            outcomes: Case id → ``True`` served, ``False`` refused, ``None`` skipped, for every
+                case tried so far.
+
+        Returns:
+            One case; or none when nothing served, nothing above the largest served rung was
+            refused, or the gap is already within one step.
+        """
+        tried = {
+            int(case_id.removeprefix("fit-")): served
+            for case_id, served in outcomes.items()
+            if served is not None and case_id.removeprefix("fit-").isdigit()
+        }
+        served = [rung for rung, ok in tried.items() if ok]
+        if not served:
+            return ()
+        low = max(served)
+        refused = [rung for rung, ok in tried.items() if not ok and rung > low]
+        if not refused:
+            return ()
+        high = min(refused)
+        middle = low + (high - low) // 2 // REFINE_STEP_TOKENS * REFINE_STEP_TOKENS
+        if high - low <= REFINE_STEP_TOKENS or middle <= low:
+            return ()
+        return (self._case(middle, len(outcomes)),)
+
+    def _case(self, rung: int, ordinal: int) -> BenchmarkCase:
+        record = self.library.get(memory_kv.PROMPT_ID)
+        rendered = record.render(
+            {
+                "passage": memory_kv._filler(max(rung - PROMPT_HEADROOM_TOKENS, 1)),  # noqa: SLF001
+                "instruction": "Reply with the single word: ok.",
+            }
+        )
+        return BenchmarkCase(
+            case_id=f"fit-{rung}",
+            ordinal=ordinal,
+            prompt=rendered.user,
+            system_prompt=rendered.system,
+            prompt_id=rendered.prompt_id,
+            prompt_version=rendered.version,
+            expectation={},
+            metadata={
+                "suite": SUITE_KEY,
+                "test": self.key,
+                memory_kv.CONTEXT_TOKENS_DETAIL_KEY: rung,
+                SERVE_CONTEXT_KEY: rung,
+            },
+        )
 
 
 @dataclass(frozen=True, slots=True)

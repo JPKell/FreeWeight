@@ -149,7 +149,13 @@ class BenchmarkCase:
 
 @runtime_checkable
 class BenchmarkTest(Protocol):
-    """A named group of cases sharing one scorer and one set of metrics."""
+    """A named group of cases sharing one scorer and one set of metrics.
+
+    A test may also define ``next_cases(outcomes)``, which the run engine calls after the listed
+    cases with every case tried so far (``True`` served, ``False`` refused, ``None`` skipped) and
+    again after each round, running what it returns until it returns nothing (ADR-0151). Optional,
+    and read with ``getattr``, so a test without it runs exactly its listed cases.
+    """
 
     @property
     def key(self) -> str:

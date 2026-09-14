@@ -679,6 +679,10 @@ class RunTestRepository:
             values["error_text"] = error_text
         session.execute(update(RunTest).where(RunTest.id == run_test_id).values(**values))
 
+    def set_total_cases(self, session: Session, run_test_id: str, *, total: int) -> None:
+        """Record how many cases this test has, once a test that chooses follow-ups adds some."""
+        session.execute(update(RunTest).where(RunTest.id == run_test_id).values(total_cases=total))
+
     def set_completed_cases(self, session: Session, run_test_id: str, *, completed: int) -> None:
         """Record how many of this test's cases have finished every repetition."""
         session.execute(
