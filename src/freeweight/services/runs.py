@@ -79,6 +79,7 @@ from weightsdb import DatabaseUnavailable
 from freeweight.__about__ import __version__
 from freeweight.benchmarks.agent import benchmark as agent_benchmark
 from freeweight.benchmarks.audit import benchmark as audit_benchmark
+from freeweight.benchmarks.context_fit import benchmark as context_fit_benchmark
 from freeweight.benchmarks.critique import benchmark as critique_benchmark
 from freeweight.benchmarks.echo import benchmark as echo_benchmark
 from freeweight.benchmarks.energy import benchmark as energy_benchmark
@@ -175,6 +176,8 @@ if TYPE_CHECKING:
     from freeweight.infrastructure.adapters import AdapterEntry
 
 __all__ = [
+    "ContextFitRequired",
+    "measured_context_fit",
     "RUN_PROVENANCE_METRICS",
     "SKIP_UNSUPPORTED_CAPABILITY",
     "ExecutionConfig",
@@ -230,6 +233,19 @@ class PromptOverrideRefused(ConflictError):
     """
 
     code: ClassVar[str] = "PROMPT_OVERRIDE_REFUSED"
+
+
+class ContextFitRequired(ConflictError):
+    """A model would be benchmarked before its context fit was measured (ADR-0148 §5).
+
+    Its own stable code because the remedy is one specific run — ``native.context_fit`` on the
+    same model — and a caller that saw a generic conflict could not name it.
+
+    Attributes:
+        code: ``"CONTEXT_FIT_REQUIRED"``.
+    """
+
+    code: ClassVar[str] = "CONTEXT_FIT_REQUIRED"
 
 
 class RepeatRefused(ConflictError):
@@ -670,6 +686,7 @@ def build_registry(
             judge_benchmark.build(pack),
             long_context_benchmark.build(pack, max_context_tokens=long_context_max_tokens),
             memory_kv_benchmark.build(pack, max_fit_context_tokens=max_fit_context_tokens),
+            context_fit_benchmark.build(pack, max_fit_context_tokens=max_fit_context_tokens),
             energy_benchmark.build(pack),
             reliability_benchmark.build(pack),
             *(build_goal_benchmark(goal, rule_timeout_ms=rule_timeout_ms) for goal in goals),
@@ -916,6 +933,9 @@ def create_run(
     allow_prompt_override: bool = False,
     adapter_name: str | None = None,
     adapter_entries: Sequence[AdapterEntry] = (),
+    require_context_fit: bool = False,
+    context_from_fit: bool = False,
+    context_fit_margin_tokens: int = context_fit_benchmark.REFINE_STEP_TOKENS,
     clock: Clock = utc_now,
 ) -> RunSummary:
     """Validate a run request, persist it as ``queued``, and return it.
@@ -959,6 +979,14 @@ def create_run(
             :func:`~freeweight.services.adapters.read_entries`. Passed in rather than read here:
             reading a directory is infrastructure, and a service that did it could not be tested
             without one.
+        require_context_fit: Refuse this run with :class:`ContextFitRequired` when the model has
+            no applicable ``native.context_fit`` measurement on this machine (ADR-0148 §5).
+            Ignored for that suite itself and for a provider that cannot set a context.
+        context_from_fit: Serve this run at the applicable fit's usable context (ADR-0152)
+            instead of ``runtime_profile.context_size`` (ADR-0148 §6). The caller passes it only
+            when nothing stated a context explicitly.
+        context_fit_margin_tokens: ``benchmarks.context_fit_margin_tokens`` — what
+            ``context_from_fit`` holds back below the measured fit (ADR-0153).
         allow_prompt_override: Whether to proceed when a prompt this suite declares has been
             replaced from the user's override directory. ``False`` refuses the run: an overridden
             prompt invalidates comparison with results produced by the shipped one, so the run has
@@ -973,6 +1001,7 @@ def create_run(
     Raises:
         PromptOverrideRefused: A prompt this suite declares is overridden and
             ``allow_prompt_override`` was not passed.
+        ContextFitRequired: ``require_context_fit`` is set and the model has no applicable fit.
         BenchmarkNotFound: ``suite_key`` names no registered suite.
         ModelNotFound: ``model_ref`` resolves to no stored model. Discovery has to have run first
             — a run records the descriptor snapshot it measured against, and there is none for a
@@ -1072,6 +1101,29 @@ def create_run(
             base_artifact_digest=model.artifact_digest,
         ):
             runtime_profile = dataclasses.replace(runtime_profile, adapters_registered=False)
+        if (require_context_fit or context_from_fit) and (
+            suite_key != context_fit_benchmark.SUITE_KEY and capabilities.context_configurable
+        ):
+            fitted = measured_context_fit(
+                session, model_id=model.id, machine_id=machine.id, profile=runtime_profile
+            )
+            if fitted is None and require_context_fit:
+                raise ContextFitRequired(
+                    f"Model {model.canonical_id!r} has no context fit measured on this machine "
+                    "under this runtime profile, and benchmarks.require_context_fit is on. Run "
+                    f"`freeweight run start --model {model.canonical_id} --suite "
+                    f"{context_fit_benchmark.SUITE_KEY}` first; every other suite then runs at "
+                    "the context it measured (ADR-0148).",
+                    details={"model": model.canonical_id, "suite": suite_key},
+                )
+            if fitted is not None and context_from_fit:
+                # ADR-0152: one step below what was measured, so a busier card still launches it.
+                runtime_profile = dataclasses.replace(
+                    runtime_profile,
+                    context_size=context_fit_benchmark.usable_context(
+                        fitted, context_fit_margin_tokens
+                    ),
+                )
         profile_row = RuntimeProfileRepository().get_or_create(
             session,
             profile_hash=runtime_profile.profile_hash,
@@ -1151,6 +1203,56 @@ def create_run(
         summary = _summarize_run(session, run)
     logger.info("run.created", extra={"run_id": summary.id, "suite": suite_key, "model": model_ref})
     return summary
+
+
+def measured_context_fit(
+    session: Session, *, model_id: str, machine_id: str, profile: RuntimeProfile
+) -> int | None:
+    """Return the context a model was measured to fit, where that measurement applies.
+
+    ADR-0148 §4: the newest completed ``native.context_fit`` run of this model on this machine
+    whose profile hashes equal to ``profile`` once ``context_size`` is cleared from both — the same
+    KV precision, flash attention, GPU layers, ``fit_to_device``, ``keep_alive`` and serving mode.
+
+    Args:
+        session: An open session.
+        model_id: The stored model.
+        machine_id: The stored machine.
+        profile: The profile the caller would run under.
+
+    Returns:
+        That run's ``max_successful_context_tokens``, or ``None`` when no run applies or the newest
+        applicable one served no rung at all.
+    """
+    from sqlalchemy import select
+
+    from freeweight.infrastructure.db.models_runs import BenchmarkSuite, MetricValue, Run
+
+    wanted = dataclasses.replace(profile, context_size=None).profile_hash
+    runs = session.execute(
+        select(Run)
+        .join(BenchmarkSuite, BenchmarkSuite.id == Run.suite_id)
+        .where(
+            BenchmarkSuite.key == context_fit_benchmark.SUITE_KEY,
+            Run.model_id == model_id,
+            Run.machine_id == machine_id,
+            Run.status == RunStatus.COMPLETED.value,
+        )
+        .order_by(Run.completed_at.desc(), Run.id.desc())
+    ).scalars()
+    for run in runs:
+        stored = _stored_runtime_profile(session, run.runtime_profile_id)
+        if dataclasses.replace(stored, context_size=None).profile_hash != wanted:
+            continue
+        value = session.execute(
+            select(MetricValue.numeric_value).where(
+                MetricValue.run_id == run.id,
+                MetricValue.run_test_id.is_(None),
+                MetricValue.metric_key == "max_successful_context_tokens",
+            )
+        ).scalar()
+        return None if value is None else int(value)
+    return None
 
 
 def _provider_capabilities(provider: Provider) -> Any:  # noqa: ANN401 — ProviderCapabilities
@@ -1920,6 +2022,10 @@ class _RunContext:
     read from the row rather than re-resolved from configuration so that a resumed run resumes
     under the profile it started with."""
 
+    advertised_max_context: int | None = None
+    """The descriptor snapshot's trained context, which a case served at its own context may not
+    exceed (ADR-0148 §2); ``None`` when the descriptor never reported one."""
+
     criterion_ids: Mapping[str, str] = field(default_factory=dict)
     model_vram_bytes: Measurement = UNSUPPORTED
     """Device memory this model occupies at this run's served context, as the *provider* reports
@@ -1983,8 +2089,19 @@ def _read_context(database: Database, run_id: str) -> _RunContext:
             multi_gpu_visible=bool(run.multi_gpu_visible),
             adapter_name=_stored_adapter_name(session, run.adapter_id),
             runtime_profile=_stored_runtime_profile(session, run.runtime_profile_id),
+            advertised_max_context=_advertised_max_context(session, run.model_descriptor_id),
             criterion_ids=criterion_ids,
         )
+
+
+def _advertised_max_context(session: Session, descriptor_id: str) -> int | None:
+    """The trained context of the descriptor snapshot a run recorded, or ``None``."""
+    from freeweight.infrastructure.db.models import ModelDescriptor
+
+    descriptor = session.get(ModelDescriptor, descriptor_id)
+    if descriptor is None or descriptor.max_context is None:
+        return None
+    return int(descriptor.max_context)
 
 
 def _calibrate(
@@ -2314,7 +2431,9 @@ def _execute_run_inner(  # noqa: PLR0913 — mirrors execute_run's collaborators
     # records its footprint against this run. The provider may evict between the last generation
     # and here, which yields UNSUPPORTED and therefore no row, which is the honest outcome.
     context = _observe_residency(provider, context)
-    _record_degradations(database, run_id, _context_divergence(context))
+    if context.suite_key != context_fit_benchmark.SUITE_KEY:
+        # ADR-0148 §3: that suite's server ends at whichever rung it reached, by design.
+        _record_degradations(database, run_id, _context_divergence(context))
 
     # --- judge ---------------------------------------------------------------------------------
     # After the telemetry recorder stopped and after residency was observed, both deliberately.
@@ -2904,6 +3023,14 @@ def _build_request(
     Returns:
         The request, naming the whole subject the run claims to be measuring.
     """
+    serve = (getattr(case, "metadata", None) or {}).get(context_fit_benchmark.SERVE_CONTEXT_KEY)
+    if isinstance(serve, int) and not isinstance(serve, bool):
+        # ADR-0148 §1: a case that declares its own served context is sent at it — the one
+        # exception to one run, one launch, and declared by the case rather than inferred.
+        runtime_profile = dataclasses.replace(
+            runtime_profile if runtime_profile is not None else RuntimeProfile(),
+            context_size=serve,
+        )
     messages = []
     if getattr(case, "system_prompt", None):
         messages.append(Message(role=Role.SYSTEM, content=case.system_prompt))
@@ -3009,13 +3136,25 @@ def _unmet_capabilities(provider: Provider, test: BenchmarkTest) -> set[str]:
     return {name for name in wanted if not getattr(capabilities, name, False)}
 
 
-def _skips_for_context(case: Any, served_context: int | None) -> str | None:  # noqa: ANN401
+def _skips_for_context(
+    case: Any,  # noqa: ANN401 — a BenchmarkCase
+    served_context: int | None,
+    advertised_max_context: int | None = None,
+) -> str | None:
     """Return a skip reason when this case needs more context than the run is served, else ``None``.
 
     Benchmark catalog §3.1's "only those the model supports", decided per case. Sending a case the
     model cannot hold and recording the refusal as a failure would report a model as unreliable
-    for being asked something it never claimed to do.
+    for being asked something it never claimed to do. A case *served* at its own context
+    (ADR-0148 §2) is skipped instead when that context is past the model's trained one.
     """
+    serve = (getattr(case, "metadata", None) or {}).get(context_fit_benchmark.SERVE_CONTEXT_KEY)
+    if isinstance(serve, int) and advertised_max_context is not None:
+        if serve > advertised_max_context:
+            return (
+                f"This case is served at {serve} tokens of context; the model was trained for "
+                f"{advertised_max_context}."
+            )
     needed = getattr(case, "required_context_tokens", None)
     if needed is None or served_context is None or needed <= served_context:
         return None
@@ -3213,9 +3352,13 @@ def _execute_test(  # noqa: PLR0913 — one test's execution needs all of its co
             # reproducible from the run record alone — a shuffle seeded from wall-clock time would
             # make "the same run, again" impossible to mean anything.
             random.Random(f"{config.seed}:{test.key}").shuffle(cases)  # noqa: S311 — order, not crypto
-        for case in cases:
+
+        def run_case(case: Any) -> None:  # noqa: ANN401 — a BenchmarkCase
+            nonlocal completed_samples, finished_cases
             _check_cancelled(database, run_id)
-            skip_reason = _skips_for_context(case, context.served_context)
+            skip_reason = _skips_for_context(
+                case, context.served_context, context.advertised_max_context
+            )
             for repetition in range(1, config.measured_repetitions + 1):
                 if (case.case_id, case.ordinal, repetition) in already:
                     completed_samples += 1
@@ -3262,6 +3405,25 @@ def _execute_test(  # noqa: PLR0913 — one test's execution needs all of its co
                 RunTestRepository().set_completed_cases(
                     session, run_test_id, completed=finished_cases
                 )
+
+        for case in cases:
+            run_case(case)
+        follow_up = getattr(test, "next_cases", None)
+        while follow_up is not None:
+            # ADR-0151: a test that chooses its next cases from the answers so far is asked after
+            # every round until it has nothing new. Outcomes are read back from the stored samples,
+            # so a resumed run asks the same questions and gets the same cases.
+            outcomes = _case_outcomes(database, run_test_id)
+            extra = [case for case in follow_up(outcomes) if case.case_id not in outcomes]
+            if not extra:
+                break
+            total_samples += len(extra) * config.measured_repetitions
+            with database.write() as session:
+                RunTestRepository().set_total_cases(
+                    session, run_test_id, total=len(outcomes) + len(extra)
+                )
+            for case in extra:
+                run_case(case)
     except _Cancelled:
         raise
     except Exception as exc:  # noqa: BLE001 — a failed test never fails its run (spec §13)
@@ -3290,6 +3452,26 @@ def _execute_test(  # noqa: PLR0913 — one test's execution needs all of its co
         data={"test": test.key, "run_test_id": run_test_id, "status": target.value},
     )
     return completed_samples
+
+
+def _case_outcomes(database: Database, run_test_id: str) -> dict[str, bool | None]:
+    """Every case one test has stored samples for, and how it went (ADR-0151).
+
+    Returns:
+        Case id → ``True`` when every sample completed, ``False`` when any did not, ``None`` when
+        the case was skipped.
+    """
+    with database.read() as session:
+        samples = _stored_samples(session, run_test_id)
+    outcomes: dict[str, bool | None] = {}
+    for sample in samples:
+        if sample.status == "skipped":
+            outcomes.setdefault(sample.case_id, None)
+            continue
+        served = sample.status == "completed"
+        held = outcomes.get(sample.case_id)
+        outcomes[sample.case_id] = served if held is None else held and served
+    return outcomes
 
 
 def _sample_event_type(status: str) -> str:
@@ -4033,7 +4215,13 @@ def _aggregate_run(  # noqa: PLR0913 — aggregation needs the run, its suite an
 
 
 _SUITES_WITH_DERIVED_METRICS: frozenset[str] = frozenset(
-    {"native.memory_kv", "native.energy", "native.reliability"}
+    {
+        "native.memory_kv",
+        "native.energy",
+        "native.reliability",
+        "native.context_fit",
+        "native.performance",
+    }
 )
 """Suites whose run-level metrics cannot be computed from a sample alone.
 
@@ -4081,6 +4269,7 @@ class _StoredSample:
     ended_at: datetime
     prompt_eval_ms: float | None
     output_tokens: int | None
+    input_tokens: int | None
     detail: Mapping[str, Any]
 
 
@@ -4115,6 +4304,7 @@ def _stored_samples(session: Session, run_test_id: str) -> list[_StoredSample]:
                 ended_at=ended,
                 prompt_eval_ms=row.backend_prompt_eval_ms,
                 output_tokens=row.output_tokens,
+                input_tokens=row.input_tokens,
                 detail=row.result_json if isinstance(row.result_json, dict) else {},
             )
         )
@@ -4267,6 +4457,33 @@ def _energy_metrics(
     )
 
 
+def _fit_attempts(samples: Sequence[_StoredSample]) -> list[tuple[int, bool]]:
+    """``(rung, served)`` per ``native.context_fit`` sample that was sent.
+
+    The rung is read from the case id, not the sample's detail: a launch the card refused stores a
+    failed sample with no scorer detail at all, and that refusal is the measurement.
+    """
+    attempts: list[tuple[int, bool]] = []
+    for sample in samples:
+        rung = sample.case_id.removeprefix("fit-")
+        if sample.status in {"completed", "failed"} and rung.isdigit():
+            attempts.append((int(rung), sample.status == "completed"))
+    return attempts
+
+
+def _prompt_rates(samples: Sequence[_StoredSample], *, case_id: str) -> list[float]:
+    """Provider prompt tokens per prompt-evaluation second, per completed sample of one case."""
+    return [
+        sample.input_tokens / (sample.prompt_eval_ms / 1000.0)
+        for sample in samples
+        if sample.case_id == case_id
+        and sample.status == "completed"
+        and sample.input_tokens
+        and sample.prompt_eval_ms
+        and sample.prompt_eval_ms > 0
+    ]
+
+
 def _reliability_metrics(
     by_test: Mapping[str, list[_StoredSample]],
 ) -> tuple[AggregatedMetric, ...]:
@@ -4335,6 +4552,19 @@ def _suite_derived_metrics(
             architecture,
             context,
             ladder_ceiling=benchmark.max_fit_ladder[-1],
+        )
+    if suite_key == context_fit_benchmark.SUITE_KEY:
+        return context_fit_benchmark.derive(
+            _fit_attempts(by_test.get(context_fit_benchmark.TEST_KEY, [])),
+            gpu_index=context.gpu_index,
+            multi_gpu_visible=context.multi_gpu_visible,
+        )
+    if suite_key == performance_benchmark.SUITE_KEY:
+        return performance_benchmark.derive(
+            _prompt_rates(
+                by_test.get(performance_benchmark.PROMPT_PROCESSING_KEY, []),
+                case_id=performance_benchmark.FIXED_PROMPT_CASE,
+            )
         )
     if suite_key == "native.energy":
         return _energy_metrics(database, run, by_test, context)

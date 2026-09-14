@@ -200,7 +200,7 @@ class TestTheShippedMapping:
 
     def test_it_parses(self) -> None:
         mapping = parse_mapping(tomllib.loads(SHIPPED.read_text(encoding="utf-8")))
-        assert mapping.version == "1.0"
+        assert mapping.version == "1.1"
         assert len(mapping.capabilities) >= 10
 
     def test_every_source_names_a_metric_a_shipped_suite_declares(

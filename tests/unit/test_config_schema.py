@@ -23,6 +23,12 @@ from freeweight.services.settings import (
 GOLDEN = Path(__file__).parent / "golden" / "config_schema.json"
 
 
+@pytest.fixture(autouse=True)
+def _no_environment(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The golden is a fresh install with no environment; conftest turns the ADR-0148 gate off."""
+    monkeypatch.delenv("FREEWEIGHT_BENCHMARKS__REQUIRE_CONTEXT_FIT", raising=False)
+
+
 def _without_environment_specific_fields(document: dict[str, object]) -> dict[str, object]:
     """Strip the two fields that vary with the machine and the release: ``version``, which
     changes on every release, and ``config_path``, which is wherever the test's isolated XDG tree

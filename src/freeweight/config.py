@@ -783,9 +783,17 @@ class BenchmarkSettings(BaseModel):
             measurements and are never averaged — a sweep that stopped earlier reports a smaller
             effective context for reasons that have nothing to do with the model.
         max_fit_context_tokens: The ceiling of ``native.memory_kv``'s maximum-context-fit ladder,
-            ``8 192 … 131 072``, fitted the same way and hashed the same way (ADR-0121 §1). The
-            test climbs "until something refuses"; on a provider that spills to host RAM instead
-            of refusing, this ceiling is what stops the climb before the machine does.
+            ``8 192 … 262 144`` (ADR-0151), fitted the same way and hashed the same way
+            (ADR-0121 §1). The test climbs "until something refuses"; on a provider that spills to
+            host RAM instead of refusing, this ceiling is what stops the climb before the machine
+            does. ``native.context_fit`` climbs the same ladder (ADR-0148).
+        require_context_fit: Refuse every benchmark of a model until ``native.context_fit`` has
+            measured it on this machine, and run each benchmark at the measured context
+            (ADR-0148 §5–6). Only a provider that can set a context is gated.
+        context_fit_margin_tokens: Tokens held back below a measured fit. Benchmarks run at, and
+            ``GET /results/context-fit`` reports as ``usable_context_tokens``, the fit less this
+            (ADR-0152, ADR-0153). One refinement step, 4 096, by default; ``0`` uses the fit as
+            measured.
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -801,15 +809,34 @@ class BenchmarkSettings(BaseModel):
         examples=[32000],
     )
     max_fit_context_tokens: int = Field(
-        default=131_072,
+        default=262_144,
         ge=8_192,
         le=2_000_000,
         description=(
-            "Ceiling of native.memory_kv's maximum-context-fit ladder (8192 doubling to 131072). "
+            "Ceiling of the maximum-context-fit ladder of native.context_fit and native.memory_kv "
+            "(8192 doubling to 262144, ADR-0151). "
             "Hashed into that suite's dataset_hashes, so two ceilings are two measurements "
             "(ADR-0121). Lower it on a provider that spills to host RAM instead of refusing."
         ),
-        examples=[131072],
+        examples=[262144],
+    )
+    require_context_fit: bool = Field(
+        default=True,
+        description=(
+            "Refuse every benchmark of a model until native.context_fit has measured how much "
+            "context it fits on this machine, then run each benchmark at that context (ADR-0148)."
+        ),
+        examples=[True],
+    )
+    context_fit_margin_tokens: int = Field(
+        default=4096,
+        ge=0,
+        le=65_536,
+        description=(
+            "Tokens of context held back below a measured fit: benchmarks run at, and the console "
+            "applies to LoadCoach, the fit less this (ADR-0153). 0 uses the fit as measured."
+        ),
+        examples=[4096],
     )
 
 
@@ -1822,10 +1849,17 @@ backup_retention = 5        # automatic pre-migration backups to keep
 # on a machine that can serve more, lower it on one that cannot. The effective ladder is hashed
 # into the suite's dataset_hashes, so two ceilings are two measurements and are never averaged.
 long_context_max_tokens = 32000
-# The ceiling of native.memory_kv's maximum-context-fit ladder (8192 doubling to 131072). The test
+# The ceiling of the maximum-context-fit ladder (8192 doubling to 262144; ADR-0151). The test
 # climbs until the provider refuses; Ollama spills to host RAM instead of refusing, so lower this
 # to what the card serves there. Hashed like long_context_max_tokens (ADR-0121).
-max_fit_context_tokens = 131072
+max_fit_context_tokens = 262144
+# Refuse every benchmark of a model until native.context_fit has measured how much context it
+# fits here, then run each benchmark at that context (ADR-0148). Only a provider that can set a
+# context is gated.
+require_context_fit = true
+# Tokens held back below a measured context fit: benchmarks run at, and the console applies to
+# LoadCoach, the fit less this. One ladder refinement step by default; 0 uses the fit exactly.
+context_fit_margin_tokens = 4096
 
 # This block is the provider profile named "default" (ADR-0144). A file that has only this block
 # -- which is every file written before profiles existed -- runs it, unchanged.

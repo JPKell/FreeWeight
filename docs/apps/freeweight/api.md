@@ -230,7 +230,7 @@ run.failed         test.skipped                          run.interrupted
 | `GET /results` | Metric-level query: filter by model, suite, metric key, machine, runtime profile, `adapter` (name or artifact digest: only runs measured under it), date |
 | `GET /results/compare` | `?subjects=a,b,c&suite=…` — aligned metrics with comparability verdicts and, where a comparison is not permitted, the reason |
 | `GET /results/export` | `?format=json|jsonl|csv&scope=run|model|suite|comparison|all&include_samples=…&include_prompts=…&include_prompt_text=…&since=…&until=…` — streams; JSON/JSONL are wrapped in a `freeweight.export` envelope (§12) |
-| `GET /results/context-fit` | How much context fit, per model, runtime profile and machine — the `native.memory_kv` fold, below |
+| `GET /results/context-fit` | How much context fit, per model, runtime profile and machine — the `native.context_fit` fold, below |
 
 The compare endpoint never averages across a boundary marked "separate"; it returns the groups and
 the field-level fingerprint diff that separates them.
@@ -280,15 +280,20 @@ since the run simply does not appear, and the reader gets no text rather than th
 
 ### `GET /results/context-fit`
 
-Additive, read-only, no parameters. The latest `native.memory_kv` reading per **(model, runtime
+Additive, read-only, no parameters. The latest `native.context_fit` reading per **(model, runtime
 profile, machine)**: `max_successful_context_tokens`, `capped_by_configuration`,
 `observed_mb_per_1k_context`, with the `run_id` and `measured_at` they came from. Added for the
-console (row WX7) and read by LoadCoach's models page through it (row WX9).
+console (row WX7) and read by LoadCoach's models page through it (row WX9). It read
+`native.memory_kv` until ADR-0148, whose suite serves each rung at its own context;
+`observed_mb_per_1k_context` is `null` there, because that suite fits no slope.
+`usable_context_tokens` is the fit less `benchmarks.context_fit_margin_tokens` (4 096 by default) —
+the context FreeWeight's benchmarks run at and the number the console applies to LoadCoach
+(ADR-0152, ADR-0153); `null` when nothing served.
 
 ```json
 {"items": [
   {"model": "ollama/qwen3:8b@sha256:…", "runtime_profile_hash": "…", "machine_fingerprint": "…",
-   "max_successful_context_tokens": 32768.0, "capped_by_configuration": true,
+   "max_successful_context_tokens": 32768.0, "usable_context_tokens": 28672, "capped_by_configuration": true,
    "observed_mb_per_1k_context": 61.4, "run_id": "…", "measured_at": "2026-09-11T09:00:00Z"}
 ]}
 ```
@@ -545,7 +550,7 @@ The codes are listed in [spec §13](spec.md); this is the status each one carrie
 | 403 | `FORBIDDEN`, `REMOTE_JUDGE_NOT_PERMITTED` |
 | 404 | `NOT_FOUND`, `MODEL_NOT_FOUND`, `RUN_NOT_FOUND`, `BENCHMARK_NOT_FOUND`, `GOAL_NOT_FOUND`, `COMPARISON_SUBJECT_NOT_FOUND` |
 | 405 | `METHOD_NOT_ALLOWED` |
-| 409 | `CONFLICT`, `RUN_NOT_CANCELLABLE`, `RUN_ALREADY_RUNNING`, `RUN_NOT_GRADEABLE`, `CALIBRATION_REQUIRED`, `CALIBRATION_INSUFFICIENT`, `JUDGE_SELF_JUDGING_REFUSED`, `PROMPT_OVERRIDE_REFUSED`, `DRAFT_REFUSED` |
+| 409 | `CONFLICT`, `RUN_NOT_CANCELLABLE`, `RUN_ALREADY_RUNNING`, `RUN_NOT_GRADEABLE`, `CALIBRATION_REQUIRED`, `CALIBRATION_INSUFFICIENT`, `JUDGE_SELF_JUDGING_REFUSED`, `PROMPT_OVERRIDE_REFUSED`, `CONTEXT_FIT_REQUIRED` (a run of a model with no applicable `native.context_fit`, ADR-0148 §5), `DRAFT_REFUSED` |
 | 413 | `PAYLOAD_TOO_LARGE` |
 | 415 | `UNSUPPORTED_MEDIA_TYPE` |
 | 421 | `MISDIRECTED_REQUEST` |

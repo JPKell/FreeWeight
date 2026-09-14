@@ -150,6 +150,8 @@ class TestThePerformanceSuiteRuns:
         }
         # 512 prompt tokens in 256 ms, and 64 output tokens in 2000 ms.
         assert values["prompt_tokens_per_second"].numeric_value == pytest.approx(2000.0)
+        # ADR-0150: the same rate, read from the prompt-4096 case alone.
+        assert values["prompt_tokens_per_second_at_4096"].numeric_value == pytest.approx(2000.0)
         assert values["decode_tokens_per_second"].numeric_value == pytest.approx(32.0)
         assert values["ttft_ms"].numeric_value > 0
 

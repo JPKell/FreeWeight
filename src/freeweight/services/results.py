@@ -39,6 +39,8 @@ from typing import TYPE_CHECKING, Any, ClassVar, Final
 from baseaicore import NotFoundError, SuiteError, ValidationError, to_rfc3339
 from weightsdb import DatabaseUnavailable
 
+from freeweight.benchmarks.context_fit.benchmark import REFINE_STEP_TOKENS, usable_context
+
 if TYPE_CHECKING:
     from sqlalchemy.orm import Session
 
@@ -1406,8 +1408,9 @@ def _available(session: Session) -> tuple[tuple[str, ...], tuple[str, ...], tupl
     return tuple(suites), tuple(models), tuple(machines)
 
 
-CONTEXT_FIT_SUITE: Final = "native.memory_kv"
-"""The suite that measures how much context fits. Nothing else records these three metrics."""
+CONTEXT_FIT_SUITE: Final = "native.context_fit"
+"""The suite that measures how much context fits (ADR-0148 §7). ``native.memory_kv`` records the
+same keys, but served at the run's own context, so its figure is a configuration, not a fit."""
 
 _CONTEXT_FIT_METRICS: Final = (
     "max_successful_context_tokens",
@@ -1439,6 +1442,9 @@ class ContextFit:
             ``False`` when the model itself refused beyond it, ``None`` when the run did not say.
         observed_mb_per_1k_context: Measured KV cost per 1 000 tokens, or ``None``.
         run_id: The run these came from.
+
+        usable_context_tokens: The fit less ``benchmarks.context_fit_margin_tokens`` — the context
+            benchmarks run at and the console applies (ADR-0152, ADR-0153) — or ``None``.
         measured_at: When that run was created.
     """
 
@@ -1450,6 +1456,7 @@ class ContextFit:
     observed_mb_per_1k_context: float | None
     run_id: str
     measured_at: datetime
+    usable_context_tokens: int | None = None
 
     def as_json(self) -> dict[str, Any]:
         """The wire form ``GET /api/v1/results/context-fit`` returns for one reading."""
@@ -1462,6 +1469,7 @@ class ContextFit:
                 if self.max_successful_context_tokens is None
                 else self.max_successful_context_tokens
             ),
+            "usable_context_tokens": self.usable_context_tokens,
             "capped_by_configuration": self.capped_by_configuration,
             "observed_mb_per_1k_context": (
                 "unsupported"
@@ -1473,10 +1481,12 @@ class ContextFit:
         }
 
 
-def context_fit(database: Database) -> tuple[ContextFit, ...]:
+def context_fit(
+    database: Database, *, margin_tokens: int = REFINE_STEP_TOKENS
+) -> tuple[ContextFit, ...]:
     """The latest context-fit reading per (model, runtime profile, machine).
 
-    One metric-level query over ``native.memory_kv``, folded. The rows arrive newest run first, so
+    One metric-level query over ``native.context_fit``, folded. The rows arrive newest run first, so
     the first run seen for a key is the latest one and every later run of the same key is
     discarded — the same "latest run wins" rule the dashboard's heatmap applies, and the reason
     this is not an average: two sweeps under different profiles are two facts, not one blurred
@@ -1484,10 +1494,11 @@ def context_fit(database: Database) -> tuple[ContextFit, ...]:
 
     Args:
         database: The application's database handle.
+        margin_tokens: ``benchmarks.context_fit_margin_tokens``, for ``usable_context_tokens``.
 
     Returns:
         One reading per key, model then profile then machine. Empty on an installation that has
-        never run ``native.memory_kv`` — which is an absence of measurement, and the caller says
+        never run ``native.context_fit`` — which is an absence of measurement, and the caller says
         so rather than showing a zero.
 
     Raises:
@@ -1519,6 +1530,11 @@ def context_fit(database: Database) -> tuple[ContextFit, ...]:
             observed_mb_per_1k_context=held.get("observed_mb_per_1k_context"),
             run_id=held["run_id"],
             measured_at=held["measured_at"],
+            usable_context_tokens=(
+                None
+                if held.get("max_successful_context_tokens") is None
+                else usable_context(int(held["max_successful_context_tokens"]), margin_tokens)
+            ),
         )
         for (model, profile, machine), held in sorted(readings.items())
     )

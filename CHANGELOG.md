@@ -7,6 +7,30 @@ packaging and release standards §3.
 
 ## [Unreleased]
 
+### Added (rows CF2, CF3, CF6)
+
+- **`native.context_fit` measures how much context a model fits on this card.** One case per rung
+  of the maximum-fit ladder, each served at its own rung, so the server is launched at that context
+  rather than at the run's; a rung past the model's trained context is skipped (ADR-0148).
+  `GET /results/context-fit` now reads it.
+- **The fit is refined between rungs, and the ladder climbs to 262 144.** After the doubling ladder
+  `native.context_fit` halves the gap between the largest rung that served and the smallest refused,
+  on multiples of 4 096 tokens, through the run engine's new optional `next_cases` hook; and
+  `benchmarks.max_fit_context_tokens` defaults to 262 144, which also changes `native.memory_kv`'s
+  default ladder (ADR-0151).
+- **A fit is used one step below what was measured.** Benchmarks run at, and
+  `GET /results/context-fit` reports as `usable_context_tokens`, the fit less 4 096 tokens, so a
+  card with less free memory than on the day it was measured still launches the model (ADR-0152).
+  The margin is `[benchmarks] context_fit_margin_tokens` (default `4096`; `0` uses the fit exactly,
+  ADR-0153).
+- **Benchmarks wait for the fit and run at it.** `[benchmarks] require_context_fit` (default `true`):
+  on a provider that can set a context, a run of any other suite is refused with
+  `CONTEXT_FIT_REQUIRED` (409; CLI exit 2) until an applicable fit exists, and a run with no explicit
+  context is served at the measured one.
+- **`native.performance` `1.1.0` derives `prompt_tokens_per_second_at_4096`**, and
+  `capability_weights.toml` `1.1` scores speed's prefill half from it, so models benchmarked at
+  different contexts compare (ADR-0150).
+
 ### Added
 
 - **`GET /dashboard` says how well each test did.** Every `tests_matrix` cell carries

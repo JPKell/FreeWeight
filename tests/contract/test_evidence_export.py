@@ -355,7 +355,7 @@ class TestAbsenceIsNeverZero:
         page = query_evidence(environment.database, EvidenceQuery())
         assert [record.capability_id for record in page.records] == ["instruction_following"]
         record = page.records[0]
-        assert record.policy_version == "1.0"
+        assert record.policy_version == "1.1"
         assert {m.metric_key for m in record.contributing_metrics} <= {
             "native.instruction_following.strict_prompt_accuracy",
             "native.instruction_following.instruction_level_accuracy",
